@@ -1,0 +1,57 @@
+# =============================================================================
+# CFDSolver Platform — .gitignore
+# =============================================================================
+
+# 1. Externe Referenz-Spickzettel & OpenFOAM-Quellen (mehrere GB, eigene .git-Repos)
+#    WICHTIG: Unser eigener Master-Index (INDEX.md) bleibt im Git versioniert!
+OpenFOAM_base/
+resources/reference_spickzettel/CAD/
+resources/reference_spickzettel/Meshing/
+resources/reference_spickzettel/CFD_Multiphysics/
+resources/reference_spickzettel/LinearSolvers_HPC/
+resources/reference_spickzettel/Optimization_AD/
+resources/reference_spickzettel/Thermo_Chemistry_Physics/
+
+# 2. Große gespeicherte Webseiten & PDF-Literatur (literature_survey_2026.md bleibt versioniert)
+resources/papers/ProgrammingLanguage/
+resources/papers/*.pdf
+
+# 3. Python Virtual Environments & Test-Caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 4. C++ / Modern Fortran / Rust Build-Artefakte
+build/
+dist/
+target/
+*.o
+*.obj
+*.mod
+*.smod
+*.so
+*.dll
+*.dylib
+*.exe
+*.lib
+*.a
+*.pdb
+
+# 5. Lokale Laufzeit- & Hardware-Kalibrierungsdaten
+hardware_profile.json
+*.vtk
+*.vtu
+*.vtp
+*.msh
+*.log
+!resources/CADTestSamples/*.log
+
+# 6. OS & Editor Dateien
+.DS_Store
+Thumbs.db
+*~
