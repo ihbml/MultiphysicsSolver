@@ -33,8 +33,9 @@ flowchart LR
 
 ## Phase 2: Eigenständiger In-Memory Graph-FVM & SPH-FVM HPC-Kern (Wochen 4–6)
 
-* [ ] **C++ Unstructured Graph-FVM Backbone (`backend/native_cpp/`):**
+* [ ] **C++ Unstructured Graph-FVM Backbone & `MeshErrorMap` (`backend/native_cpp/`):**
   * Statische *Structure of Arrays (SoA)* Graph-Repräsentation nach *DiFVM* ([`Meshing_FVM_DiFVM_2603.15920v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Meshing_FVM_DiFVM_2603.15920v1.pdf)): `owner`, `neighbour`, Flächenvektoren $\mathbf{S}_f$, orthogonale Zerlegung $\boldsymbol{\Delta}_f$, nicht-orthogonale Korrektur $\mathbf{k}_f$, Volumina $V_i$ und Zell-Designfeld $\gamma_i \in [0, 1]$.
+  * **Vorberechnete Geometrische Fehlerkompensations- & Stabilisierungs-Map (`MeshErrorMap` nach dem CMS-Prinzip):** Einmalig im Mesher erzeugte Qualitäts- & Kompensationsfelder (Skewness-Versatzvektor $\mathbf{m}_f^{\text{skew}}$, gedeckeltes $\mathbf{k}_f^{\text{comp}}$, verzweigungsfreies Upwind-Blending $\beta_f \in [0, 1]$ und zellweise Diagonal-Stabilisierung $\omega_i \in (0, 1]$ für Multiphysics/Adjoint).
   * Zweischrittige, 100 % vektorisierte **Gather-Compute-Scatter**-Operatoren für Konvektion (*Deferred Correction* SOU/QUICK), Diffusion (*Over-Relaxed Correction*), Rhie-Chow-Interpolation und 3-Layer PISO-Projektion.
 * [ ] **Adaptive SPH-FVM Hybrid-Kopplung (`backend/native_cpp/sph_fvm/`):**
   * Konsistenter Eulerian-SPH Randalgorithmus (Nullte-Ordnung-Konsistenz $\mathbf{A}_{iS}^{ESPH} = -\sum_P V_P \nabla W_{iP}$ nach *Wang et al.* [`MeshingFVM_SPH_2312.03542v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/MeshingFVM_SPH_2312.03542v1.pdf)).

@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #070b0d;
+  --panel: #0c1215;
+  --panel-2: #10181c;
+  --line: #1d2b31;
+  --ink: #e6f0f0;
+  --muted: #7d9497;
+  --lime: #b8f24a;
+  --cyan: #45e0d0;
+  --amber: #ffb545;
+  --rose: #ff6b81;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    radial-gradient(900px 480px at 82% -12%, rgba(69, 224, 208, 0.12), transparent 60%),
+    radial-gradient(700px 420px at 4% 0%, rgba(184, 242, 74, 0.08), transparent 62%);
+  background-repeat: no-repeat;
+}
+
+.mono {
+  font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(16, 24, 28, 0.92), rgba(9, 14, 17, 0.94));
+  border-radius: 14px;
+}
+
+.panel-inset {
+  border: 1px solid var(--line);
+  background: rgba(7, 11, 13, 0.72);
+  border-radius: 10px;
+}
+
+.hairline {
+  border-color: var(--line);
+}
+
+.label {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(69, 224, 208, 0.06);
+  padding: 3px 9px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a9c6c4;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.field {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #080d10;
+  color: var(--ink);
+  padding: 6px 8px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  outline: none;
+}
+
+.field:focus {
+  border-color: rgba(184, 242, 74, 0.55);
+  box-shadow: 0 0 0 1px rgba(184, 242, 74, 0.2);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: #0d1519;
+  color: var(--ink);
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn:hover {
+  border-color: rgba(69, 224, 208, 0.5);
+  background: #111d21;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #b8f24a, #6ee7a8);
+  color: #06110a;
+  border-color: transparent;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #c9ff5e, #7cf5b6);
+}
+
+.btn-ghost {
+  background: transparent;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+table.data th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+table.data td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(29, 43, 49, 0.6);
+}
+
+table.data tr:last-child td {
+  border-bottom: none;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: #1d2b31;
+  border-radius: 8px;
+}
+
+input[type="range"] {
+  accent-color: #b8f24a;
+}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f7fa">
+  <title>HybridMesh · FVM / SPH tester</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div><strong>HybridMesh</strong><span class="slash">/</span><span>FVM + SPH tester</span></div>
+    <span class="badge" id="engine-status">Checking C++ backend…</span>
+  </header>
+  <main class="layout">
+    <aside class="panel controls" aria-label="Mesher settings">
+      <div class="panel-heading"><div><h1>Configure a run</h1><p>Choose a mesh, particle core and spacing.</p></div></div>
+      <form id="mesher-form">
+        <section class="form-section">
+          <h2><span class="step">1</span> Geometry</h2>
+          <label for="source">Mesh source</label>
+          <select id="source">
+            <option value="box2">Generated 2D box · quad cells</option>
+            <option value="box3">Generated 3D box · hex cells</option>
+            <option value="example_gmsh">Example · unstructured triangles</option>
+            <option value="example_foam">Example · OpenFOAM two-cell mesh</option>
+            <option value="example_poly">Example · OpenFOAM polygonal prism</option>
+            <option value="gmsh_upload">Upload a Gmsh .msh</option>
+            <option value="foam_upload">Upload OpenFOAM polyMesh files</option>
+          </select>
+          <div id="box-fields" class="grid three" style="margin-top:12px">
+            <div><label for="nx">X cells</label><input id="nx" type="number" min="1" max="180" step="1" value="30"></div>
+            <div><label for="ny">Y cells</label><input id="ny" type="number" min="1" max="180" step="1" value="30"></div>
+            <div class="dim3"><label for="nz">Z cells</label><input id="nz" type="number" min="1" max="180" step="1" value="14"></div>
+            <div><label for="lx">X length</label><input id="lx" type="number" min="0.001" step="any" value="1"></div>
+            <div><label for="ly">Y length</label><input id="ly" type="number" min="0.001" step="any" value="1"></div>
+            <div class="dim3"><label for="lz">Z length</label><input id="lz" type="number" min="0.001" step="any" value="1"></div>
+          </div>
+          <div id="gmsh-fields" hidden>
+            <label for="gmsh-file">ASCII Gmsh MSH 2.2 file</label>
+            <input id="gmsh-file" type="file" accept=".msh,.txt">
+            <p class="hint">First-order triangles/quads or tetra/hex/prism/pyramid.</p>
+          </div>
+          <div id="foam-fields" hidden>
+            <label for="foam-files">Choose all five polyMesh files</label>
+            <input id="foam-files" type="file" multiple>
+            <p class="hint" id="foam-selected">points, faces, owner, neighbour, boundary · ASCII only.</p>
+          </div>
+          <p id="source-hint" class="hint">A unit square is generated with 30 × 30 finite-volume cells.</p>
+        </section>
+        <section class="form-section">
+          <div class="section-heading"><h2><span class="step">2</span> SPH region</h2><button class="text-button" type="button" id="center-core">Center 50%</button></div>
+          <label for="core-mode">Core shape</label>
+          <select id="core-mode">
+            <option value="box">Box · coupled interior</option>
+            <option value="ball">Disk / sphere</option>
+            <option value="all">Entire domain · test physical walls</option>
+          </select>
+          <div id="core-box" class="field-block">
+            <p class="hint">Coordinates are in the mesh's units, not percentages.</p>
+            <div class="grid three">
+              <div><label for="xmin">X min</label><input id="xmin" type="number" step="any" value="0.25"></div>
+              <div><label for="ymin">Y min</label><input id="ymin" type="number" step="any" value="0.25"></div>
+              <div class="dim3"><label for="zmin">Z min</label><input id="zmin" type="number" step="any" value="0.25"></div>
+              <div><label for="xmax">X max</label><input id="xmax" type="number" step="any" value="0.75"></div>
+              <div><label for="ymax">Y max</label><input id="ymax" type="number" step="any" value="0.75"></div>
+              <div class="dim3"><label for="zmax">Z max</label><input id="zmax" type="number" step="any" value="0.75"></div>
+            </div>
+          </div>
+          <div id="core-ball" class="field-block" hidden>
+            <div class="grid three">
+              <div><label for="cx">Center X</label><input id="cx" type="number" step="any" value="0.5"></div>
+              <div><label for="cy">Center Y</label><input id="cy" type="number" step="any" value="0.5"></div>
+              <div class="dim3"><label for="cz">Center Z</label><input id="cz" type="number" step="any" value="0.5"></div>
+              <div><label for="radius">Radius</label><input id="radius" type="number" step="any" min="0.000001" value="0.25"></div>
+            </div>
+          </div>
+          <p class="hint" id="core-hint">Common particles inside; two overlap layers outside.</p>
+        </section>
+        <section class="form-section">
+          <h2><span class="step">3</span> Resolution & output</h2>
+          <div class="grid three">
+            <div><label for="spacing">Particle spacing</label><input id="spacing" type="number" min="0.000001" step="any" value="0.0333333333"></div>
+            <div><label for="support">Support / spacing</label><input id="support" type="number" min="1.01" max="6" step="any" value="2.6"></div>
+            <div><label for="band">Mesh band</label><input id="band" type="number" min="0.1" max="10" step="any" value="2"></div>
+          </div>
+          <label class="checkbox"><input id="include-links" type="checkbox"> Export every graph and transfer link <span class="hint">(larger files)</span></label>
+          <details class="adapt-settings" id="adapt-panel">
+            <summary>Optional adaptive-core step</summary>
+            <p class="hint">Move a box core one step toward an interface-point CSV (x,y or x,y,z).</p>
+            <label for="adapt-file">Interface points</label><input id="adapt-file" type="file" accept=".csv,.txt">
+            <div class="grid two field-block">
+              <div><label for="margin">Margin</label><input id="margin" type="number" min="0" step="any" value="0.1"></div>
+              <div><label for="adapt-step">Step / dead band</label><input id="adapt-step" type="number" min="0.000001" step="any" value="0.05"></div>
+            </div>
+          </details>
+        </section>
+        <button type="submit" id="run-button" class="primary-button"><span id="run-label">Run mesher</span></button>
+        <p id="form-status" class="hint status-line" role="status" aria-live="polite">Runs locally through the C++ backend; no CFD solver is included.</p>
+        <div id="error" class="error" role="alert" hidden></div>
+      </form>
+    </aside>
+    <section class="results" aria-label="Mesher results">
+      <div class="results-header"><div><h1>Results</h1><p id="results-subtitle">Running the default example…</p></div><a id="download-all" class="download-button" hidden>Download results .zip</a></div>
+      <div class="stats" aria-label="Entity counts">
+        <div class="stat"><span>FVM cells</span><strong id="stat-cells">—</strong></div>
+        <div class="stat"><span>Faces</span><strong id="stat-faces">—</strong></div>
+        <div class="stat"><span>SPH particles</span><strong id="stat-particles">—</strong></div>
+        <div class="stat"><span>Wall closures</span><strong id="stat-boundary">—</strong></div>
+        <div class="stat"><span>SPH links</span><strong id="stat-links">—</strong></div>
+      </div>
+      <div class="visual-header"><div><h2>Geometry preview</h2><span id="view-info" class="hint">2D geometry · colors indicate mesh/particle roles</span></div><div class="view-options"><label class="checkbox small"><input id="show-mesh" type="checkbox" checked> Mesh</label><label class="checkbox small"><input id="show-particles" type="checkbox" checked> Particles</label><label class="checkbox small"><input id="show-wall" type="checkbox" checked> Wall</label></div></div>
+      <div id="slice-controls" class="slice-controls" hidden>
+        <label for="plane">3D slice</label><select id="plane"><option value="xy">XY · along Z</option><option value="xz">XZ · along Y</option><option value="yz">YZ · along X</option></select>
+        <input id="slice" type="range" min="0" max="100" value="50" aria-label="Slice position">
+        <span id="slice-label">Z = 0.5</span>
+      </div>
+      <div class="canvas-box"><canvas id="preview-canvas" aria-label="2D mesh map or 3D slice of the FVM mesh and SPH particles"></canvas><div id="hover-tip" class="hover-tip" hidden></div><div id="empty-visual" class="empty-visual">Waiting for the backend…</div></div>
+      <div class="legend"><span><i class="swatch mesh-common"></i> Common mesh</span><span><i class="swatch mesh-interpolation"></i> Interpolation mesh</span><span><i class="swatch mesh-sleeping"></i> Sleeping mesh</span><span><i class="dot particle-common"></i> Common SPH</span><span><i class="dot particle-transition"></i> Transition SPH</span><span><i class="dot particle-interpolation"></i> Interpolation SPH</span><span><i class="dot wall"></i> Physical wall</span></div>
+      <div class="lower-panels">
+        <section class="info-box"><h2>Coupling diagnostics</h2><dl id="diagnostics"><div><dt>Common / transition / interpolation particles</dt><dd>—</dd></div><div><dt>Common / interpolation / sleeping cells</dt><dd>—</dd></div><div><dt>Transfer fallbacks and singular moments</dt><dd>—</dd></div></dl></section>
+        <section class="info-box"><h2>Files</h2><p class="hint">The preview is sampled. Downloads include the complete output.</p><div id="file-list" class="file-list">Run the backend to generate CSV and VTK files.</div></section>
+      </div>
+      <details class="log-box"><summary>Backend CLI log</summary><pre id="backend-log">No run yet.</pre></details>
+      <p class="footer-note">Meshing & coupling geometry only. No fluid time stepping, shock solver, or GPU autodifferentiation.</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,7 @@
+/build/
+/cmake-build-*/
+/examples/output/
+/run*/
+/adapted/
+*.o
+*.a

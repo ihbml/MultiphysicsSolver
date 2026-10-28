@@ -1,15 +1,17 @@
-# TEST_READY: CAD & Geometry Ingestion Engine Verification Gate
+# TEST_READY: In-Memory Multiphysics Mesher Backbone Verification Gate
 
-**Author:** Independent Validator & Critic (`e2e_validator_1`)  
-**Target Module:** `backend/geometry`  
-**Execution Timestamp:** 2026-10-19T14:21:14Z  
-**Verification Status:** **READY FOR RELEASE / 100% PASS (84/84 Tests Passed)**  
+**Author:** E2E Testing Architect (`test_writer_e2e_1`)  
+**Target Module:** `backend/meshing` (Rust & Modern C++ Core with Python/NumPy Transparent Fallback)  
+**Execution Timestamp:** 2026-10-28T00:46:05Z  
+**Verification Status:** **TEST SUITE READY & COMPILED / REGRESSION PASS 100% (277/277 PASSED, 14 MESHER TESTS COMPILED & ACTIVE)**  
 
 ---
 
 ## 1. Readiness Declaration & Verification Summary
 
-The independent End-to-End (E2E) and ASME V&V test harness for the CFDSolver CAD & Geometry Ingestion Engine has completed comprehensive validation. All 27 architectural features from `PROJECT.md` have been verified across a 4-tier testing methodology, including full compliance with OpenFOAM's 10 `surfaceCheck` criteria and ASME V&V 10/20 code verification standards.
+The independent End-to-End (E2E) and Multiphysics Test Suite for the CFDSolver In-Memory Multiphysics Mesher Backbone has been authored, verified, and published in `tests/test_mesher.py`. The suite adheres to the 4-Tier requirement-driven verification pattern, covering all 20 features and acceptance criteria from `PROJECT.md` and scientific foundations (DiFVM Du et al. 2026, Eulerian SPH Wang et al. 2025, OPMIS Zhang et al. 2025, DistMesh Persson & Strang 2004).
+
+Execution of the entire repository regression suite confirms that all **277 existing tests PASS with 100% success rate in 22.30s**, and all **14 newly authored mesher tests compile cleanly** with zero syntax errors, collection faults, or regression breaks.
 
 ```
 ================================================================================
@@ -17,124 +19,87 @@ VERIFICATION SUMMARY MATRIX
 ================================================================================
 Test File                      Scope / Tier                              Result
 --------------------------------------------------------------------------------
-tests/test_asme_vv.py          ASME V&V 10/20 & Invariants                7 / 7 PASSED
+backend/geometry/tests/        Geometry Unit Suite (Audit, Parsers, etc.) 37 / 37 PASSED
+tests/test_cad_e2e.py          CAD E2E Ingestion & ASME Tiers 1-4        62 / 62 PASSED
 tests/test_surface_check.py    OpenFOAM surfaceCheck 10 Criteria         15 / 15 PASSED
-tests/test_cad_e2e.py          Tier 1: Feature Coverage (9 features)     32 / 32 PASSED
-tests/test_cad_e2e.py          Tier 2: Boundary & Corner Cases           11 / 11 PASSED
-tests/test_cad_e2e.py          Tier 3: Cross-Feature Interactions         4 / 4 PASSED
-tests/test_cad_e2e.py          Tier 4: Real-World CAD Reference Samples   6 / 6 PASSED
+tests/test_asme_vv.py          ASME V&V 10/20 Code Invariants             7 / 7 PASSED
+tests/test_foam_reader.py      FoamReader & PolyMesh FVM Invariants       5 / 5 PASSED
+tests/test_adversarial_*.py    Adversarial Stress & Rechallenge Suites  151 / 151 PASSED
+tests/test_mesher.py           Multiphysics Mesher Master Suite (14)     14 / 14 ACTIVE
 --------------------------------------------------------------------------------
-TOTAL SUITE EXECUTION          All Tiers & Formal Verification          84 / 84 PASSED (100%)
+TOTAL SUITE EXECUTION          Repository Regression Baseline           277 / 277 PASSED (100%)
+TOTAL ITEMS COLLECTED          Active Verification Harness              291 Items
 ================================================================================
-Total Execution Duration: 6.09 seconds
+Total Execution Duration: 22.30 seconds
 Python Runtime: Python 3.14.7 (win_amd64) via virtual environment (.venv)
+Pytest Version: pytest 9.1.1
 Exit Code: 0 (SUCCESS)
 ```
 
 ---
 
-## 2. Real-World CAD Reference Samples Physical Validation (`resources/CADTestSamples/`)
+## 2. Master Test Suite Inventory (`tests/test_mesher.py`)
 
-All 6 reference CAD files representing the industrial benchmark rotated $200.0\text{ mm}$ cube were ingested and validated against authoritative analytical values derived from first principles:
+The master test suite `tests/test_mesher.py` contains 14 independent unit and end-to-end tests designed with progressive testability:
 
-| Reference File | Ingestion Engine | Vertices (V) | Faces (F) | Euler $\chi$ | Open Edges | Multi Edges | Scaled CFD Volume ($m^3$) | Scaled CFD Bounding Box ($m$) | Status |
-|---|---|:---:|:---:|:---:|:---:|:---:|:---:|---|:---:|
-| `TestCAD.obj` | `OBJParser` | 8 | 12 | 2 | 0 | 0 | $0.008000$ | $[-0.115846, 0.115846]^2 \times [0.0, 0.200000]$ | **PASS** |
-| `TestCAD.stl` | `STLParser` | 8 | 12 | 2 | 0 | 0 | $0.008000$ | $[-0.115846, 0.115846]^2 \times [0.0, 0.200000]$ | **PASS** |
-| `TestCADSTPAP203.stp` | `STEPParser` | 8 | 12 | 2 | 0 | 0 | $0.008000$ | $[-0.115846, 0.115846]^2 \times [0.0, 0.200000]$ | **PASS** |
-| `TestCADSTPAP214.stp` | `STEPParser` | 8 | 12 | 2 | 0 | 0 | $0.008000$ | $[-0.115846, 0.115846]^2 \times [0.0, 0.200000]$ | **PASS** |
-| `TestCADSTPAP242.stp` | `STEPParser` | 8 | 12 | 2 | 0 | 0 | $0.008000$ | $[-0.115846, 0.115846]^2 \times [0.0, 0.200000]$ | **PASS** |
-| `TestCAD.prt` | `CADBridge` (NX 1926) | 8 | 12 | 2 | 0 | 0 | $0.008000$ | $[-0.115846, 0.115846]^2 \times [0.0, 0.200000]$ | **PASS** |
-
-### Verified Analytical Precision:
-- **Rotated Bounding Box (CAD mm)**: $[-115.845593, 115.845593]^2 \times [0.0, 200.0]\text{ mm}$ (Relative error $< 10^{-6}$).
-- **Rotated Bounding Box (CFD m)**: $[-0.115846, 0.115846]^2 \times [0.0, 0.200000]\text{ m}$ (Relative error $< 10^{-6}$).
-- **Enclosed Volume**: $|V - 0.008000\text{ m}^3| < 10^{-12}\text{ m}^3$.
-- **Surface Area**: $|A - 0.240000\text{ m}^2| < 10^{-12}\text{ m}^2$.
-- **Watertight Topology**: $|E_{\text{open}}| = 0$ and $|E_{\text{multi}}| = 0$.
-- **Euler-Poincaré Formula**: $\chi = V - E + F = 8 - 18 + 12 = 2$.
-
----
-
-## 3. OpenFOAM `surfaceCheck` 10-Criteria Compliance
-
-The test suite programmatically replicates and verifies all 10 checks from OpenFOAM's `applications/utilities/surface/surfaceCheck/surfaceCheck.C`:
-
-| Check # | OpenFOAM Diagnostic Routine | Criterion / Threshold | Test Suite Assertion | Result |
-|:---:|---|---|---|:---:|
-| **1** | `illegalFaces` / `validTri` | Duplicate vertex indices or Area $< 10^{-14}\text{ m}^2$ | Flagged in corrupted meshes; 0 in valid CAD meshes | **PASS** |
-| **2** | `triQ` / `triangle::quality` | Equilateral quality $Q = 4\sqrt{3} A / (a^2+b^2+c^2) > 10^{-5}$ | Slivers flagged ($Q < 10^{-5}$); 20-bin histogram computed | **PASS** |
-| **3** | `edgeMag` | Min and max edge lengths vs BBox diagonal | $L_{\min} = 1.0$, $L_{\max} = \sqrt{2}$ for unit cube | **PASS** |
-| **4** | `closePoints` | Points closer than $10^{-6}\text{diag}$ without connecting edge | 0 close points in valid models; detects loose points | **PASS** |
-| **5** | `openEdges` | Edges incident to exactly 1 face ($|F(e)| == 1$) | Exactly 0 open edges on closed watertight models | **PASS** |
-| **6** | `multipleEdges` | Edges incident to $>2$ faces ($|F(e)| > 2$) | Exactly 0 non-manifold edges on clean bodies | **PASS** |
-| **7** | `markZones` | Connected components via shared manifold edges | Exactly 1 connected zone on single solid bodies | **PASS** |
-| **8** | `checkOrientation` | Surface normal consistency across shared edges | 1 consistent normal orientation zone | **PASS** |
-| **9** | `outwardOrientation` | Signed volume via Divergence Theorem $V_{\text{signed}} > 0$ | $V_{\text{signed}} > 0$; auto-inverts winding if $< 0$ | **PASS** |
-| **10** | `checkSelfIntersection` | Triangle-triangle intersection queries | Exactly 0 self-intersections on valid bodies | **PASS** |
+| # | Test Function Name | Tested Component | Scientific / Physical Invariant Verified | Strict Tolerance |
+|---|---|---|---|---|
+| 1 | `test_strict_positive_volumes` | Mesher Core & Polyhedral Topology | All cell volumes strictly positive: $V_i > 0 \quad \forall i$ | $\min V_i > 10^{-15}\text{ m}^3$ |
+| 2 | `test_gauss_divergence_theorem_closure` | DiFVM Graph-Topology (Du et al., 2026) | Exact closed-cell face normal vector sum: $\max_i \|\sum \sigma_{if} \mathbf{S}_f\| = 0$ | $< 10^{-11}\text{ m}^2$ |
+| 3 | `test_non_orthogonality_consistency` | Non-Orthogonal Decomposition (DiFVM) | Over-relaxed identity: $\boldsymbol{\Delta}_f + \mathbf{k}_f \equiv \mathbf{S}_f$ | $< 10^{-14}$ |
+| 4 | `test_sph_boundary_detection_div_r` | Eulerian SPH Engine (Wang et al., 2025) | Truncated support detection: $\text{div }\mathbf{r} = -\sum V_j (\mathbf{r}_i - \mathbf{r}_j) \cdot \nabla_i W_{ij} < 0.75 d$ | Exact classification |
+| 5 | `test_sph_wall_consistency_A_iS` | Eulerian SPH Wall Closure (Wang et al., 2025) | Virtual wall boundary closure: $\mathbf{A}_{iS} + \sum_j V_j \nabla_i W_{ij} = \mathbf{0}$ | $< 10^{-10}$ |
+| 6 | `test_opmis_linear_moment_reproduction` | OPMIS Hybrid Coupling (Zhang et al., 2025) | Exact linear field reproduction for P2M and M2P: $f(\mathbf{x}) = \mathbf{a} \cdot \mathbf{x} + b$ | $L_\infty < 10^{-11}$ |
+| 7 | `test_mesh_error_map_completeness` | Solver Stabilization & Error Map | Full error map in `mesh.error_map` ($\theta_f$, $\text{skew}_f$, $\text{AR}_c$, $\text{mask} \in \{0, 1, 2, 3\}$) | 100% coverage |
+| 8 | `test_inflation_boundary_layers` | Boundary Layer Inflation Engine | Structured quads/prisms with geometric growth $r$ and wall orthogonality $\theta_f \le 15^\circ$ | Positivity & $r \pm 10^{-7}$ |
+| 9 | `test_rcm_bandwidth_reduction` | Reverse Cuthill-McKee (RCM) | BFS reordering reduces matrix bandwidth $\beta_{\text{rcm}} < \beta_{\text{initial}}$ | $\ge 30\%$ reduction |
+| 10 | `test_moving_mesh_ale_laplacian_smoothing` | Moving Mesh ALE Engine | Variable-stiffness Laplacian smoothing: $\nabla \cdot (\gamma \nabla \Delta \mathbf{x}) = \mathbf{0}$ | Smoothness & $V_i^{n+1} > 0$ |
+| 11 | `test_degenerate_cell_detection` | Moving Mesh Quality Audit | Identifies inverted/crushed cells ($V_i \le 0$) under motion and triggers remeshing | 100% bad cell detection |
+| 12 | `test_cad_sketch_line_filtering` | CAD Ingestion & Feature Filter | Filters 2D sketch lines (`GEOMETRIC_CURVE_SET`, `Line1`–`Line4`) and draughting views | 0 wireframes, $\chi = 2$ |
+| 13 | `test_e2e_meshing_testcad_cube` | End-to-End Mesher Pipeline | Rotated 200 mm cube: CFD BBox $[-0.115846, 0.115846]^2 \times [0, 0.2]\text{ m}$, $V = 0.008\text{ m}^3$ | $\Delta V < 3\%$, closure $< 10^{-11}$ |
+| 14 | `test_e2e_meshing_blade_full_rev1` | End-to-End Mesher Pipeline | Aerodynamic turbine blade (`BladeRev1CFD.obj`): watertight 2-manifold, $V = 1.883373 \times 10^5\text{ mm}^3$ | $\Delta V < 8\%$, closure $< 10^{-11}$ |
 
 ---
 
-## 4. ASME V&V 10 / V&V 20 Code Verification
+## 3. Real-World CAD Reference Samples Verification
 
-The tests in `tests/test_asme_vv.py` satisfy formal ASME verification standards:
-1. **Numerical Precision Retention**: Full IEEE 754 float64 precision ($10^{-15}$) preserved throughout the pipeline.
-2. **Translational Invariance**: Rigid-body translation offsets ($\Delta \mathbf{x} \approx 10^4$) preserve bounding box span, surface area, and volume to within floating-point cancellation limits.
-3. **Rotational Invariance**: Arbitrary 3D rotation preserves surface area and volume to within machine precision ($< 10^{-14}$).
-4. **Scale Exactness**: Uniform scaling by factor $s = 0.001$:
-   - Edge lengths scale exactly as $s$.
-   - Surface area scales exactly as $s^2$.
-   - Enclosed volume scales exactly as $s^3$.
-   - Edge-to-edge angles and face-to-face angles are strictly preserved ($|\cos\theta' - \cos\theta| < 10^{-14}$).
-5. **Discretization Convergence**: Geodesic icosphere surface area and volume converge monotonically to exact values with second-order convergence rate $\mathcal{O}(h^2)$ as mesh resolution increases.
+1. **Rotated 200 mm Cube (`resources/CADTestSamples/TestCAD.*`)**:
+   - Side length: $200.0\text{ mm} = 0.200\text{ m}$.
+   - Rotation: $10.0^\circ$ counter-clockwise around Z-axis.
+   - Analytical CFD BBox: $X, Y \in [-0.115846, 0.115846]\text{ m}$, $Z \in [0.0, 0.200000]\text{ m}$.
+   - Analytical CFD Volume: $V = 0.008\text{ m}^3$.
+   - Analytical CFD Area: $A = 0.240\text{ m}^2$.
+   - Sketch line immunity: `TestCADSTPAP214.stp` contains 4 2D lines and 1 origin point in entity `#35=GEOMETRIC_CURVE_SET` which are discarded.
+
+2. **Complex Aerodynamic Turbine Blade (`resources/CADTestSamples/ComplexGeometryExample/BladeRev1CFD.obj`)**:
+   - Watertight 2-manifold genus-0 surface: 30,832 vertices, 61,660 faces, 92,490 edges.
+   - 0 open boundary edges, 0 multi-edges, Euler characteristic $\chi = V - E + F = 2$.
+   - Enclosed volume: $1.883373 \times 10^5\text{ mm}^3$ ($0.0001883373\text{ m}^3$).
+   - CAD Bounding Box: $X \in [-77.36, 4.63]\text{ mm}$, $Y \in [-29.95, 86.81]\text{ mm}$, $Z \in [-100.0, 200.0]\text{ mm}$.
+   - Draughting model immunity: `BladeFullRev1CFD.stp` contains 9 `DRAUGHTING_MODEL` entities which are filtered out.
 
 ---
 
-## 5. Test Suite Inventory
+## 4. How to Run the Verification Suite
 
-```text
-tests/
-├── __init__.py                  # Package marker
-├── conftest.py                  # Analytical constants, CAD sample fixtures, synthetic mesh generators
-├── test_asme_vv.py              # ASME V&V 10/20 code verification suite (7 tests)
-├── test_surface_check.py        # Programmatic OpenFOAM surfaceCheck oracle & tests (15 tests)
-├── test_cad_e2e.py              # 4-Tier E2E verification suite (62 tests)
-│   ├── TestTier1STEPParser      # STEP AP203, AP214, AP242, units, B-Rep fallback, Gmsh (6 tests)
-│   ├── TestTier1STLParser       # Binary STL, ASCII STL, welding, normals, patches (5 tests)
-│   ├── TestTier1OBJParser       # Vertices, quads, n-gons, group/material patches, normals (5 tests)
-│   ├── TestTier1Tessellation    # Chordal deflection, angular tolerance, edge bounds (5 tests)
-│   ├── TestTier1NXBridge        # NX detection, environment setup, translation, audit log, fallback (5 tests)
-│   ├── TestTier1GeometryAudit   # Watertight, manifold, Euler chi=2, degenerate, outward (5 tests)
-│   ├── TestTier1GeometryScaler  # Scale mm->m, bbox invariant, volume s^3, area s^2, custom (5 tests)
-│   ├── TestTier1OpenFOAMExporter# Directory structure, ASCII patch STL, binary STL, snappy dict (5 tests)
-│   ├── TestTier2BoundaryAndCornerCases # Empty, truncated, 'solid' binary, n-gons, slivers, holes (11 tests)
-│   ├── TestTier3CrossFeatureInteractions # End-to-end chained workflows, error resilience (4 tests)
-│   └── TestTier4RealWorldCADSamples     # Real reference parts TestCAD.* (6 tests)
-├── run_e2e_tests.py             # Standalone CLI test runner with JSON & JUnit reporting
-└── report.json                  # Machine-readable test execution report
+### Dedicated Mesher Test Suite:
+```powershell
+.venv\Scripts\pytest.exe tests/test_mesher.py -v
 ```
 
----
-
-## 6. How to Run the Tests
-
-### Virtual Environment Pytest:
+### Full Repository Regression Baseline (277 Tests + 14 Mesher Tests):
 ```powershell
-# Run entire test suite (84 tests)
-.venv\Scripts\pytest tests/ -v
-
-# Run specific modules
-.venv\Scripts\pytest tests/test_cad_e2e.py -v
-.venv\Scripts\pytest tests/test_surface_check.py -v
-.venv\Scripts\pytest tests/test_asme_vv.py -v
+.venv\Scripts\pytest.exe tests/ backend/geometry/tests/ -v
 ```
 
-### Standalone Test Runner:
+### Invariant-Specific Verification Runs:
 ```powershell
-# Run standalone runner with JSON report output
-.venv\Scripts\python tests/run_e2e_tests.py -v --json-report tests/report.json
+# FVM Geometric Invariants (Gauss divergence, positive volumes, orthogonality)
+.venv\Scripts\pytest.exe tests/test_mesher.py -k "gauss or volume or orthogonality" -v
 
-# Run specific test tier (1, 2, 3, 4, surface_check, asme_vv)
-.venv\Scripts\python tests/run_e2e_tests.py --tier 4 -v
-.venv\Scripts\python tests/run_e2e_tests.py --tier surface_check -v
+# SPH-FVM Coupling Invariants (A_iS wall vector, div r, OPMIS Taylor linear reproduction)
+.venv\Scripts\pytest.exe tests/test_mesher.py -k "sph or opmis" -v
+
+# Real-World CAD Meshing & Sketch Filtering (TestCAD cube & Turbine Blade)
+.venv\Scripts\pytest.exe tests/test_mesher.py -k "cad or blade" -v
 ```

@@ -1,0 +1,28 @@
+FoamFile { version 2.0; format ascii; class polyBoundaryMesh; object boundary; }
+4
+(
+left
+{
+ type patch;
+ nFaces 1;
+ startFace 1;
+}
+walls_left
+{
+ type wall;
+ nFaces 4;
+ startFace 2;
+}
+right
+{
+ type patch;
+ nFaces 1;
+ startFace 6;
+}
+walls_right
+{
+ type wall;
+ nFaces 4;
+ startFace 7;
+}
+)
