@@ -31,8 +31,11 @@ flowchart LR
 
 ---
 
-## Phase 2: Eigenständiger In-Memory Graph-FVM & SPH-FVM HPC-Kern (Wochen 4–6)
+## Phase 2: Eigenständiger In-Memory Graph-FVM, Next-Gen Mesher & SPH-FVM HPC-Kern (Wochen 4–6)
 
+* [ ] **Produktionsreifer In-Memory Mesher, Poly-Hexcore & `polyMesh`-Cross-Validation (`backend/meshing/`):**
+  * Vollständige Sanierung der Audit-Befunde (`K1`–`K8`, `Bug A`–`Bug F`, `H1`–`H11` gemäß [`SUGGESTIONS_BACKEND.md`](file:///G:/Datein/Projects/CFDSolver/SUGGESTIONS_BACKEND.md)): explizite `faces`-Konnektivität + `constant/polyMesh`-Exporter für `checkMesh`-Kreuzvalidierung, echte 3D-Fluidgebiets-Extraktion (`external_fluid` Farfield-Box & `internal_fluid` Floodfill), B-Rep Patch-Vererbung, Generalized Winding Numbers / Pseudonormalen-SDF (`libigl`/`fTetWild`), kollisionsfreie Medial-Axis-Grenzschichtextrusion mit Kernnetz-Stitching sowie Hilbert/Morton Space-Filling-Curve-Ordering.
+  * Ausbau zu **Mosaic-artigem Poly-Hexcore / VoroCrust** (Octree-Hexaeder-Kern + Poly-Prismen-Wand + konvexe Polyeder-Übergangsschicht / Small-Cut-Cell Merging & WSRD), **polykonvexer Neo-Hooke-ALE** und gekoppeltem **2D-`faMesh`-Submesh** für Wandfilme.
 * [ ] **C++ Unstructured Graph-FVM Backbone & `MeshErrorMap` (`backend/native_cpp/`):**
   * Statische *Structure of Arrays (SoA)* Graph-Repräsentation nach *DiFVM* ([`Meshing_FVM_DiFVM_2603.15920v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Meshing_FVM_DiFVM_2603.15920v1.pdf)): `owner`, `neighbour`, Flächenvektoren $\mathbf{S}_f$, orthogonale Zerlegung $\boldsymbol{\Delta}_f$, nicht-orthogonale Korrektur $\mathbf{k}_f$, Volumina $V_i$ und Zell-Designfeld $\gamma_i \in [0, 1]$.
   * **Vorberechnete Geometrische Fehlerkompensations- & Stabilisierungs-Map (`MeshErrorMap` nach dem CMS-Prinzip):** Einmalig im Mesher erzeugte Qualitäts- & Kompensationsfelder (Skewness-Versatzvektor $\mathbf{m}_f^{\text{skew}}$, gedeckeltes $\mathbf{k}_f^{\text{comp}}$, verzweigungsfreies Upwind-Blending $\beta_f \in [0, 1]$ und zellweise Diagonal-Stabilisierung $\omega_i \in (0, 1]$ für Multiphysics/Adjoint).

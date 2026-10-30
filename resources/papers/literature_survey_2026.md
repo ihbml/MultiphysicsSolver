@@ -169,3 +169,61 @@ Umgekehrt erlaubt die **Hydrodynamic Schrödinger Equation (Meng & Yang)** sowie
    * **VQLS / HHL Quantum Linear Solver:** Beschleunigung unseres rechenintensivsten FVM-Schritts – der dünnbesetzten Druck-Poisson-Gleichung $\mathbf{A}\mathbf{p} = \mathbf{b}$ (Graph Laplacian) – über Quanten-Phasenschätzung / Block-Encoding in $\mathcal{O}(\text{polylog}(N_c) \cdot \kappa)$.
 3. **Microsoft Majorana 1 & Topologische QPUs (Langfristig — Skalierung auf $10^5$–$10^6$ logische Qubits):**
    * Vollständige 3D **Quantum Lattice Boltzmann (QLBM)** und **Carleman-linearisierte Navier-Stokes**-Zeitschrittintegration auf fehlertoleranten topologischen Majorana-Arrays.
+
+---
+
+## 9. Next-Generation Industrial CFD Meshing: Poly-Hexcore, VoroCrust, Dirty-CAD, WSRD Cut-Cells & Differentiable ALE
+*Fokus: Produktionsreife 3D-Fluidgebietsvernetzung, exakt orthogonale Voronoi-/Poly-Hexcore-Gitter, CFL-stabile Cut-Cells, zielgerichtete adjungierte Metrik-Adaption und inversionssichere differenzierbare Gitterbewegung*
+
+### Schlüsselpublikationen (verifiziert via arXiv & Crossref):
+
+1. **Ungeclippte Voronoi-Polyeder & Octree-Hexcore-Kopplung (`VoroCrust`):**  
+   - **A. Abdelkader, C. L. Bajaj, M. S. Ebeida, A. H. Mahmoud, S. A. Mitchell, J. D. Owens, A. A. Rushdi (2020 / rev. 2023):**  
+     *„VoroCrust: Voronoi Meshing Without Clipping“*, *ACM Trans. Graph. (TOG)*, 39(3), Art. 23.  
+     arXiv: [1902.08767](https://arxiv.org/abs/1902.08767) · DOI: [10.1145/3337680](https://doi.org/10.1145/3337680)
+2. **Mosaic Poly-Hexcore & Lokale Polyeder-Adaption (`PUMA`):**  
+   - **C. Aliaga, K. Zore, J. Selvanayagam, L. Zori, B. Makarov (2026):**  
+     *„Reynolds-Averaged Navier–Stokes Mesh Adaptation Simulations for High-Lift Configuration Aircraft“*, *AIAA Journal of Aircraft*. DOI: [10.2514/1.c038661](https://doi.org/10.2514/1.c038661)  
+     *(Grundlage: K. Zore, D. Caridi, I. Lockley, 2020, „Fast and Accurate Prediction of Vehicle Aerodynamics Using ANSYS Mosaic Mesh“, SAE Technical Paper, DOI: [10.4271/2020-01-5011](https://doi.org/10.4271/2020-01-5011))*
+3. **„Dirty-CAD“-Enveloping & Generalized Winding Numbers (`fTetWild` & Point-Cloud CFD):**  
+   - **Y. Hu, T. Schneider, B. Wang, D. Zorin, D. Panozzo (2020):**  
+     *„Fast Tetrahedral Meshing in the Wild“*, *ACM TOG*, 39(4), Art. 117. arXiv: [1908.03581](https://arxiv.org/abs/1908.03581) · DOI: [10.1145/3386569.3392385](https://doi.org/10.1145/3386569.3392385)  
+   - **A. Jacobson, L. Kavan, O. Sorkine-Hornung (2013):**  
+     *„Robust inside-outside segmentation using generalized winding numbers“*, *ACM TOG*, 32(4). DOI: [10.1145/2461912.2461916](https://doi.org/10.1145/2461912.2461916)  
+   - **M. Jaiswal, M.-C. Hsu (Sept. 2026):**  
+     *„Accurate wall shear stress in immersed flow analysis with application to point cloud-based CFD“*, arXiv: [2609.24069](https://arxiv.org/abs/2609.24069)
+4. **CFL-stabile Cut-Cell-FVM ohne Small-Cell-Kollaps (`WSRD`):**  
+   - **M. Berger, A. Giuliani (2024):**  
+     *„A new provably stable weighted state redistribution algorithm“*, arXiv: [2308.16332](https://arxiv.org/abs/2308.16332) · DOI: [10.48550/arXiv.2308.16332](https://doi.org/10.48550/arXiv.2308.16332)
+5. **Anisotrope Riemannsche Metrik- & Output-basierte Adjoint-Adaption:**  
+   - **A. Balan, M. A. Park, S. L. Wood, W. K. Anderson et al. (2022):**  
+     *„A review and comparison of error estimators for anisotropic mesh adaptation for flow simulations“*, *Computers & Fluids*, 233, 105259. DOI: [10.1016/j.compfluid.2021.105259](https://doi.org/10.1016/j.compfluid.2021.105259)  
+     *(Fundament: A. Loseille & F. Alauzet, 2011, „Continuous Mesh Framework Part I“, SIAM J. Numer. Anal. 49(1), DOI: [10.1137/090754078](https://doi.org/10.1137/090754078); K. J. Fidkowski & D. L. Darmofal, 2011, „Review of Output-Based Error Estimation and Mesh Adaptation in CFD“, AIAA J. 49(4), DOI: [10.2514/1.j050073](https://doi.org/10.2514/1.j050073))*
+6. **Polykonvexe Neo-Hooke-Hyperelastizität & Winslow-ALE gegen Grenzschicht-Inversion:**  
+   - **A. Shamanskiy, B. Simeon (2021):**  
+     *„Mesh deformation techniques in fluid-structure interaction: robustness, accumulated distortion and computational efficiency“*, *Computational Mechanics*, 67, 583–600. arXiv: [2006.14051](https://arxiv.org/abs/2006.14051) · DOI: [10.1007/s00466-020-01950-x](https://doi.org/10.1007/s00466-020-01950-x)  
+   - **V. Dobrev, P. Knupp, T. Kolev et al. (2020):**  
+     *„Simulation-Driven Optimization of High-Order Meshes in ALE Hydrodynamics“*, *Computers & Fluids*, 208, 104602. arXiv: [2001.11536](https://arxiv.org/abs/2001.11536)
+7. **End-to-End Differenzierbares Meshing & Monge–Ampère $r$-Adaption (2023–2026):**  
+   - **J. Lin, H. Lipson (Okt. 2026) — `JamTet`:** *„Physics-based Sphere Packing for Lagrangian Mesh Morphing“*, arXiv: [2610.08880](https://arxiv.org/abs/2610.08880)  
+   - **M. Zhang, C. Wang, S. Kramer, M. D. Piggott et al. (2024) — `UM2N`:** *„Towards Universal Mesh Movement Networks“*, arXiv: [2407.00382](https://arxiv.org/abs/2407.00382)  
+   - **N. Maruani, R. Klokov, M. Ovsjanikov, P. Alliez, M. Desbrun (2023) — `VoroMesh`:** *„Learning Watertight Surface Meshes with Voronoi Diagrams“*, *ICCV 2023*, arXiv: [2308.14616](https://arxiv.org/abs/2308.14616)
+8. **Kollisionsfreie Grenzschicht-Extrusion via Medial Axis & Multi-Normals:**  
+   - **A. Loseille, R. Löhner (2013):** *„Robust Boundary Layer Mesh Generation“*, *Proc. 21st Int. Meshing Roundtable*, pp. 493–511. DOI: [10.1007/978-3-642-33573-0_29](https://doi.org/10.1007/978-3-642-33573-0_29)  
+   - **J. Marcon, M. Turner, J. Peiró, D. Moxey et al. (2019):** *„High-order curvilinear hybrid mesh generation for CFD simulations“*, *AIAA SciTech*, arXiv: [1901.00992](https://arxiv.org/abs/1901.00992)
+
+### Mathematische & Algorithmische Kern-Bausteine für `backend/meshing/`:
+
+* **Primal–Dual-Orthogonalität in Poly-Hexcore / VoroCrust-Gittern:**  
+  Durch Platzieren gespiegelter Saatpunktpaare $(\mathbf{s}_k^+, \mathbf{s}_k^-)$ entlang lokaler Oberflächenkugeln liegen die Voronoi-Halbierungsebenen exakt auf den CAD-Facetten *ohne* nachträgliches Abschneiden. Im Inneren bildet ein achsenparalleler Octree Hexaeder ($\theta_f = 0^\circ$), während die Polyeder-Übergangszellen automatisch $\mathbf{d}_f = \mathbf{s}_N - \mathbf{s}_O \parallel \mathbf{S}_f \implies \mathbf{k}_f \equiv \mathbf{0}$ erfüllen.
+* **Generalized Winding Number für „Dirty CAD“ Innen-/Außen-Klassifikation (Jacobson et al. & `fTetWild`):**  
+  Anstelle fragiler Ray-Casting- oder Einzelnormalen-Tests liefert das harmonische Raumwinkelfeld
+  $$w(\mathbf{x}) = \frac{1}{4\pi} \sum_{t \in \mathcal{T}} \Omega_t(\mathbf{x}), \quad \tan\!\left(\frac{\Omega_t(\mathbf{x})}{2}\right) = \frac{\det([\mathbf{a}, \mathbf{b}, \mathbf{c}])}{\|\mathbf{a}\|\|\mathbf{b}\|\|\mathbf{c}\| + (\mathbf{a}\cdot\mathbf{b})\|\mathbf{c}\| + (\mathbf{b}\cdot\mathbf{c})\|\mathbf{a}\| + (\mathbf{c}\cdot\mathbf{a})\|\mathbf{b}\|}$$
+  (mit $\mathbf{a} = \mathbf{v}_0 - \mathbf{x}$, $\mathbf{b} = \mathbf{v}_1 - \mathbf{x}$, $\mathbf{c} = \mathbf{v}_2 - \mathbf{x}$, beschleunigt per Dipol-/Multipol-Baum in $\mathcal{O}(\log N_t)$) selbst bei offenen Spalten, Selbstschnitten und Doppel-Dreiecken eine glatte Indikatorfunktion ($w \approx 1$ im Festkörper, $w \approx 0$ im Fluid).
+* **Goal-Oriented Adjoint Metric Tensor $\mathcal{M}(\mathbf{x})$ (Loseille & Alauzet / Fidkowski & Darmofal):**  
+  Aus der adjungierten Lösung $\boldsymbol{\psi}_h$ unseres Optimierungs-Solvers ergibt sich der lokale Zielgrößenfehler $\eta_i = |\boldsymbol{\psi}_{h,i}^T \mathbf{R}_i(\mathbf{u}_h)|$ und über die Hesse-Matrix $H(\mathbf{x}) = \mathcal{R} \operatorname{diag}(\lambda_1, \lambda_2, \lambda_3) \mathcal{R}^T$ die optimale anisotrope Riemannsche Metrik bei fester Ziel-Komplexität $\mathcal{C}(\mathcal{M}) = N$:
+  $$\mathcal{M}_{L^p}(\mathbf{x}) = D_{L^p} \left(\det |H(\mathbf{x})|\right)^{-\frac{1}{2p + d}} \mathcal{R}(\mathbf{x}) \operatorname{diag}\!\left(|\lambda_1|, |\lambda_2|, |\lambda_3|\right) \mathcal{R}(\mathbf{x})^T$$
+* **Polykonvexe Neo-Hooke-Hyperelastizität für inversionssicheres, differenzierbares ALE (Shamanskiy & Simeon):**  
+  Mit Deformationsgradient $\mathbf{F} = \mathbf{I} + \nabla_{\mathbf{X}} \mathbf{u}_{\text{mesh}}$ und $J = \det(\mathbf{F})$ divergiert die Energiedichte
+  $$W_{\text{NH}}(\mathbf{F}) = \frac{\mu_e}{2} \left( \operatorname{tr}(\mathbf{F}^T \mathbf{F}) - d - 2 \ln J \right) + \frac{\lambda_e}{2} (\ln J)^2, \quad \mu_e(\mathbf{X}) \propto V_0(\mathbf{X})^{-\chi}$$
+  streng monoton gegen $+\infty$ für $J \to 0^+$. Dadurch bleibt jede Grenzschichtzelle bei großen Formänderungen strikt bijektiv ($V_i > 0$) und liefert analytisch differenzierbare Gitter-Sensitivitäten $\frac{\partial \mathbf{x}_{\text{vol}}}{\partial \mathbf{x}_{\text{surf}}}$.

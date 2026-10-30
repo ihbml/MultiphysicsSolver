@@ -131,3 +131,37 @@ Diese 6 subtilen, aber schwerwiegenden Architektur- und Logikfehler wurden von d
     1. **Gerichteter 3D-Skewness-Offset-Vektor** $\mathbf{m}_f^{\text{skew}} = \mathbf{c}_f - \mathbf{x}_{\text{int}} \in \mathbb{R}^3$ für die explizite Gradienten-Korrektur $\phi_f = \phi_{\text{int}} + (\nabla\phi)_f \cdot \mathbf{m}_f^{\text{skew}}$,
     2. **Gedämpfter nicht-orthogonaler Korrekturvektor** $\mathbf{k}_f^{\text{comp}} = \min\!\left(1, \frac{\alpha_{\max} \|\boldsymbol{\delta}_f\|}{\|\mathbf{k}_f\| + \epsilon}\right) \mathbf{k}_f$,
     3. **Stetiger Upwind-Blending-Faktor** $\beta_f \in [0, 1]$ und **zellweiser Diagonal-Schutzfaktor** $\omega_i \in (0, 1]$ (branchless in den FVM-Gather-Scatter-Loops).
+
+---
+
+## 5. Strukturelle Pflicht-Erweiterungen (M2.5) & Next-Gen Mesher-Ausbau (M3+)
+> **Wissenschaftliche Referenzen:** Siehe **[`resources/papers/literature_survey_2026.md` (Abschnitt 9)](file:///G:/Datein/Projects/CFDSolver/resources/papers/literature_survey_2026.md)** und unsere lokalen C++-Referenz-Repos in **[`resources/reference_spickzettel/INDEX.md`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/INDEX.md)**.
+
+### 5.1 Strukturelle Pflicht-Bausteine für reale Industrie-Bauteile (Meilenstein M2.5)
+1. **3D-Fluid-Volumen-Extraktion (Farfield-Generator & Wetted-Surface-Floodfill):**
+   * *Außenströmung (`external_fluid`):* Konfigurierbare Windkanal-/Farfield-Box (bzw. Zylinder/Rotationssektor für Turbomaschinen) mit automatischer Benennung der Außenpatches (`inlet`, `outlet`, `top`, `bottom`, `sides` / `symmetry`) und Vernetzung von $\Omega_{\text{fluid}} = \Omega_{\text{farfield}} \setminus \Omega_{\text{solid}}$ ($\phi_{\text{solid}}(\mathbf{x}) > 0$).
+   * *Innenströmung (`internal_fluid`):* Floodfill ab einem Innen-Saatpunkt $\mathbf{x}_{\text{seed}}$ innerhalb geschlossener Gehäuse/Rohre mit Cap-Patches (`inlet`, `outlet`).
+2. **Konformes Vernähen („Stitching“) von Grenzschicht (Inflation) und Kernnetz:**
+   * Die äußeren Deckflächen („Cap Faces“) der aufgeblasenen Prismen-/Hexaeder-Grenzschicht dürfen nicht lose in der Luft hängen, sondern müssen wasserdicht über Pyramiden (Quad $\leftrightarrow$ Tet) oder allgemeine konvexe Polyeder-Klebezellen (Mosaic Poly-Hexcore) an das äußere Volumengitter angebunden werden.
+3. **CAD B-Rep Patch-Vererbung & Feature-Edge-Schutz:**
+   * Durchreichen von `SurfaceMesh.patches` (aus STEP/OBJ/STL) bis in `UnstructuredMesh.boundaries`, inklusive Schutz scharfer Geometrie-Kanten (Knickwinkel $> 30^\circ$, z. B. Schaufel-Hinterkanten) als fixierte 1D-Feature-Kanten.
+4. **Lokale Verfeinerungszonen („Bodies of Influence“ / Wake-Refinement) & Zero-Thickness Baffles:**
+   * Analytische Verfeinerungsprimitive (`BoxRefinement`, `CylinderRefinement`, `ConeWakeRefinement`), die lokal $h(\mathbf{x}) = \min(h(\mathbf{x}), h_{\text{zone}})$ setzen, sowie dünne Leitbleche (interne Doppelflächen-Baffles).
+5. **Space-Filling-Curve Partitionierung (Hilbert / Morton) + Halo-Layer:**
+   * Direkte Zell-Umnummerierung entlang einer 3D-Hilbert-/Morton-Kurve (schneller als RCM, optimal für CPU-SIMD-Caches und Voraussetzung für das Zero-Copy Load-Balancing `DynamicRedistributor` in [`ARCHITECTURE.md`](file:///G:/Datein/Projects/CFDSolver/ARCHITECTURE.md)).
+
+### 5.2 High-End „Optimization-First“ Additionen (Meilenstein M3+)
+1. **Mosaic-artiges *Poly-Hexcore* & ungeclipptes *VoroCrust*-Meshing ([Abdelkader et al. 2020/2023](https://arxiv.org/abs/1902.08767), [Aliaga et al. 2026](https://doi.org/10.2514/1.c038661)):**
+   * Kombination aus achsenparallelem **Octree-Hexaeder-Kern** ($\theta_f = 0^\circ$, null Skewness), **Poly-Prismen-Grenzschicht** ($y^+ \approx 1$) und **einer Schicht konvexer Polyeder / Voronoi-Zellen** als nahtlosem Kleber. Da unser DiFVM-Graph-Solver beliebige Polyeder nativ verarbeitet, sinkt die Zellanzahl bei höherer Genauigkeit um 30–50 %.
+2. **„Dirty-CAD“-Immunität via Generalized Winding Numbers & Envelope-Meshing ([Hu et al. `fTetWild` 2020](https://arxiv.org/abs/1908.03581), [Jacobson et al. 2013](https://doi.org/10.1145/2461912.2461916)):**
+   * Ersatz fragiler Einzelnormalen-Vorzeichen durch das harmonische Raumwinkelfeld $w(\mathbf{x}) \in [0, 1]$ (Spickzettel: [`libigl/include/igl/fast_winding_number.cpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/CAD/libigl/include/igl/fast_winding_number.cpp) & [`fTetWild`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/Meshing/fTetWild)), womit selbst nicht-wasserdichte STL/STEP-Daten mit Spalten und Selbstschnitten inversionsfrei vernetzt werden.
+3. **CFL-stabile Cut-Cells via Small-Cell Merging & *Weighted State Redistribution (WSRD)* ([Berger & Giuliani 2024](https://arxiv.org/abs/2308.16332)):**
+   * Verhindert den Zeitschritt-Kollaps ($\Delta t \to 0$) angeschnittener Kartesischer Randzellen entweder geometrisch durch Verschmelzen kleiner Cut-Cells ($V_{\text{cut}} < 0.2\,V_{\text{bg}}$) mit ihrer Nachbarzelle zu einem konvexen Polyeder oder im Solver durch konservative WSRD-Umverteilung.
+4. **Goal-Oriented Adjoint- & Riemannsche Metrik-Adaption $\mathcal{M}(\mathbf{x})$ ([Balan et al. 2022](https://doi.org/10.1016/j.compfluid.2021.105259), Spickzettel [`mmg`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/Meshing/mmg)):**
+   * Kopplung mit unserem Adjoint-Solver: Aus dem lokalen Zielgrößenfehler $\eta_i = |\boldsymbol{\psi}_i^T \mathbf{R}_i(\mathbf{u})|$ wird ein anisotroper Metriktensor $\mathcal{M}(\mathbf{x})$ berechnet, der das Netz gezielt entlang von Stoßwellen, Scherschichten und Nachläufen streckt.
+5. **Inversionssicheres, differenzierbares ALE via Polykonvexer Neo-Hooke-Hyperelastizität ([Shamanskiy & Simeon 2021](https://arxiv.org/abs/2006.14051), [`JamTet` 2026](https://arxiv.org/abs/2610.08880), [`VoroMesh` 2023](https://arxiv.org/abs/2308.14616)):**
+   * Ablösung des einfachen Laplace-Smoothings in `moving_mesh.py` durch ein Jacobi-versteiftes / polykonvexes Neo-Hooke-Gleichgewicht ($W_{\text{NH}} \to +\infty$ für $\det\mathbf{F} \to 0^+$), das Grenzschicht-Inversionen bei großen Formänderungen mathematisch ausschließt und exakte Sensitivitäten $\partial \mathbf{x}_{\text{vol}} / \partial \mathbf{x}_{\text{surf}}$ für Shape Optimization liefert.
+6. **Medial-Axis & Multi-Normal Grenzschicht-Extrusion ([Loseille & Löhner 2013](https://doi.org/10.1007/978-3-642-33573-0_29), [Marcon et al. 2019](https://arxiv.org/abs/1901.00992)):**
+   * Vorab-Berechnung des lokalen Medial-Axis-Radius aus dem Eikonal-/SDF-Feld als strikte Kollisionsschranke für gegenüberliegende Wände, kombiniert mit Multi-Normal-Fächern an scharfen Hinterkanten und sauberem Layer-Step-Down (Pyramiden/Wedges), ohne die erste $y^+$-Schicht zu stauchen.
+7. **Gekoppelter 2D-Manifold-Submesh-Extraktor (`faMesh`) für Wandfilme & Katalyse:**
+   * Automatische Extraktion des gekoppelten 2D-Finite-Area-Oberflächengitters auf gekrümmten Wand-Patches (mit 1:1 Face-Mapping ins 3D-Volumengitter) für das Eulerian-Wall-Film- (EWF) und Washcoat-Katalyse-Modul.
