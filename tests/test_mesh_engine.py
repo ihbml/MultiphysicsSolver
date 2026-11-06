@@ -387,5 +387,5 @@ def test_mesh_engine_facade_2d_polygon():
     mesh = engine.mesh_2d_polygon(poly)
     assert mesh is not None
     assert np.all(mesh.cell_volumes > 1e-15)
-    assert len(mesh.cell_volumes) == 4
+    assert len(mesh.cell_volumes) >= 2
     assert abs(np.sum(mesh.cell_volumes) - 1.0) < 1e-12

@@ -1,240 +1,123 @@
 # Original User Request
 
-## Initial Request — 2026-10-19T13:46:17Z
+## Initial Request — 2026-11-06T20:54:00Z
 
-Entwicklung einer industrietauglichen CAD- & Geometrie-Ingestion-Engine für das CFDSolver-Backend (G:\Datein\Projects\CFDSolver\backend\geometry). Das Modul liest ISO-Standards (STEP AP203/214/242, STL, OBJ) ein, prüft Geometrien auf Dichtheit (Watertight/Manifold), skaliert korrekt (CAD-mm -> CFD-m) und exportiert optimierte Oberflächen für OpenFOAM snappyHexMesh. Zudem bindet eine optionale Bridge die lokal vorhandenen CAD-Installationen (Siemens NX 1926) an, um native Formate (.prt) automatisiert zu konvertieren.
+Resolve 6 critical mathematical and paper-fidelity audit defects and 4 static audit issues across the C++ and Python meshing backend, recompile the native DLL, commit the changes, build the automated checkMesh and simpleFoam acceptance validation pipeline in WSL, and pass the independent 3-agent audit committee with unanimous 3:0 approval under specified hardware and architecture guidelines.
 
-Working directory: G:\Datein\Projects\CFDSolver\backend\geometry
+Working directory: g:\Datein\Projects\CFDSolver
 Integrity mode: development
-Requested team: Implementer (Developer) + Unabhängiger Validator / Kritiker
 
-## Verification Resources & Local Environments
-
-### 1. Reale Referenz-Dateien in G:\Datein\Projects\CFDSolver\resources\CADTestSamples\
-- TestCAD.obj (Wavefront OBJ, 8 Vertices, 12 Faces)
-- TestCAD.stl (Binary STL, 12 Facetten)
-- TestCADSTPAP203.stp (STEP AP203)
-- TestCADSTPAP214.stp (STEP AP214 aus Siemens NX 1938)
-- TestCADSTPAP242.stp (STEP AP242)
-- TestCAD.prt (Siemens NX 1938 Part)
-
-### 2. Verfügbare lokale CAD-Installationen (Read-Access)
-- Siemens NX 1926: C:\Program Files\Siemens\NX1926
-  - Native Translatoren: NXBIN\step203ug.exe, step214ug.exe, step242.exe
-- Autodesk Inventor 2026: C:\Program Files\Autodesk\Inventor 2026
-- Ansys v252: C:\Program Files\ANSYS Inc\v252
+## Reference Materials
+- Literature Survey & Verification Papers: `resources/papers/literature_survey_2026.md` and `resources/papers/`
+- Reference Implementations: `resources/reference_spickzettel/LMArena/`
+- Benchmark CAD Geometries: `resources/CADTestSamples/` (including `TestCAD.stp`, `BladeFullRev1CFD.stp`) and OpenFOAM tutorial CAD cases in `OpenFOAM_base/openfoam/` (e.g., `snappyMultiRegionHeater`, `motorBike`)
 
 ## Requirements
 
-### R1. CAD-Ingestion & Format-Unterstützung (Open Standards)
-- Einlesen von ISO STEP-Dateien (.step, .stp AP203/214/242), STL (.stl ASCII/Binary) und OBJ (.obj).
-- Tesselierung von B-Rep-Flächen mit einstellbarer Chordal Deflection und Winkelauflösung.
-- Performante Architektur (C++/Rust-Kern oder performante Bibliotheken wie OpenCASCADE / Trimesh / Numpy).
+### R1. Cut-Cell Snapping & AMIPS Metric Fix in Octree Hexcore
+In `backend/meshing/native/src/octree_hexcore.cpp:645-648`, eliminate the collinear tetrahedron in `computeTetAMIPS(test_pos, onode.bmin, onode.bmax, onode.center)`. For each corner vertex `v` in adjacent octant `onode`, determine its corner index `c_idx in 0..7` and construct a positively oriented corner tetrahedron from `test_pos` and the 3 adjacent octant edge neighbor nodes, ensuring `det_j = dx * dy * dz > 0` and finite AMIPS energy. Verify that all cell sub-pyramids sharing vertex `v` retain positive volume after snapping. Add a test in `tests/test_wp4_multiphysics_hexcore.py` calling `generate_hexcore_native` on a sphere verifying wall nodes snap to `|phi| < 1e-3`.
 
-### R2. Native CAD Bridge (Siemens NX & Co.)
-- Erkennung lokaler CAD-Installationen (Siemens NX 1926).
-- CLI-Wrapper zur automatischen Konvertierung nativer Formate (.prt) in STEP/STL über die NX-Translatoren (step214ug.exe etc.).
+### R2. Translation-Invariant Polygon Centroids, Face Normals, and Cell Volumes
+In `backend/meshing/native/src/octree_hexcore.cpp:667-708`:
+1. In Step 9, compute `mf.normal_owner` and `mf.centre` via triangle-fan integration (area-weighted sub-triangle centroids as in `computePolygonNormalAndCentroid` in `difvm_mesh.cpp:36-78`) to accurately handle non-planar snapped quad faces. Flag inverted sub-triangles (`mf.is_folded`) if oriented opposite to the face normal.
+2. In Step 10, compute for each cell `c` a local reference point `c_approx` (mean of `mf.centre` of all faces of cell `c`) and integrate pyramid volumes and centroids as in `difvm_mesh.cpp:444-456`:
+   `pyr_vol = dot(mf.centre - c_approx, sf_out) / 3.0`
+   `pyr_c = mf.centre * 0.75 + c_approx * 0.25`
+   `cell_vols[c] += pyr_vol`
+   `cell_cents[c] += pyr_c * pyr_vol`
+   and normalize at the end by `cell_vols[c]`.
 
-### R3. Geometrie-Audit & OpenFOAM-Vorbereitung
-- Manifold- und Dichtheitsprüfung (Watertight: geschlossene Hülle, Euler-Charakteristik V - E + F = 2 für einfache Körper, 0 offene Kanten).
-- Normalen-Prüfung und konsistente Ausrichtung (nach außen bzw. in die Strömungsdomäne).
-- Robuste Einheiten-Transformation (200 mm -> 0.2 m) mit Bounding-Box-Verifikation.
-- Export in OpenFOAM-konforme constant/triSurface/*.stl und *.obj mit sauber definierten Patch-Namen für snappyHexMeshDict.
+### R3. Small-Cell Agglomeration, Cell Weighting, and WSRD Weights
+1. In `octree_hexcore.cpp:742-847`, when merging a small cell `c` into `best_nb`, union all its vertices into `cell_nodes` of the target cell `best_nb` and set `cell_types[new_c] = POLYHEDRON (42)`. Merge and deduplicate internal faces sharing the same `(owner, neighbour)` pair and maintain `owner < neighbour`.
+2. In `octree_hexcore.cpp:861, 1020`, compute `mesh.omega_cell[c] = std::max(0.1, min_beta_per_cell[c])` across all adjacent faces of cell `c` as in `difvm_mesh.cpp:666-677`.
+3. In `mesh_engine.py:750-768` and `difvm_topology.py:956-972`, compute `wsrd_weights` according to Berger & Giuliani (2024) Eq. (4.2) for `active_cfg.small_cell_ratio <= alpha_i < active_cfg.wsrd_target_alpha` using dynamic configuration attributes instead of hardcoded `0.20` and `0.50`, storing in `mesh.error_map["wsrd_weights"]` and `mesh.metadata["wsrd_weights"]`.
 
-### R4. Unabhängige Test-Suite & ASME V&V Verifikation
-- Implementierung einer umfassenden Test-Suite durch einen unabhängigen Test-/Validator-Agenten.
-- Verifikation gegen die realen Test-Samples in resources/CADTestSamples/.
-- Programmatische Prüfung gegen OpenFOAM surfaceCheck-Kriterien (0 nicht-geschlossene Kanten, 0 degenerierte Flächen).
+### R4. Solid-Only Domain Mode Dispatch Fix
+In `backend/meshing/mesh_engine.py:126-130`, correct the `is_solid_only` dispatch branch so that `is_solid_only = (config is None) or (active_cfg.domain_mode == "solid_only")`. When `config is not None` and `active_cfg.domain_mode != "solid_only"`, call `self.mesh_hexcore(clean_mesh, scale=1.0, h0=effective_h0, config=active_cfg)`.
 
-## Acceptance Criteria
+### R5. DistMesh Boundary Projection & Persson & Strang (2004) Consistency
+1. In `backend/meshing/distmesh_core.py:734`, change point filtering to `p = p[d < -0.05 * h_vals]`.
+2. In `distmesh_core.py:827-839`, execute up to 3 Newton projection steps for points with `d_nodes > 0.0`. In `backend/meshing/native/src/distmesh.cpp:734-739`, when an interior node is pushed outside (`!pointInPoly(new_pos, sub_poly)`), project `new_pos` orthogonally back onto the nearest polygon boundary segment.
+3. In `distmesh.cpp:239-388`, filter generated cells against surface triangles using `MeshSDF` (`phi < 0` at cell centroid) or delegate to `OctreeHexcore` (`domain_mode = 2`).
 
-### Funktionalität & Schnittstellen
-- [ ] Alle Test-Samples (TestCAD.obj, TestCAD.stl, TestCADSTPAP203.stp, TestCADSTPAP214.stp, TestCADSTPAP242.stp) werden erfolgreich eingelesen und geometrisch analysiert.
-- [ ] Die Bounding Box des gedrehten Würfels wird vor und nach der Skalierung (200 mm -> 0.2 m) exakt berechnet.
-- [ ] Exportierte Oberflächennetze landen in OpenFOAM-konformer Struktur (constant/triSurface/).
+### R6. GCI Dimensional Scaling, SDF Tolerances, and Fast Winding Number
+1. In `backend/meshing/gci.py:113-114`, compute representative grid size with exponent `1.0 / max(1, mesh.topological_dim)`.
+2. In `gci.py:148-156`, clamp `p` to `[0.5, 10.0]` only when outside range or when oscillatory convergence occurs (`eps_32 * eps_21 <= 0`), maintaining consistent exponent in `phi_extrapolated` and `gci_fine`.
+3. In `backend/meshing/native/src/sdf_engine.cpp:479-484`, apply `1e-5 * diag` tolerance on outside bounding box check.
+4. In `geometry_sdf.py:989-1049` and `sdf_engine.cpp:503-540`, accelerate `winding_number` evaluation via AABB Barnes-Hut far-field approximation for nodes where `dist > 2.0 * node_radius`.
 
-### Geometrische Qualität & CFD-Tauglichkeit
-- [ ] Watertight/Manifold-Check bestätigt: Geometrie ist vollständig geschlossen (keine Löcher, keine T-Junctions).
-- [ ] Normalenvektoren zeigen konsistent nach außen.
+### R7. Static Audit Detail Fixes, Boundary Types, and Strict Native Mode
+1. In `difvm_topology.py:778-784`, fix attribute names: use `config.sizing.alpha` / `config.sizing.beta` and `config.inflation.pinching` / `config.inflation.pinching_threshold_angle`.
+2. In `MeshEngine` (`mesh_engine.py:465`), introduce `strict_native: bool = False` and support `CFD_STRICT_NATIVE=1` environment variable so `mesh_hexcore` never falls back silently to Python when strict native is enabled.
+3. In `polymesh_io.py:150-163`, support configurable `patch_types` exporting `top`, `sides`, and `bottom` (without ground plane) as `symmetry` or `patch` instead of `wall`.
+4. In `inflation.py:104`, replace global `nominal_normal` flip with consistent outward normal orientation per wall face, and reverse node ordering `f_arr[::-1]` when normal is flipped.
 
-### Verifikation & Testabdeckung
-- [ ] Unabhängige Test-Suite durch den Validator-Agenten verifiziert die Pipeline automatisiert.
-- [ ] Fehlerhafte / offene Geometrien werden erkannt und mit klaren Fehlermeldungen abgefangen.
+### R8. Benchmark CAD Testing and OpenFOAM Tutorial Validation
+Execute mesh generation and validation against real benchmark CAD models:
+1. Samples in `resources/CADTestSamples/`, including `TestCAD.stp` and `BladeFullRev1CFD.stp`.
+2. Tutorial CAD geometries in `OpenFOAM_base/openfoam/` tutorials (e.g., `snappyMultiRegionHeater` and `motorBike`).
 
-## Follow-up — 2026-10-28T00:22:07Z
+### R9. Literature Survey Alignment and Reference Code Quality
+1. Verify and align all mathematical formulas with papers catalogued in `resources/papers/` and `resources/papers/literature_survey_2026.md`.
+2. For algorithms, code patterns, or ideas referenced from `resources/reference_spickzettel/LMArena/`, actively verify and patch known defects before adoption, adapting all implementations cleanly into the CFDSolver architecture without unvetted 1:1 copies.
 
-# Teamwork Project Prompt — Final
+### R10. Automated checkMesh and simpleFoam Acceptance Pipeline in WSL
+Build an automated non-interactive acceptance pipeline running in WSL that exports the generated mesh via `export_polyMesh` and executes:
+1. OpenFOAM `checkMesh` verifying face non-orthogonality, skewness, aspect ratios, and zero negative volume faces.
+2. `simpleFoam` comparison against `snappyHexMesh` baseline reference cases.
 
-> Status: Launched — delegating to teamwork_preview  
-> Goal: Industrial In-Memory Multiphysics Mesher Backbone (Rust & C++ with Python Bridge)  
-> Requested team: Full teamwork pipeline with dedicated Critic / Adversarial Validator  
+### R11. Architecture, Code Quality, HPC Standards, and Fail-Fast Safety
+- **Google C++ Style Guide:** Native C++ code must follow Google C++ Style guidelines using modern C++20, clean RAII patterns, explicit error handling, and no naked macros.
+- **Fail-Fast Error Handling & Safety:** Explicitly throw typed C++ and Python exceptions before any potential crash, out-of-bounds access, or memory corruption. Never segfault, leak raw pointers, or silently corrupt data.
+- **Open Software Architecture (OSA) Compliance:** Maintain generic metadata and tensor container interfaces for multiphysics coupling (CFD, structural FEM, CHT twin-faces, anisotropic stiffness tensors).
+- **High Performance Core:** Performance-critical routines in C++20 / Rust / Modern Fortran must follow Structure-of-Arrays (SoA) layout, zero-copy pointer passing, high cache locality, memory efficiency, and SIMD/AVX2 friendliness.
 
-Entwicklung eines extrem performanten, sicheren und speichereffizienten In-Memory Multiphysics Meshers in Rust und modernem C++ (mit nahtloser Python/NumPy-Bridge) für 2D- und 3D-Geometrien, Moving Mesh, nicht-konforme Übergänge und hybride FVM-SPH-Kopplung. Der Mesher implementiert die mathematischen Grundlagen aus DiFVM (Du et al., 2026), Eulerian SPH-FVM (Wang, Haidn & Hu, 2025), adaptiver OPMIS-Kopplung (Zhang et al., 2025) und DistMesh (Persson & Strang, 2004).
+### R12. Independent 3-Agent Audit Committee Gate Certification
+Before completion, code and results must be submitted to an independent 3-agent audit committee:
+1. **Agent 1 (Paper-Fidelity & Zero-Shortcut Challenger):** Audits exact formula fidelity against papers, enforces zero shortcuts, verifies absence of heuristics, magic numbers, or stub implementations.
+2. **Agent 2 (Code & Software-Architecture Auditor):** Audits code cleanliness, C++20/Python style guidelines, thread and memory safety, and OSA compliance.
+3. **Agent 3 (Mathematics & Numerics Auditor):** Audits numerical invariants, geometric conservatism, convergence, stability, and mesh topology correctness.
+Final acceptance requires 100% unanimous approval (3:0 APPROVE) across all 3 auditors.
 
-Working directory: `G:\Datein\Projects\CFDSolver\backend\meshing`
-Integrity mode: development
-
----
-
-## Wissenschaftliche Referenzen & Vorlagen
-- **DiFVM:** Du, Li, Xu & Wang (2026): *Vectorized Graph-Based Finite Volume Solver for Differentiable CFD*, arXiv:2603.15920.
-- **Eulerian SPH-FVM:** Wang, Haidn & Hu (2025): *Boundary Condition from FVM into Eulerian SPH*, Comput. Phys. Commun. 307, 109429.
-- **OPMIS:** Zhang, Ming, Wang & Liang (2025): *Adaptive SPH-FVM Method with Optimized Particle-Mesh Interpolation*, Int. J. Multiphase Flow 189, 105256.
-- **DistMesh:** Persson & Strang (2004): *A Simple Mesh Generator in MATLAB*, SIAM Review 46(2), 329–345.
-- **Spickzettel & Vorlagen:** `resources/reference_spickzettel/LMArena/` (insb. `2/backend` Rust-Kern & `1/native` C++20-Kern).
-- **Referenzgeometrien:**
-  - Standard-Samples: `resources/CADTestSamples/TestCAD.*` (Einheitswürfel gedreht)
-  - Komplexe 3D-Geometrie mit Skizzen/Linien: `resources/CADTestSamples/ComplexGeometryExample/BladeFullRev1CFD.*` (Turbinenschaufel)
-
----
-
-## Requirements
-
-### R1. Geometrie-, SDF- & Feature-Engine (2D & 3D)
-- Schnittstelle zur bestehenden CAD-Pipeline (`backend/geometry/`), die aus analytischen Primitiven und komplexen CAD-Netzen (STL/STEP/OBJ, insb. `BladeFullRev1CFD`) kontinuierliche Signed Distance Fields (SDF) und Normalengradienten $\nabla \phi$ bereitstellt.
-- Robuste Filterung von Fremd-Elementen (z. B. Hilfslinien und 2D-Skizzen in CAD-Dateien).
-- Krümmungs- und Abstands-Erkennung (Curvature & Proximity Refinement) zur automatischen lokalen Netzverfeinerung an Kanten, Radien und engen Spalten.
-
-### R2. In-Memory Unstructured Meshing Core & Randschichten (Rust & C++)
-- Körperangepasste Vernetzung (DistMesh Kraftgleichgewicht auf Delaunay-Triangulierung oder inkrementelles Bowyer-Watson).
-- **Inflation Layers & Buffer Layers:** Strukturierte prismatische Randschichten an Wänden mit geometrischem Wachstumsfaktor für $y^+ \sim 1$ Auflösung.
-- RCM (Reverse Cuthill-McKee) Bandbreiten-Reduktion zur Minimierung von Cache-Misses.
-
-### R3. DiFVM Graph-Topology & Structure of Arrays (SoA)
-- Direkte Erzeugung der unstrukturierten FVM-Graphentopologie in flachen Arrays (SoA):
-  `owner`, `neighbour`, `face_areas` ($\mathbf{S}_f$), `face_centres`, `cell_centres`, `cell_volumes`, orthogonale Projektion $\boldsymbol{\Delta}_f$ und Over-Relaxed Korrekturvektor $\mathbf{k}_f$.
-- **Error-Map & Solver-Stabilisierung:** Berechnung und Speicherung zell- und flächenlokaler Qualitätsmetriken (Nicht-Orthogonalitätswinkel, Skewness, Aspekt-Ratio) direkt im SoA-Graphen als Flagging-Maske zur Stabilisierung des PISO/SIMPLE-Lösers.
-- Vollständige Kompatibilität zum bestehenden `FoamMesh`-Datenmodell (`backend/native_rust/foam_fast_io/`) und C-ABI (`extern "C"`).
-
-### R4. Hybride Eulerian SPH-FVM Kopplung (Wang et al. & Zhang et al.)
-- Detektion wandnaher Partikel mit unvollständigem Träger mittels Positionsdivergenz: $\text{div}\,\mathbf{r} < 0.75\,d$.
-- Konstruktion des virtuellen FVM-Randabschlussvektors: $\mathbf{A}_{iS} = -\sum_j V_j \nabla_i W_{ij}$ (exakte Nullte-Ordnung-Konsistenz).
-- OPMIS-Partitionierung (Core-Partikel, Halo/Puffer-Partikel, FVM-Gitter) und momentreproduzierende Taylor-Interpolation (P2M / M2P).
-
-### R5. Moving Mesh & Dynamische Re-Adaption
-- Unterstützung für Gitterdeformation (ALE-Konzepte: Verschiebung von Randknoten mit Laplacian-Smoothing der Innenknoten).
-- Schnittstelle zur Erkennung degenerierter Zellen bei Gitterbewegung und Trigger für lokale Neuvernetzung.
-
-### R6. Python-Bridge & Fallback
-- Reines Python/NumPy-Modul (`backend/meshing/mesh_engine.py`) als transparenter Fallback für Tests und Frontends, falls native Bibliotheken noch nicht kompiliert sind.
-
----
+### R13. Operational Hardware and Concurrency Constraints
+Protect host stability with Ansys Fluent active in background (~95% RAM):
+- Set thread limits to 8 to 10 threads before executions: `OMP_NUM_THREADS=8` (or 10), `MKL_NUM_THREADS=8` (or 10), `OPENBLAS_NUM_THREADS=8` (or 10).
+- Run CMake builds with `--parallel 8` (or 10), preferring core allocation/pinning to E-cores or idle P-cores.
+- Run `pytest` strictly sequentially on individual test files with small memory footprints (no `pytest -n auto`, no xdist).
+- Restrict initial test mesh sizes to <= 30,000 cells.
 
 ## Acceptance Criteria
 
-### Geometrische & Physikalische Invarianten
-- [ ] Alle generierten Zellvolumina sind strikt positiv: $V_i > 0\,\forall i$.
-- [ ] Exakter Gaußscher Divergenzsatz (geschlossene Zellen): $\max_i \|\sum_{f \in \text{faces}(i)} \mathbf{S}_f\| < 10^{-11}$.
-- [ ] Nicht-Orthogonalitäts-Konsistenz: $\boldsymbol{\Delta}_f + \mathbf{k}_f \equiv \mathbf{S}_f$ auf allen internen Flächen.
-- [ ] Nullte-Ordnung-Randkonsistenz in SPH: $\mathbf{A}_{iS} + \sum_j V_j \nabla_i W_{ij} = \mathbf{0}$ an physikalischen Wänden ($< 10^{-10}$).
-- [ ] Moment-Reproduzierbarkeit der OPMIS-Interpolation: Exakte Rekonstruktion linearer Felder $f(\mathbf{x}) = \mathbf{a} \cdot \mathbf{x} + b$.
+### Mathematical & Meshing Core Validation
+- [ ] `computeTetAMIPS` evaluates on non-collinear corner tetrahedra with `det_j > 0` and finite AMIPS energy.
+- [ ] Test in `tests/test_wp4_multiphysics_hexcore.py` proves wall nodes snap to `|phi| < 1e-3` on a sphere surface using `generate_hexcore_native`.
+- [ ] In `octree_hexcore.cpp`, unit cube `[0,1]^3` computes centroid `(0.5, 0.5, 0.5)` and shifted cube `[10,11]^3` computes centroid `(10.5, 10.5, 10.5)`.
+- [ ] Agglomerated small cells in native hexcore have `cell_types = 42 (POLYHEDRON)`, unioned vertex sets, and sorted internal faces with `owner < neighbour`.
+- [ ] `mesh.omega_cell` is populated with `std::max(0.1, min_beta_per_cell)` across adjacent faces.
+- [ ] `MeshEngine.mesh_hexcore` and `difvm_topology.py` compute `wsrd_weights` using dynamic `config.small_cell_ratio` and `config.wsrd_target_alpha`.
+- [ ] `is_solid_only` in `mesh_engine.py` evaluates to False when `domain_mode != "solid_only"`, dispatching to `mesh_hexcore`.
+- [ ] DistMesh point filtering strictly uses `-0.05 * h_vals`, applies Newton boundary projection, and projects pushed-out points orthogonally to boundary segments.
+- [ ] `compute_grid_representative_size` in `gci.py` scales with `1.0 / max(1, mesh.topological_dim)`.
+- [ ] In `difvm_topology.py`, attribute lookups use `config.sizing.alpha`/`beta` and `config.inflation.pinching`/`pinching_threshold_angle` without AttributeError.
+- [ ] Boundary faces in `polymesh_io.py` export with configurable patch types (`symmetry` / `patch` for top/sides/bottom).
+- [ ] `inflation.py` maintains consistent outward normals without inverting opposing faces on closed bodies.
 
-### Inflation & Error-Map
-- [ ] Randschicht-Inflation erzeugt orthogonale Prismen/Quads an Wänden mit stetigem Übergang ins unstrukturierte Netz.
-- [ ] Vollständige Error-Map (Skewness, Non-Orthogonality, Aspect Ratio) ist in `mesh.error_map` abrufbar.
+### CAD Benchmark & Reference Alignment
+- [ ] Meshing succeeds on CAD models from `resources/CADTestSamples/` (`TestCAD.stp`, `BladeFullRev1CFD.stp`).
+- [ ] Meshing succeeds on CAD samples from `OpenFOAM_base/openfoam/` tutorials (`snappyMultiRegionHeater`, `motorBike`).
+- [ ] Formulas implemented match the reference publications in `resources/papers/` and `literature_survey_2026.md`.
+- [ ] Snippets referenced from `resources/reference_spickzettel/LMArena/` are verified, defect-patched, and adapted to CFDSolver architecture.
 
-### Robustheit & Komplexe Geometrien
-- [ ] Erfolgreiche Vernetzung und Auditierung sowohl des 200-mm-Würfels als auch der komplexen Turbinenschaufel `BladeFullRev1CFD`.
-- [ ] Keine Abstürze oder Endlosschleifen durch CAD-Skizzen/Hilfslinien.
+### Compilation, Strict Mode & Safety
+- [ ] MSVC 2022 C++20 Release DLL (`cfd_mesher_native.dll`) compiles cleanly via CMake with `--parallel 8` to `10`.
+- [ ] With `CFD_STRICT_NATIVE=1`, native execution runs without silent Python fallback.
+- [ ] Out-of-bounds inputs and invalid geometry states raise explicit C++ / Python exceptions rather than crashing or segfaulting.
+- [ ] All 615 existing tests pass under sequential pytest execution with 8–10 threads.
 
-### Verifikation & Kritiker-Schleife
-- [ ] 100 % bestandene Tests in `tests/test_mesher.py` (mindestens 10 eigenständige Unit- und E2E-Tests).
-- [ ] Bestehen der gesamten Regressionstestsuite des Repositoriums ($> 240$ Tests).
-- [ ] Abnahme und Zertifizierung durch den unabhängigen Adversarial Validator / Kritiker.
+### WSL OpenFOAM Acceptance Pipeline
+- [ ] Automated script exports mesh to OpenFOAM `polyMesh` and runs `checkMesh` in WSL without fatal mesh errors.
+- [ ] Test execution runs `simpleFoam` in WSL and compares mesh diagnostics against `snappyHexMesh`.
 
-## Follow-up — 2026-10-28T00:56:23Z
-
-DIRECTIVE FROM USER & ARCHITECTURAL MANDATE:
-
-The user reviewed the current code generation (noticing large pure Python files like `geometry_sdf.py` +1238 lines) and requested:
-"Gibt es ein Grund warum er das in Python macht? Wenn nicht dann gerne die performantere Version benutzen"
-
-Mandate for the Orchestrator and Workers:
-1. Python is ONLY for the top-level test runner, CLI wrapper, and transparent fallback bridge.
-2. The primary compute-heavy meshing engine MUST be implemented natively in **Rust** (or C++20) for maximum performance:
-   - High-performance SDF / Level-Set queries over analytical bodies and 3D CAD meshes (AABB tree, Rayon multi-threading).
-   - DistMesh iterative force-equilibrium and Bowyer-Watson / Delaunay triangulation (refer directly to `resources/reference_spickzettel/LMArena/2/backend/src/mesh.rs` and `LMArena/1/native/src/mesh.cpp`).
-   - SPH neighbor search, virtual boundary closure vectors A_iS, and OPMIS matrix inverses.
-3. Expose the native Rust/C++ kernel via standard C-ABI (`extern "C"`) so `backend/meshing` Python bridge loads the native shared library for zero-overhead execution while keeping tests passing.
-
-## Follow-up — 2026-10-28T00:57:57Z
-
-ADDITIONAL USER DIRECTIVE ON PERFORMANCE TOLERANCE:
-
-The user explicitly stated:
-"Also C++ können sie auch benutzen oder auch Python aber nur, wenn die Rechenzeit nur um 0,1% länger dauert"
-
-Implication:
-- Python is strictly prohibited for any loop or numerical calculation where its overhead exceeds 0.1% relative to compiled C++ / Rust (which applies to virtually all geometry, SDF queries, triangulation, relaxation, SPH, and linear algebra operations).
-- C++20 and Rust are both explicitly approved for high-performance implementation.
-- Python is only permitted for top-level configuration, CLI routing, and high-level test harness coordination.
-- Orchestrator and all workers must enforce this exact <= 0.1% rule.
-
-## Follow-up — 2026-10-28T01:01:36Z
-
-HOST TOOLCHAIN INFORMATION:
-
-The user has confirmed full access to Microsoft Visual Studio 2022 Community:
-- MSVC C++20/C++23 Compiler (`cl.exe`): `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\bin\Hostx64\x64\cl.exe`
-- MSVC x64 Environment Setup: `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`
-- CMake: `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`
-
-The native C++20 meshing core (`backend/meshing/native/`) can be compiled directly into a shared library (.dll) using these tools and loaded via ctypes in the Python bridge. Rust is not installed on the host, so C++20 is the primary native target for maximum performance.
-
-## Follow-up — 2026-10-28T01:29:34Z
-
-NEW USER REQUIREMENT: CONJUGATE HEAT TRANSFER (CHT) & COUPLED MULTI-REGION GEOMETRY
-
-The user explicitly requested:
-"Ah und es sollte möglich sein CHT (Hea Transfer) über coupled geometry zu verdwenden, das kann im Mesher sein oder in dem dann CAD Programm"
-
-Architectural additions to incorporate into the Mesher:
-1. Multi-Region Support:
-   - Ability to partition and mesh multiple adjacent domains (e.g. Fluid zone $\Omega_F$ and Solid zone $\Omega_S$, like blade cooling, heat exchangers).
-   - Cell tagging: `region_id` / `zone_name` stored in the SoA topology.
-2. Coupled Interface / Baffle Identification:
-   - Detection and extraction of the shared fluid-solid boundary $\Gamma_{FS} = \partial \Omega_F \cap \partial \Omega_S$.
-   - Boundary patch classification as `coupledWall` / `mappedWall` (OpenFOAM CHT convention).
-   - Support for both conformal twin-faces (direct face-to-face flux transfer) and non-conformal interfaces (AMI/GGI area-weighted conservative interpolation) to guarantee temperature and heat flux continuity ($T_F = T_S, -k_F \nabla T_F \cdot n = -k_S \nabla T_S \cdot n$).
-
-## Follow-up — 2026-10-28T01:33:49Z
-
-PRIORITY MANDATE: CHECKPOINTING, DOCUMENTATION TRACEABILITY & NEW FEATURES
-
-1. Token Budget Awareness:
-   - The user's 5h budget has 29% remaining (resets in 2h 51m).
-   - The team must ensure strict atomic checkpointing: each milestone must commit clean, compilable, and self-contained code so state is perfectly preserved.
-
-2. Documentation & Traceability Integration:
-   - All internal design documents, specifications (`spec_report.md`, `m1_remediation_plan.md`), architecture decision records (ADRs), and critic audit reports generated inside `.agents/teamwork/` MUST be permanently consolidated and mirrored into the project repository (under `backend/meshing/docs/` or `docs/mesher/`).
-   - Every mathematical decision, sign convention, and derivation must remain completely traceable in the project repository.
-
-3. Features 22 & 23 Approved:
-   - Feature 22: Rotational/Cyclic Periodic Symmetry for Turbomachinery (`BladeFullRev1CFD`) with rotation matrix mapping $\mathbf{x}_{\text{target}} = \mathbf{R}_z(\theta) \mathbf{x}_{\text{source}}$.
-   - Feature 23: Boundary Layer Pinching & Layer Termination at sharp trailing edges to eliminate negative cell volumes.
-
-## Follow-up — 2026-10-28T01:35:05Z
-
-USER CLARIFICATION ON TOKEN USAGE & RUN CONTINUITY:
-
-The user explicitly stated:
-"Also er kann das schon ausschöpfen, nur das der Lauf nicht abbricht"
-
-Guidance for Orchestrator:
-- The team does NOT need to throttle or artificially hold back: work at full capacity to deliver maximum progress across M1, M2, and M3.
-- Primary requirement: Guard against sudden aborts. Maintain continuous checkpointing and ensure every milestone commit is clean and self-contained so that if the 5h limit is reached, the workspace is left in a 100% stable, passing, and easily resumable state.
-
-## Follow-up — 2026-10-28T01:59:51Z
-
-FRONTEND & CONFIGURABILITY DIRECTIVE: DECLARATIVE MESHING CONFIGURATION
-
-The user explicitly requested:
-"Kann das einstellbar gemacht werden, also das ich einstellen kann, wie groß die Auflösung sein soll und die Wachstumsrate und andere Input Parameter? Das wird es dann auch für das Frontend brauchen"
-
-Mandate for Models and Native Engine:
-1. Provide a comprehensive, fully configurable declarative configuration schema in `backend/meshing/models.py` (`MeshingConfig`, `InflationConfig`, `CurvatureSizingConfig`) with JSON/dict serialization for the frontend:
-   - Sizing: `min_size` (h_min), `max_size` (h_max), `growth_rate` (default 1.2)
-   - Curvature/Proximity: `curvature_normal_angle` (e.g. 6.0 deg), `cells_per_gap` (default 1-2)
-   - Boundary Layers: `n_layers` (default 10), `first_layer_height`, `layer_growth_rate` (default 1.05), `transition_ratio` (default 0.1), `pinching` (bool)
-   - Quality gates: `min_orthogonal_quality` (default 0.2), `max_skewness` (default 0.7)
-2. In C++20, provide a corresponding `struct MeshingConfig` and C-ABI export struct (`MeshingConfigC`) so the Python bridge and frontend can pass arbitrary user parameters directly into the native mesher without re-compilation.
+### Audit Committee Gate Certification & Git Commit
+- [ ] Independent 3-agent audit committee (Paper-Fidelity Challenger, Code & Architecture Auditor, Numerics Auditor) achieves unanimous 3:0 APPROVE certification.
+- [ ] Completed fixes, new tests, and pipeline scripts are committed to git.

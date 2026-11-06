@@ -15,26 +15,6 @@ namespace cfd {
 
 namespace {
 
-// ==============================================================================
-// 2D Vector & Predicates for Delaunay Triangulation
-// ==============================================================================
-
-struct Vec2 {
-    double x = 0.0, y = 0.0;
-    constexpr Vec2() = default;
-    constexpr Vec2(double x_, double y_) : x(x_), y(y_) {}
-    Vec2 operator+(const Vec2& o) const { return Vec2(x + o.x, y + o.y); }
-    Vec2 operator-(const Vec2& o) const { return Vec2(x - o.x, y - o.y); }
-    Vec2 operator*(double s) const { return Vec2(x * s, y * s); }
-    Vec2 operator/(double s) const { return Vec2(x / s, y / s); }
-    double norm2() const { return x * x + y * y; }
-    double norm() const { return std::sqrt(norm2()); }
-};
-
-inline double orient2d(const Vec2& a, const Vec2& b, const Vec2& c) {
-    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-}
-
 inline uint64_t ekey(int32_t a, int32_t b) {
     return (static_cast<uint64_t>(static_cast<uint32_t>(a)) << 32) | static_cast<uint32_t>(b);
 }
@@ -266,6 +246,8 @@ void DistMeshEngine::generateFromSurface(
     const MeshingConfigC* config
 ) {
     if (n_points == 0 || n_triangles == 0) return;
+    (void)surf_triangles;
+    (void)n_triangles;
 
     // 1. Compute surface bounding box
     Vec3 bmin(1e30, 1e30, 1e30), bmax(-1e30, -1e30, -1e30);
@@ -287,11 +269,6 @@ void DistMeshEngine::generateFromSurface(
     int nx = std::max(2, static_cast<int>(std::round(span.x / h0)));
     int ny = std::max(2, static_cast<int>(std::round(span.y / h0)));
     int nz = std::max(2, static_cast<int>(std::round(span.z / h0)));
-
-    // Ensure resolution bounds
-    nx = std::clamp(nx, 2, 40);
-    ny = std::clamp(ny, 2, 40);
-    nz = std::clamp(nz, 2, 40);
 
     double dx = span.x / nx;
     double dy = span.y / ny;
@@ -410,6 +387,181 @@ void DistMeshEngine::generateFromSurface(
     }
 }
 
+// ==============================================================================
+// Shoelace Formula & CCW Canonicalization
+// ==============================================================================
+
+double computeShoelaceArea(const std::vector<Vec2>& poly) {
+  size_t n = poly.size();
+  if (n < 3) return 0.0;
+  double area = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    size_t j = (i + 1) % n;
+    area += poly[i].x * poly[j].y - poly[j].x * poly[i].y;
+  }
+  return 0.5 * area;
+}
+
+bool canonicalizePolygonCCW(std::vector<Vec2>& poly, double* out_area) {
+  size_t n = poly.size();
+  if (n < 3) return false;
+  double area = computeShoelaceArea(poly);
+  if (std::abs(area) < 1e-14) {
+    if (out_area) *out_area = area;
+    return false;
+  }
+  bool was_reversed = false;
+  if (area < 0.0) {
+    std::reverse(poly.begin(), poly.end());
+    area = -area;
+    was_reversed = true;
+  }
+  if (out_area) *out_area = area;
+  return was_reversed;
+}
+
+// ==============================================================================
+// Metric-Governed Boundary Subdivision
+// ==============================================================================
+
+std::vector<Vec2> subdivideBoundaryEdges(
+    const std::vector<Vec2>& poly,
+    double h0,
+    std::vector<uint8_t>& is_corner
+) {
+  size_t n = poly.size();
+  std::vector<Vec2> resampled;
+  is_corner.clear();
+  if (n < 2) return resampled;
+
+  for (size_t i = 0; i < n; ++i) {
+    const Vec2& p0 = poly[i];
+    const Vec2& p1 = poly[(i + 1) % n];
+    Vec2 vec = p1 - p0;
+    double len = vec.norm();
+    int n_seg = 1;
+    if (h0 > 1e-14 && len > 1e-14) {
+      n_seg = std::max(1, static_cast<int>(std::round(len / h0)));
+    }
+    for (int k = 0; k < n_seg; ++k) {
+      double t = static_cast<double>(k) / static_cast<double>(n_seg);
+      resampled.push_back(p0 + vec * t);
+      is_corner.push_back(k == 0 ? 1 : 0);
+    }
+  }
+  return resampled;
+}
+
+// ==============================================================================
+// Held (2001) / Eberly Ear-Clipping Triangulation Engine
+// ==============================================================================
+
+std::vector<std::array<int32_t, 3>> earClippingTriangulate(
+    const std::vector<Vec2>& poly
+) {
+  std::vector<std::array<int32_t, 3>> triangles;
+  size_t n = poly.size();
+  if (n < 3) return triangles;
+  if (n == 3) {
+    std::array<int32_t, 3> t = {0, 1, 2};
+    if (orient2d(poly[0], poly[1], poly[2]) < 0.0) std::swap(t[1], t[2]);
+    triangles.push_back(t);
+    return triangles;
+  }
+
+  std::vector<int32_t> indices(n);
+  for (size_t i = 0; i < n; ++i) indices[i] = static_cast<int32_t>(i);
+
+  auto pointInTri = [](const Vec2& p, const Vec2& a, const Vec2& b, const Vec2& c) -> bool {
+    double d0 = orient2d(a, b, p);
+    double d1 = orient2d(b, c, p);
+    double d2 = orient2d(c, a, p);
+    const double eps = -1e-14;
+    return (d0 >= eps && d1 >= eps && d2 >= eps);
+  };
+
+  size_t max_iters = n * n;
+  size_t it_count = 0;
+
+  while (indices.size() > 3 && it_count < max_iters) {
+    ++it_count;
+    size_t m = indices.size();
+    bool ear_found = false;
+
+    for (size_t i = 0; i < m; ++i) {
+      int32_t prev_idx = indices[(i + m - 1) % m];
+      int32_t curr_idx = indices[i];
+      int32_t next_idx = indices[(i + 1) % m];
+
+      const Vec2& a = poly[prev_idx];
+      const Vec2& b = poly[curr_idx];
+      const Vec2& c = poly[next_idx];
+
+      double det = orient2d(a, b, c);
+      if (det <= 1e-15) continue;
+
+      bool is_ear = true;
+      for (size_t j = 0; j < m; ++j) {
+        int32_t k = indices[j];
+        if (k == prev_idx || k == curr_idx || k == next_idx) continue;
+        if (pointInTri(poly[k], a, b, c)) {
+          is_ear = false;
+          break;
+        }
+      }
+
+      if (is_ear) {
+        triangles.push_back({prev_idx, curr_idx, next_idx});
+        indices.erase(indices.begin() + i);
+        ear_found = true;
+        break;
+      }
+    }
+
+    if (!ear_found) {
+      int best_i = -1;
+      double best_det = -1e30;
+      for (size_t i = 0; i < indices.size(); ++i) {
+        size_t cur_m = indices.size();
+        int32_t p_i = indices[(i + cur_m - 1) % cur_m];
+        int32_t c_i = indices[i];
+        int32_t n_i = indices[(i + 1) % cur_m];
+        double det = orient2d(poly[p_i], poly[c_i], poly[n_i]);
+        if (det > best_det) {
+          best_det = det;
+          best_i = static_cast<int>(i);
+        }
+      }
+      if (best_i >= 0) {
+        size_t cur_m = indices.size();
+        int32_t p_i = indices[(best_i + cur_m - 1) % cur_m];
+        int32_t c_i = indices[best_i];
+        int32_t n_i = indices[(best_i + 1) % cur_m];
+        triangles.push_back({p_i, c_i, n_i});
+        indices.erase(indices.begin() + best_i);
+      } else {
+        break;
+      }
+    }
+  }
+
+  if (indices.size() == 3) {
+    triangles.push_back({indices[0], indices[1], indices[2]});
+  }
+
+  for (auto& t : triangles) {
+    if (orient2d(poly[t[0]], poly[t[1]], poly[t[2]]) < 0.0) {
+      std::swap(t[1], t[2]);
+    }
+  }
+
+  return triangles;
+}
+
+// ==============================================================================
+// DistMesh 2D Polygon Meshing with Boundary Subdivision & Constrained Relaxation
+// ==============================================================================
+
 void DistMeshEngine::generate2DPolygon(
     NativeMeshData& mesh,
     const double* polygon_xy,
@@ -417,190 +569,222 @@ void DistMeshEngine::generate2DPolygon(
     const DistMeshOptions& options,
     const MeshingConfigC* config
 ) {
-    if (n_vertices < 3) return;
+  if (n_vertices < 3) return;
 
-    // 1. Gather polygon boundary nodes
-    std::vector<Vec2> p_nodes(n_vertices);
-    double min_x = 1e30, max_x = -1e30, min_y = 1e30, max_y = -1e30;
-    for (int64_t i = 0; i < n_vertices; ++i) {
-        p_nodes[i] = Vec2(polygon_xy[2 * i], polygon_xy[2 * i + 1]);
-        min_x = std::min(min_x, p_nodes[i].x);
-        max_x = std::max(max_x, p_nodes[i].x);
-        min_y = std::min(min_y, p_nodes[i].y);
-        max_y = std::max(max_y, p_nodes[i].y);
+  // 1. Gather polygon boundary nodes
+  std::vector<Vec2> p_nodes(n_vertices);
+  for (int64_t i = 0; i < n_vertices; ++i) {
+    p_nodes[i] = Vec2(polygon_xy[2 * i], polygon_xy[2 * i + 1]);
+  }
+
+  // Canonicalize polygon CCW via Shoelace formula
+  double poly_area = 0.0;
+  canonicalizePolygonCCW(p_nodes, &poly_area);
+  if (std::abs(poly_area) < 1e-14) {
+    throw std::invalid_argument("Degenerate polygon with near-zero area");
+  }
+
+  double min_x = 1e30, max_x = -1e30, min_y = 1e30, max_y = -1e30;
+  for (const auto& p : p_nodes) {
+    min_x = std::min(min_x, p.x);
+    max_x = std::max(max_x, p.x);
+    min_y = std::min(min_y, p.y);
+    max_y = std::max(max_y, p.y);
+  }
+
+  double h0 = 0.0;
+  if (config && config->h0 > 0.0) h0 = config->h0;
+  else if (options.h0 > 0.0) h0 = options.h0;
+
+  // Polygon signed distance / winding test
+  auto pointInPoly = [&](const Vec2& p) -> bool {
+    bool inside = false;
+    for (size_t i = 0, j = p_nodes.size() - 1; i < p_nodes.size(); j = i++) {
+      if (((p_nodes[i].y > p.y) != (p_nodes[j].y > p.y)) &&
+          (p.x < (p_nodes[j].x - p_nodes[i].x) * (p.y - p_nodes[i].y) / (p_nodes[j].y - p_nodes[i].y + 1e-30) + p_nodes[i].x)) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+
+  auto isInsideOrBoundary = [&](const Vec2& p) -> bool {
+    if (pointInPoly(p)) return true;
+    double min_d2 = 1e30;
+    for (size_t i = 0, j = p_nodes.size() - 1; i < p_nodes.size(); j = i++) {
+      Vec2 ab = p_nodes[i] - p_nodes[j];
+      Vec2 ap = p - p_nodes[j];
+      double ab2 = ab.norm2();
+      double t = (ab2 > 1e-15) ? std::clamp((ap.x * ab.x + ap.y * ab.y) / ab2, 0.0, 1.0) : 0.0;
+      Vec2 proj = p_nodes[j] + ab * t;
+      min_d2 = std::min(min_d2, (p - proj).norm2());
+    }
+    return min_d2 < 1e-6;
+  };
+
+  // Subdivide boundary edges if h0 > 0
+  std::vector<uint8_t> is_corner;
+  std::vector<Vec2> all_pts;
+  if (h0 > 0.0) {
+    all_pts = subdivideBoundaryEdges(p_nodes, h0, is_corner);
+  } else {
+    all_pts = p_nodes;
+    is_corner.assign(p_nodes.size(), 1);
+  }
+  int64_t n_fixed = static_cast<int64_t>(all_pts.size());
+
+  // 2. Seed interior candidate nodes if domain area allows and h0 > 0
+  if (h0 > 0.0) {
+    double dy_step = h0 * std::sqrt(3.0) / 2.0;
+    int ny = static_cast<int>(std::ceil((max_y - min_y) / dy_step));
+    int nx = static_cast<int>(std::ceil((max_x - min_x) / h0));
+
+    if (nx > 1 && ny > 1 && (max_x - min_x) > 1.5 * h0) {
+      for (int j = 1; j < ny; ++j) {
+        double y = min_y + j * dy_step;
+        double x_shift = (j % 2 == 1) ? 0.5 * h0 : 0.0;
+        for (int i = 0; i <= nx; ++i) {
+          double x = min_x + i * h0 + x_shift;
+          Vec2 cand(x, y);
+          if (pointInPoly(cand)) {
+            double min_d = 1e30;
+            for (int64_t f = 0; f < n_fixed; ++f) {
+              min_d = std::min(min_d, (cand - all_pts[f]).norm());
+            }
+            if (min_d > 0.55 * h0) {
+              all_pts.push_back(cand);
+              is_corner.push_back(0);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  std::vector<std::array<int32_t, 3>> kept_triangles;
+
+  if (all_pts.size() == static_cast<size_t>(n_fixed)) {
+    // All points are on boundary (either no subdivision or no interior points added).
+    // Held (2001) / Eberly Ear-Clipping guarantees exact area coverage and zero dangling nodes.
+    kept_triangles = earClippingTriangulate(all_pts);
+  } else {
+    // 3. Iterative Bowyer-Watson Delaunay & Persson & Strang Spring Force Relaxation
+    int max_iters = (config && config->distmesh_iters > 0) ? config->distmesh_iters : options.max_iters;
+
+    for (int iter = 0; iter < max_iters; ++iter) {
+      BowyerWatsonDelaunay bw(all_pts.size() + 8);
+      bw.initSuper(min_x - h0, min_y - h0, max_x + h0, max_y + h0);
+      for (const auto& p : all_pts) {
+        bw.insert(p);
+      }
+      auto raw_tris = bw.extractTriangles();
+
+      kept_triangles.clear();
+      for (const auto& t : raw_tris) {
+        Vec2 c = (all_pts[t[0]] + all_pts[t[1]] + all_pts[t[2]]) / 3.0;
+        Vec2 m0 = (all_pts[t[0]] + all_pts[t[1]]) * 0.5;
+        Vec2 m1 = (all_pts[t[1]] + all_pts[t[2]]) * 0.5;
+        Vec2 m2 = (all_pts[t[2]] + all_pts[t[0]]) * 0.5;
+        if (pointInPoly(c) && isInsideOrBoundary(m0) && isInsideOrBoundary(m1) && isInsideOrBoundary(m2)) {
+          kept_triangles.push_back(t);
+        }
+      }
+
+      if (kept_triangles.empty()) {
+        break;
+      }
+
+      std::unordered_set<uint64_t> uedges;
+      std::vector<std::pair<int32_t, int32_t>> edge_list;
+      for (const auto& t : kept_triangles) {
+        for (int e = 0; e < 3; ++e) {
+          int32_t u = t[e], v = t[(e + 1) % 3];
+          uint64_t key = ukey(u, v);
+          if (uedges.insert(key).second) {
+            edge_list.push_back({std::min(u, v), std::max(u, v)});
+          }
+        }
+      }
+
+      double sum_l2 = 0.0, sum_h2 = 0.0;
+      std::vector<double> lengths(edge_list.size());
+      for (size_t e = 0; e < edge_list.size(); ++e) {
+        lengths[e] = (all_pts[edge_list[e].first] - all_pts[edge_list[e].second]).norm();
+        sum_l2 += lengths[e] * lengths[e];
+        sum_h2 += h0 * h0;
+      }
+
+      double s0 = options.f_scale * std::sqrt(sum_l2 / std::max(sum_h2, 1e-15));
+      double L0 = s0 * h0;
+
+      std::vector<Vec2> forces(all_pts.size(), Vec2(0, 0));
+      for (size_t e = 0; e < edge_list.size(); ++e) {
+        int32_t u = edge_list[e].first;
+        int32_t v = edge_list[e].second;
+        double le = lengths[e];
+        if (le < 1e-12) continue;
+        double f = std::max(L0 - le, 0.0);
+        Vec2 d = (all_pts[u] - all_pts[v]) / le;
+        forces[u] = forces[u] + d * f;
+        forces[v] = forces[v] - d * f;
+      }
+
+      // Lock all boundary nodes (corners and edge nodes) in place
+      // Move only interior nodes
+      for (size_t i = n_fixed; i < all_pts.size(); ++i) {
+        Vec2 new_pos = all_pts[i] + forces[i] * options.delta_t;
+        if (pointInPoly(new_pos)) {
+          all_pts[i] = new_pos;
+        }
+      }
     }
 
-    double h0 = 0.0;
-    if (config && config->h0 > 0.0) h0 = config->h0;
-    else if (options.h0 > 0.0) h0 = options.h0;
-
-    // Polygon signed distance / winding test
-    auto pointInPoly = [&](const Vec2& p) -> bool {
-        bool inside = false;
-        for (int64_t i = 0, j = n_vertices - 1; i < n_vertices; j = i++) {
-            if (((p_nodes[i].y > p.y) != (p_nodes[j].y > p.y)) &&
-                (p.x < (p_nodes[j].x - p_nodes[i].x) * (p.y - p_nodes[i].y) / (p_nodes[j].y - p_nodes[i].y + 1e-30) + p_nodes[i].x)) {
-                inside = !inside;
-            }
+    // Final Delaunay pass
+    if (kept_triangles.empty()) {
+      BowyerWatsonDelaunay bw_final(all_pts.size() + 8);
+      bw_final.initSuper(min_x - h0, min_y - h0, max_x + h0, max_y + h0);
+      for (const auto& p : all_pts) bw_final.insert(p);
+      auto raw_tris = bw_final.extractTriangles();
+      for (const auto& t : raw_tris) {
+        Vec2 c = (all_pts[t[0]] + all_pts[t[1]] + all_pts[t[2]]) / 3.0;
+        Vec2 m0 = (all_pts[t[0]] + all_pts[t[1]]) * 0.5;
+        Vec2 m1 = (all_pts[t[1]] + all_pts[t[2]]) * 0.5;
+        Vec2 m2 = (all_pts[t[2]] + all_pts[t[0]]) * 0.5;
+        if (pointInPoly(c) && isInsideOrBoundary(m0) && isInsideOrBoundary(m1) && isInsideOrBoundary(m2)) {
+          kept_triangles.push_back(t);
         }
-        return inside;
-    };
-
-    // 2. Seed interior candidate nodes if domain area allows and h0 > 0
-    std::vector<Vec2> all_pts = p_nodes;
-    int64_t n_fixed = n_vertices;
-
-    if (h0 > 0.0) {
-        double dy_step = h0 * std::sqrt(3.0) / 2.0;
-        int ny = static_cast<int>(std::ceil((max_y - min_y) / dy_step));
-        int nx = static_cast<int>(std::ceil((max_x - min_x) / h0));
-
-        if (nx > 1 && ny > 1 && (max_x - min_x) > 1.5 * h0) {
-            for (int j = 1; j < ny; ++j) {
-                double y = min_y + j * dy_step;
-                double x_shift = (j % 2 == 1) ? 0.5 * h0 : 0.0;
-                for (int i = 0; i <= nx; ++i) {
-                    double x = min_x + i * h0 + x_shift;
-                    Vec2 cand(x, y);
-                    if (pointInPoly(cand)) {
-                        // Check clearance from fixed boundary nodes
-                        double min_d = 1e30;
-                        for (int64_t f = 0; f < n_fixed; ++f) {
-                            min_d = std::min(min_d, (cand - p_nodes[f]).norm());
-                        }
-                        if (min_d > 0.55 * h0) {
-                            all_pts.push_back(cand);
-                        }
-                    }
-                }
-            }
-        }
+      }
     }
 
-    std::vector<std::array<int32_t, 3>> kept_triangles;
-
-    if (all_pts.size() == static_cast<size_t>(n_fixed)) {
-        // Centroid fan triangulation for polygon without interior nodes
-        Vec2 poly_c(0, 0);
-        for (const auto& p : p_nodes) poly_c = poly_c + p;
-        poly_c = poly_c / static_cast<double>(n_vertices);
-        int32_t c_idx = static_cast<int32_t>(all_pts.size());
-        all_pts.push_back(poly_c);
-        for (int32_t i = 0; i < n_vertices; ++i) {
-            kept_triangles.push_back({c_idx, static_cast<int32_t>(i), static_cast<int32_t>((i + 1) % n_vertices)});
-        }
-    } else {
-        // 3. Iterative Bowyer-Watson Delaunay & Persson & Strang Spring Force Relaxation
-        int max_iters = config && config->distmesh_iters > 0 ? config->distmesh_iters : options.max_iters;
-
-        for (int iter = 0; iter < max_iters; ++iter) {
-            // Run Bowyer-Watson Delaunay
-            BowyerWatsonDelaunay bw(all_pts.size() + 8);
-            bw.initSuper(min_x - h0, min_y - h0, max_x + h0, max_y + h0);
-            for (const auto& p : all_pts) {
-                bw.insert(p);
-            }
-            auto raw_tris = bw.extractTriangles();
-
-            // Retain triangles inside the polygon
-            kept_triangles.clear();
-            for (const auto& t : raw_tris) {
-                Vec2 c = (all_pts[t[0]] + all_pts[t[1]] + all_pts[t[2]]) / 3.0;
-                if (pointInPoly(c)) {
-                    kept_triangles.push_back(t);
-                }
-            }
-
-            if (kept_triangles.empty()) {
-                break;
-            }
-
-            // Extract unique Delaunay edges
-            std::unordered_set<uint64_t> uedges;
-            std::vector<std::pair<int32_t, int32_t>> edge_list;
-            for (const auto& t : kept_triangles) {
-                for (int e = 0; e < 3; ++e) {
-                    int32_t u = t[e], v = t[(e + 1) % 3];
-                    uint64_t key = ukey(u, v);
-                    if (uedges.insert(key).second) {
-                        edge_list.push_back({std::min(u, v), std::max(u, v)});
-                    }
-                }
-            }
-
-            // Compute edge lengths and scaling s_0
-            double sum_l2 = 0.0, sum_h2 = 0.0;
-            std::vector<double> lengths(edge_list.size());
-            for (size_t e = 0; e < edge_list.size(); ++e) {
-                lengths[e] = (all_pts[edge_list[e].first] - all_pts[edge_list[e].second]).norm();
-                sum_l2 += lengths[e] * lengths[e];
-                sum_h2 += h0 * h0;
-            }
-
-            double s0 = options.f_scale * std::sqrt(sum_l2 / std::max(sum_h2, 1e-15));
-            double L0 = s0 * h0;
-
-            // Accumulate repulsive spring forces F_e = max(L0 - l_e, 0)
-            std::vector<Vec2> forces(all_pts.size(), Vec2(0, 0));
-            for (size_t e = 0; e < edge_list.size(); ++e) {
-                int32_t u = edge_list[e].first;
-                int32_t v = edge_list[e].second;
-                double le = lengths[e];
-                if (le < 1e-12) continue;
-                double f = std::max(L0 - le, 0.0);
-                Vec2 d = (all_pts[u] - all_pts[v]) / le;
-                forces[u] = forces[u] + d * f;
-                forces[v] = forces[v] - d * f;
-            }
-
-            // Update interior nodes, zero force on fixed boundary nodes
-            for (size_t i = n_fixed; i < all_pts.size(); ++i) {
-                all_pts[i] = all_pts[i] + forces[i] * options.delta_t;
-            }
-        }
-
-        // 4. Final Delaunay pass
-        if (kept_triangles.empty()) {
-            BowyerWatsonDelaunay bw_final(all_pts.size() + 8);
-            bw_final.initSuper(min_x - h0, min_y - h0, max_x + h0, max_y + h0);
-            for (const auto& p : all_pts) bw_final.insert(p);
-            auto raw_tris = bw_final.extractTriangles();
-            for (const auto& t : raw_tris) {
-                Vec2 c = (all_pts[t[0]] + all_pts[t[1]] + all_pts[t[2]]) / 3.0;
-                if (pointInPoly(c)) kept_triangles.push_back(t);
-            }
-        }
-
-        // Fallback if interior is empty: centroid fan
-        if (kept_triangles.empty()) {
-            Vec2 poly_c(0, 0);
-            for (const auto& p : p_nodes) poly_c = poly_c + p;
-            poly_c = poly_c / static_cast<double>(n_vertices);
-            all_pts = p_nodes;
-            int32_t c_idx = static_cast<int32_t>(all_pts.size());
-            all_pts.push_back(poly_c);
-            for (int32_t i = 0; i < n_vertices; ++i) {
-                kept_triangles.push_back({c_idx, static_cast<int32_t>(i), static_cast<int32_t>((i + 1) % n_vertices)});
-            }
-        }
+    if (kept_triangles.empty()) {
+      all_pts.resize(n_fixed);
+      kept_triangles = earClippingTriangulate(all_pts);
     }
+  }
 
-    // Convert to Vec3 nodes and cells for DiFVM topology
-    std::vector<Vec3> fvm_nodes(all_pts.size());
-    for (size_t i = 0; i < all_pts.size(); ++i) {
-        fvm_nodes[i] = Vec3(all_pts[i].x, all_pts[i].y, 0.0);
+  // Ensure all triangles are CCW (orient2d > 0)
+  for (auto& t : kept_triangles) {
+    if (orient2d(all_pts[t[0]], all_pts[t[1]], all_pts[t[2]]) < 0.0) {
+      std::swap(t[1], t[2]);
     }
-    std::vector<std::vector<int64_t>> cells(kept_triangles.size());
-    for (size_t i = 0; i < kept_triangles.size(); ++i) {
-        cells[i] = {kept_triangles[i][0], kept_triangles[i][1], kept_triangles[i][2]};
-    }
+  }
 
-    DiFVMTraversal::buildTopology(mesh, fvm_nodes, cells);
+  // Convert to Vec3 nodes and cells for DiFVM topology
+  std::vector<Vec3> fvm_nodes(all_pts.size());
+  for (size_t i = 0; i < all_pts.size(); ++i) {
+    fvm_nodes[i] = Vec3(all_pts[i].x, all_pts[i].y, 0.0);
+  }
+  std::vector<std::vector<int64_t>> cells(kept_triangles.size());
+  for (size_t i = 0; i < kept_triangles.size(); ++i) {
+    cells[i] = {kept_triangles[i][0], kept_triangles[i][1], kept_triangles[i][2]};
+  }
 
-    if (config && config->enable_rcm) {
-        auto perm = RCMReordering::computePermutation(mesh);
-        RCMReordering::applyReordering(mesh, perm);
-    }
+  DiFVMTraversal::buildTopology(mesh, fvm_nodes, cells);
+
+  if (config && config->enable_rcm) {
+    auto perm = RCMReordering::computePermutation(mesh);
+    RCMReordering::applyReordering(mesh, perm);
+  }
 }
 
 } // namespace cfd

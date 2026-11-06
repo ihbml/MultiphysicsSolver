@@ -33,6 +33,7 @@ struct Vec3 {
 
 inline Vec3 operator+(Vec3 a, const Vec3& b) { return a += b; }
 inline Vec3 operator-(Vec3 a, const Vec3& b) { return a -= b; }
+inline Vec3 operator-(const Vec3& a) { return Vec3(-a.x, -a.y, -a.z); }
 inline Vec3 operator*(Vec3 a, double s) { return a *= s; }
 inline Vec3 operator*(double s, Vec3 a) { return a *= s; }
 inline Vec3 operator/(Vec3 a, double s) { return a /= s; }
@@ -49,62 +50,97 @@ inline Vec3 cross(const Vec3& a, const Vec3& b) {
     );
 }
 
+// VTK-compatible explicit cell types
+enum class CellType : int32_t {
+  TRIANGLE = 5,
+  POLYGON = 7,
+  QUAD = 9,
+  TETRA = 10,
+  HEXAHEDRON = 12,
+  WEDGE = 13,
+  PYRAMID = 14,
+  POLYHEDRON = 42
+};
+
 // Native Mesh Storage Class implementing CfdNativeMesh
 struct NativeMeshData {
-    std::vector<double> points;         // 3 * n_points
-    std::vector<int64_t> owner;         // n_faces
-    std::vector<int64_t> neighbour;     // n_faces (-1 for boundary)
-    std::vector<double> face_areas;     // 3 * n_faces (S_f)
-    std::vector<double> face_centres;   // 3 * n_faces (c_f)
-    std::vector<double> cell_centres;   // 3 * n_cells (C_i)
-    std::vector<double> cell_volumes;   // n_cells (V_i > 0)
-    std::vector<double> delta_f;        // 3 * n_faces
-    std::vector<double> k_f;            // 3 * n_faces
-    
-    // Cell connectivity CSR
-    std::vector<int64_t> cell_offsets;  // n_cells + 1
-    std::vector<int64_t> cell_nodes;    // flattened node indices
-    
-    // Quality metrics & Error Map
-    std::vector<double> non_ortho;      // n_faces (degrees)
-    std::vector<double> skewness;       // n_faces
-    std::vector<double> aspect_ratio;   // n_cells
-    std::vector<int32_t> stab_mask;     // n_faces (0, 1, 2, 3)
-    
-    // CHT & Multi-region
-    std::vector<int32_t> cell_regions;  // n_cells
-    std::vector<BoundaryPatchC> patches;
+  std::vector<double> points;         // 3 * n_points
+  std::vector<int64_t> owner;         // n_faces
+  std::vector<int64_t> neighbour;     // n_faces (-1 for boundary)
+  std::vector<double> face_areas;     // 3 * n_faces (S_f)
+  std::vector<double> face_centres;   // 3 * n_faces (c_f)
+  std::vector<double> cell_centres;   // 3 * n_cells (C_i)
+  std::vector<double> cell_volumes;   // n_cells (V_i > 0)
+  std::vector<double> delta_f;        // 3 * n_faces
+  std::vector<double> k_f;            // 3 * n_faces
 
-    int64_t n_points() const { return static_cast<int64_t>(points.size() / 3); }
-    int64_t n_cells() const { return static_cast<int64_t>(cell_volumes.size()); }
-    int64_t n_faces() const { return static_cast<int64_t>(owner.size()); }
-    int64_t n_internal_faces() const {
-        int64_t count = 0;
-        for (auto nb : neighbour) {
-            if (nb >= 0) count++;
-        }
-        return count;
+  // Cell connectivity CSR
+  std::vector<int64_t> cell_offsets;  // n_cells + 1
+  std::vector<int64_t> cell_nodes;    // flattened node indices
+
+  // Face connectivity CSR
+  std::vector<int64_t> face_offsets;  // n_faces + 1
+  std::vector<int64_t> face_nodes;    // flattened node indices
+
+  // Cell types & topological dimension
+  std::vector<int32_t> cell_types;    // n_cells
+  int32_t topological_dim = 3;
+
+  // Quality metrics & Error Map (including CMS compensation fields)
+  std::vector<double> non_ortho;      // n_faces (degrees)
+  std::vector<double> skewness;       // n_faces
+  std::vector<double> aspect_ratio;   // n_cells
+  std::vector<int32_t> stab_mask;     // n_faces (0, 1, 2, 3)
+  std::vector<double> m_skew;         // 3 * n_faces (displacement vector)
+  std::vector<double> k_f_comp;       // 3 * n_faces (damped correction vector)
+  std::vector<double> beta_upwind;    // n_faces
+  std::vector<double> omega_cell;     // n_cells
+  std::vector<double> wsrd_alpha;     // n_cells
+
+  // CHT & Multi-region
+  std::vector<int32_t> cell_regions;  // n_cells
+  std::vector<BoundaryPatchC> patches;
+
+  int64_t n_points() const { return static_cast<int64_t>(points.size() / 3); }
+  int64_t n_cells() const { return static_cast<int64_t>(cell_volumes.size()); }
+  int64_t n_faces() const { return static_cast<int64_t>(owner.size()); }
+  int64_t n_face_nodes() const { return static_cast<int64_t>(face_nodes.size()); }
+  int64_t n_internal_faces() const {
+    int64_t count = 0;
+    for (auto nb : neighbour) {
+      if (nb >= 0) count++;
     }
-    
-    void clear() {
-        points.clear();
-        owner.clear();
-        neighbour.clear();
-        face_areas.clear();
-        face_centres.clear();
-        cell_centres.clear();
-        cell_volumes.clear();
-        delta_f.clear();
-        k_f.clear();
-        cell_offsets.clear();
-        cell_nodes.clear();
-        non_ortho.clear();
-        skewness.clear();
-        aspect_ratio.clear();
-        stab_mask.clear();
-        cell_regions.clear();
-        patches.clear();
-    }
+    return count;
+  }
+
+  void clear() {
+    points.clear();
+    owner.clear();
+    neighbour.clear();
+    face_areas.clear();
+    face_centres.clear();
+    cell_centres.clear();
+    cell_volumes.clear();
+    delta_f.clear();
+    k_f.clear();
+    cell_offsets.clear();
+    cell_nodes.clear();
+    face_offsets.clear();
+    face_nodes.clear();
+    cell_types.clear();
+    non_ortho.clear();
+    skewness.clear();
+    aspect_ratio.clear();
+    stab_mask.clear();
+    m_skew.clear();
+    k_f_comp.clear();
+    beta_upwind.clear();
+    omega_cell.clear();
+    wsrd_alpha.clear();
+    cell_regions.clear();
+    patches.clear();
+    topological_dim = 3;
+  }
 };
 
 // Polyhedral mesh builder and metrics evaluator

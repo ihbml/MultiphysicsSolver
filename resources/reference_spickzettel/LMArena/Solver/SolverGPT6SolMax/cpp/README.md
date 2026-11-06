@@ -1,0 +1,110 @@
+# Fieldline: a C++20 multiphysics solver base
+
+This is a working, dependency-free finite-element core for **transient heat
+conduction coupled to small-strain, plane-stress elasticity**. It takes an
+existing triangular mesh in memory; there is no mesh parser or file format in
+the solver. Heat drives thermal expansion. The mechanical response is
+quasi-static, so this is a **one-way coupled** thermoelastic model, not a
+general nonlinear multiphysics package.
+
+## Build and verify
+
+```sh
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build -j
+ctest --test-dir cpp/build --output-on-failure
+./cpp/build/fieldline_cantilever > src/data/cantilever.json
+```
+
+If CMake is unavailable, a C++20 compiler is sufficient:
+
+```sh
+g++ -std=c++20 -O3 -fopenmp -Icpp/include cpp/tests/solver_tests.cpp -o fieldline_tests
+./fieldline_tests
+```
+
+OpenMP is optional. Do not use `-ffast-math` if reproducible convergence and
+the stated tolerances matter.
+
+## Use an in-memory mesh
+
+```cpp
+#include <fieldline/solver.hpp>
+#include <vector>
+
+std::vector<fieldline::Point2> nodes = /* coordinates in meters */;
+std::vector<fieldline::Triangle> triangles = /* zero-based node indices */;
+std::vector<double> heat_per_element(triangles.size(), 1.0e7); // W/m^3
+std::vector<fieldline::TemperatureBC> temperature_bcs = /* fixed temperatures */;
+std::vector<fieldline::DisplacementBC> displacement_bcs = /* remove rigid modes */;
+fieldline::Material aluminum{205.0, 2700.0, 900.0, 69e9, 0.33, 23e-6};
+
+fieldline::SolverOptions options;
+options.time_step = 0.1;
+options.reference_temperature = 293.15;
+options.thickness = 0.005;
+
+fieldline::ProblemView problem{
+    {nodes, triangles}, std::span(&aluminum, 1), heat_per_element, {},
+    temperature_bcs, displacement_bcs, options};
+fieldline::ThermoelasticSolver solver(problem);
+
+for (int step = 0; step < 100; ++step) {
+  fieldline::StepInfo diagnostics = solver.step();
+  // solver.temperatures(): one Kelvin value per node.
+  // solver.displacements(): interleaved x/y meters per node.
+}
+```
+
+The input spans are read during construction, then geometry, operators, loads,
+and boundary conditions are retained by the solver. The original mesh can be
+managed independently after construction. Supply either one material for all
+triangles or one per triangle; heat sources accept zero, one, or one per
+triangle. Optional nodal forces are interleaved x/y values in Newtons.
+
+`step(heat_scale)` applies a multiplier to the volumetric source over that
+time interval. `set_initial_temperature(kelvin)` resets the initial field,
+displacement, and clock. Boundary values and the time step are fixed for a
+solver instance; construct another instance if they change.
+
+## Numerical method
+
+- P1 triangles use exact constant shape-function gradients, consistent heat
+  capacity mass, and a symmetric plane-stress elastic stiffness.
+- Heat is solved implicitly with a configurable theta method. The default
+  `thermal_theta = 1.0` is L-stable backward Euler. Set it to `0.5` for
+  second-order Crank-Nicolson on sufficiently resolved, smooth transients.
+- Thermal strain uses the element-average temperature rise above the reference
+  temperature. Solving the temperature **increment** avoids subtracting a
+  large ambient offset inside the linear solve.
+- CSR sparsity, both physical operators, Dirichlet elimination, and the
+  preconditioners are built once. Each step reuses those objects and warm
+  starts both solves from the previous state.
+- Symmetric elimination preserves positive definiteness. Preconditioned
+  conjugate gradients use IC(0), a shifted IC(0) retry if needed, and a Jacobi
+  fallback. The true residual is recomputed periodically and at convergence.
+  Select Jacobi explicitly for problems where parallel sparse matvecs are
+  preferable to the serial IC triangular solves.
+- Large CSR matvecs and dot products optionally use OpenMP. Assembly is
+  intentionally serial because it occurs once and avoids atomic contention.
+
+All inputs use SI units and double precision. The solver validates mesh
+indices, near-zero-area elements, material values, array sizes, and conflicting
+Dirichlet constraints. A mechanical problem still needs enough displacement
+constraints to remove all rigid-body modes for **each disconnected body**;
+insufficient constraints are rejected before assembly.
+
+## Scope and extension points
+
+The reusable pieces are the in-memory mesh view and the public `fieldline::core`
+aliases for CSR assembly, symmetric Dirichlet handling, and PCG/preconditioning.
+To introduce another field or two-way coupling, add its element residual/Jacobian and a coupling strategy;
+this example does not pretend to model contact, nonlinear constitutive laws,
+large deformation, fluid flow, or feedback from deformation to heat. For very
+large 3D problems, swap IC(0) for a production AMG or domain-decomposition
+preconditioner and benchmark against a trusted reference solution.
+
+The browser workbench uses snapshots generated by `examples/cantilever.cpp`.
+Changing its heat-input control scales those snapshots exactly because this
+particular discretized problem is linear with zero temperature-rise boundary
+conditions; it does not execute native C++ in the browser.

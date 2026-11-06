@@ -74,6 +74,18 @@ CFD_EXPORT int32_t cfd_mesher_generate_2d_polygon(
     const MeshingConfigC* config
 );
 
+CFD_EXPORT int32_t cfd_mesher_generate_hexcore(
+    CfdNativeMesh* mesh,
+    const double* surf_points,
+    int64_t n_points,
+    const int32_t* surf_faces,
+    int64_t n_faces,
+    const double* farfield_bbox,
+    int32_t domain_mode,
+    double h0,
+    const MeshingConfigC* config
+);
+
 CFD_EXPORT int32_t cfd_mesher_build_from_cells(
     CfdNativeMesh* mesh,
     const double* points,
@@ -105,11 +117,25 @@ CFD_EXPORT const double* cfd_mesher_get_k_f_ptr(const CfdNativeMesh* mesh);
 CFD_EXPORT const int64_t* cfd_mesher_get_cell_offsets_ptr(const CfdNativeMesh* mesh);
 CFD_EXPORT const int64_t* cfd_mesher_get_cell_nodes_ptr(const CfdNativeMesh* mesh);
 
-// Error-Map & Quality Accessors
+// Face-to-Node Connectivity Accessors (CSR)
+CFD_EXPORT const int64_t* cfd_mesher_get_face_offsets_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT const int64_t* cfd_mesher_get_face_nodes_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT int64_t cfd_mesher_get_n_face_nodes(const CfdNativeMesh* mesh);
+
+// Cell Types & Topological Dimension Accessors
+CFD_EXPORT const int32_t* cfd_mesher_get_cell_types_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT int32_t cfd_mesher_get_topological_dim(const CfdNativeMesh* mesh);
+
+// Error-Map & Quality Accessors (including CMS compensation fields)
 CFD_EXPORT const double* cfd_mesher_get_non_orthogonality_ptr(const CfdNativeMesh* mesh);
 CFD_EXPORT const double* cfd_mesher_get_skewness_ptr(const CfdNativeMesh* mesh);
 CFD_EXPORT const double* cfd_mesher_get_aspect_ratio_ptr(const CfdNativeMesh* mesh);
 CFD_EXPORT const int32_t* cfd_mesher_get_stabilization_mask_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT const double* cfd_mesher_get_m_skew_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT const double* cfd_mesher_get_k_f_comp_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT const double* cfd_mesher_get_beta_upwind_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT const double* cfd_mesher_get_omega_cell_ptr(const CfdNativeMesh* mesh);
+CFD_EXPORT const double* cfd_mesher_get_wsrd_alpha_ptr(const CfdNativeMesh* mesh);
 
 // CHT & Symmetry Accessors
 CFD_EXPORT const int32_t* cfd_mesher_get_cell_regions_ptr(const CfdNativeMesh* mesh);
@@ -133,6 +159,36 @@ CFD_EXPORT int64_t cfd_mesher_extract_cyclic_pairs(
 CFD_EXPORT double cfd_mesher_compute_max_divergence_closure(const CfdNativeMesh* mesh);
 CFD_EXPORT double cfd_mesher_compute_max_decomposition_error(const CfdNativeMesh* mesh);
 
+// ==============================================================================
+// Signed Distance Field (SDF) C-ABI Engine
+// ==============================================================================
+typedef struct CfdSdfEngine CfdSdfEngine;
+
+CFD_EXPORT CfdSdfEngine* cfd_sdf_create(
+    const double* vertices, int64_t n_vertices,
+    const int32_t* faces, int64_t n_faces
+);
+CFD_EXPORT void cfd_sdf_free(CfdSdfEngine* engine);
+CFD_EXPORT int32_t cfd_sdf_evaluate(
+    CfdSdfEngine* engine,
+    const double* points, int64_t n_points,
+    double* out_phi, double* out_grad
+);
+CFD_EXPORT int32_t cfd_sdf_winding_number(
+    CfdSdfEngine* engine,
+    const double* points, int64_t n_points,
+    double* out_wn
+);
+CFD_EXPORT int32_t cfd_sdf_voromesh_loss(
+    const double* points, int64_t n_points,
+    const double* seeds, int64_t n_seeds,
+    int32_t k,
+    double* out_loss, double* out_dists, double* out_grads,
+    const double* seed_signs
+);
+
 #ifdef __cplusplus
 }
 #endif
+
+

@@ -5,21 +5,21 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# MSVC-specific high-performance optimization flags
+# Compiler optimization flags (IEEE-754 compliant with /fp:precise)
 if(MSVC)
     add_compile_options(
         /std:c++20
         /O2             # Max speed optimization
         /Oi             # Enable intrinsic functions
         /Ot             # Favor fast code
-        /fp:fast        # Fast floating point model
+        /fp:precise     # Precise IEEE-754 floating point model
         /openmp         # Multi-threading for cell loops
         /W4             # High warning level
         /MP             # Multi-processor compilation
     )
     add_definitions(-D_CRT_SECURE_NO_WARNINGS -DNOMINMAX -DCFD_MESHER_EXPORTS)
 else()
-    add_compile_options(-O3 -ffast-math -fopenmp -Wall -Wextra)
+    add_compile_options(-O3 -fno-fast-math -ffp-contract=off -fopenmp -Wall -Wextra)
     add_definitions(-DCFD_MESHER_EXPORTS)
 endif()
 
@@ -30,6 +30,8 @@ add_library(cfd_mesher_native SHARED
     src/inflation.cpp
     src/rcm.cpp
     src/cht_cyclic.cpp
+    src/sdf_engine.cpp
+    src/octree_hexcore.cpp
 )
 
 target_include_directories(cfd_mesher_native PUBLIC

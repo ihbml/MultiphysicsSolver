@@ -17,6 +17,7 @@ Milestone M1 Implementation for CFDSolver In-Memory Multiphysics Mesher Backbone
 
 from __future__ import annotations
 
+import ctypes
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -24,6 +25,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from backend.geometry.models import BoundingBox, SurfaceMesh
+from backend.meshing.difvm_topology import get_native_dll
 from backend.meshing.models import SizingParameters
 
 
@@ -580,71 +582,779 @@ class SDFEngine(BaseSDF):
 
 
 # ==============================================================================
+# WP2: Exact Point-to-Triangle Projection Oracle (Eberly / Ericson)
+# ==============================================================================
+
+
+def _point_to_triangle_distance_exact(
+    p: np.ndarray,
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, float]:
+    """Exact point-to-triangle projection using Voronoi feature regions.
+
+    Args:
+        p: (3,) float64 query point.
+        a: (3,) float64 first vertex.
+        b: (3,) float64 second vertex.
+        c: (3,) float64 third vertex.
+
+    Returns:
+        Tuple containing:
+        - closest_point: (3,) float64 point on triangle surface.
+        - barycentric_coords: (3,) float64 coordinates (u, v, w) summing to 1.0.
+        - distance: Euclidean distance between p and closest_point.
+    """
+    ab = b - a
+    ac = c - a
+    ap = p - a
+
+    d1 = float(np.dot(ab, ap))
+    d2 = float(np.dot(ac, ap))
+    if d1 <= 0.0 and d2 <= 0.0:
+        bary = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        return a.copy(), bary, float(np.linalg.norm(p - a))
+
+    bp = p - b
+    d3 = float(np.dot(ab, bp))
+    d4 = float(np.dot(ac, bp))
+    if d3 >= 0.0 and d4 <= d3:
+        bary = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        return b.copy(), bary, float(np.linalg.norm(p - b))
+
+    vc = d1 * d4 - d3 * d2
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+        denom = d1 - d3
+        v = d1 / denom if abs(denom) > 1e-30 else 0.0
+        q = a + v * ab
+        bary = np.array([1.0 - v, v, 0.0], dtype=np.float64)
+        return q, bary, float(np.linalg.norm(p - q))
+
+    cp = p - c
+    d5 = float(np.dot(ab, cp))
+    d6 = float(np.dot(ac, cp))
+    if d6 >= 0.0 and d5 <= d6:
+        bary = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        return c.copy(), bary, float(np.linalg.norm(p - c))
+
+    vb = d5 * d2 - d1 * d6
+    if vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0:
+        denom = d2 - d6
+        w = d2 / denom if abs(denom) > 1e-30 else 0.0
+        q = a + w * ac
+        bary = np.array([1.0 - w, 0.0, w], dtype=np.float64)
+        return q, bary, float(np.linalg.norm(p - q))
+
+    va = d3 * d6 - d5 * d4
+    if va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0:
+        denom = (d4 - d3) + (d5 - d6)
+        w = (d4 - d3) / denom if abs(denom) > 1e-30 else 0.0
+        q = b + w * (c - b)
+        bary = np.array([0.0, 1.0 - w, w], dtype=np.float64)
+        return q, bary, float(np.linalg.norm(p - q))
+
+    denom_sum = va + vb + vc
+    inv_denom = 1.0 / denom_sum if abs(denom_sum) > 1e-30 else 0.0
+    v = vb * inv_denom
+    w = vc * inv_denom
+    u = 1.0 - v - w
+    q = a + v * ab + w * ac
+    bary = np.array([u, v, w], dtype=np.float64)
+    return q, bary, float(np.linalg.norm(p - q))
+
+
+# ==============================================================================
+# WP2: Angle-Weighted Pseudonormals (Bærentzen & Aanæs 2005)
+# ==============================================================================
+
+
+def compute_angle_weighted_pseudonormals(
+    vertices: np.ndarray, faces: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Computes face normals, angle-weighted vertex pseudonormals, edge pseudonormals,
+    and face-to-edge mapping following Bærentzen & Aanæs (2005).
+
+    Args:
+        vertices: (V, 3) float64 coordinates.
+        faces: (F, 3) int32 face node indices.
+
+    Returns:
+        Tuple containing:
+        - face_normals: (F, 3) float64 outward unit normals of faces.
+        - vertex_pseudonormals: (V, 3) float64 angle-weighted outward unit normals of vertices.
+        - edge_pseudonormals: (E, 3) float64 outward unit normals of undirected edges.
+        - face_edge_map: (F, 3) int32 mapping (face_id, local_edge_idx) to edge_id in [0, E).
+          local_edge 0 connects (v0, v1), 1 connects (v1, v2), 2 connects (v2, v0).
+    """
+    verts = np.asarray(vertices, dtype=np.float64)
+    f_arr = np.asarray(faces, dtype=np.int32)
+    n_faces = len(f_arr)
+    n_verts = len(verts)
+
+    # 1. Face unit normals
+    v0 = verts[f_arr[:, 0]]
+    v1 = verts[f_arr[:, 1]]
+    v2 = verts[f_arr[:, 2]]
+
+    e01 = v1 - v0
+    e02 = v2 - v0
+    cross_f = np.cross(e01, e02)
+    lengths_f = np.linalg.norm(cross_f, axis=1, keepdims=True)
+    lengths_f_safe = np.where(lengths_f < 1e-20, 1.0, lengths_f)
+    face_normals = cross_f / lengths_f_safe
+    zero_mask = (lengths_f.squeeze(-1) < 1e-20)
+    if np.any(zero_mask):
+        face_normals[zero_mask] = np.array([0.0, 0.0, 1.0])
+
+    # 2. Angle-weighted vertex pseudonormals
+    vertex_pseudonormals = np.zeros((n_verts, 3), dtype=np.float64)
+
+    # Corner 0: at v0, edges (v1 - v0) and (v2 - v0)
+    d01 = np.linalg.norm(e01, axis=1)
+    d02 = np.linalg.norm(e02, axis=1)
+    d01_safe = np.where(d01 < 1e-20, 1.0, d01)
+    d02_safe = np.where(d02 < 1e-20, 1.0, d02)
+    cos0 = np.sum(e01 * e02, axis=1) / (d01_safe * d02_safe)
+    alpha0 = np.arccos(np.clip(cos0, -1.0, 1.0))
+    np.add.at(vertex_pseudonormals, f_arr[:, 0], alpha0[:, None] * face_normals)
+
+    # Corner 1: at v1, edges (v2 - v1) and (v0 - v1)
+    e12 = v2 - v1
+    e10 = -e01
+    d12 = np.linalg.norm(e12, axis=1)
+    d12_safe = np.where(d12 < 1e-20, 1.0, d12)
+    cos1 = np.sum(e12 * e10, axis=1) / (d12_safe * d01_safe)
+    alpha1 = np.arccos(np.clip(cos1, -1.0, 1.0))
+    np.add.at(vertex_pseudonormals, f_arr[:, 1], alpha1[:, None] * face_normals)
+
+    # Corner 2: at v2, edges (v0 - v2) and (v1 - v2)
+    e20 = -e02
+    e21 = -e12
+    cos2 = np.sum(e20 * e21, axis=1) / (d02_safe * d12_safe)
+    alpha2 = np.arccos(np.clip(cos2, -1.0, 1.0))
+    np.add.at(vertex_pseudonormals, f_arr[:, 2], alpha2[:, None] * face_normals)
+
+    v_norms = np.linalg.norm(vertex_pseudonormals, axis=1, keepdims=True)
+    v_norms_safe = np.where(v_norms < 1e-6, 1.0, v_norms)
+    vertex_pseudonormals = vertex_pseudonormals / v_norms_safe
+    v_zero = (v_norms.squeeze(-1) < 1e-6)
+    if np.any(v_zero):
+        vertex_pseudonormals[v_zero] = np.array([0.0, 0.0, 1.0])
+
+    # 3. Edge pseudonormals and face-to-edge mapping
+    edge_map: Dict[Tuple[int, int], int] = {}
+    face_edge_map = np.zeros((n_faces, 3), dtype=np.int32)
+    edge_normal_list: List[np.ndarray] = []
+
+    for f_idx in range(n_faces):
+        nodes = f_arr[f_idx]
+        e_pairs = [
+            (min(nodes[0], nodes[1]), max(nodes[0], nodes[1])),
+            (min(nodes[1], nodes[2]), max(nodes[1], nodes[2])),
+            (min(nodes[2], nodes[0]), max(nodes[2], nodes[0])),
+        ]
+        fn = face_normals[f_idx]
+        for loc_idx, pair in enumerate(e_pairs):
+            if pair not in edge_map:
+                edge_id = len(edge_normal_list)
+                edge_map[pair] = edge_id
+                edge_normal_list.append(fn.copy())
+            else:
+                edge_id = edge_map[pair]
+                edge_normal_list[edge_id] += fn
+            face_edge_map[f_idx, loc_idx] = edge_id
+
+    edge_pseudonormals = np.array(edge_normal_list, dtype=np.float64)
+    e_norms = np.linalg.norm(edge_pseudonormals, axis=1, keepdims=True)
+    e_norms_safe = np.where(e_norms < 1e-6, 1.0, e_norms)
+    edge_pseudonormals = edge_pseudonormals / e_norms_safe
+    e_zero = (e_norms.squeeze(-1) < 1e-6)
+    if np.any(e_zero):
+        edge_pseudonormals[e_zero] = np.array([0.0, 0.0, 1.0])
+
+    return face_normals, vertex_pseudonormals, edge_pseudonormals, face_edge_map
+
+
+# ==============================================================================
+# WP2: Triangle AABB Tree & Coherence Caching
+# ==============================================================================
+
+
+class _AABBNode:
+    __slots__ = ("bmin", "bmax", "left", "right", "tri_indices")
+
+    def __init__(
+        self,
+        bmin: np.ndarray,
+        bmax: np.ndarray,
+        left: Optional[_AABBNode] = None,
+        right: Optional[_AABBNode] = None,
+        tri_indices: Optional[np.ndarray] = None,
+    ) -> None:
+        self.bmin = bmin
+        self.bmax = bmax
+        self.left = left
+        self.right = right
+        self.tri_indices = tri_indices
+
+
+class TriangleAABBTree:
+    """Hierarchical Axis-Aligned Bounding Box (AABB) Tree over mesh triangles
+    with branch-and-bound pruning and prev_facet spatial coherence caching.
+    """
+
+    def __init__(
+        self,
+        vertices: np.ndarray,
+        faces: np.ndarray,
+        leaf_size: int = 8,
+    ) -> None:
+        self.vertices = np.asarray(vertices, dtype=np.float64)
+        self.faces = np.asarray(faces, dtype=np.int32)
+        if len(self.faces) == 0:
+            raise ValueError("Cannot construct TriangleAABBTree from empty faces.")
+
+        self.tri_v0 = self.vertices[self.faces[:, 0]]
+        self.tri_v1 = self.vertices[self.faces[:, 1]]
+        self.tri_v2 = self.vertices[self.faces[:, 2]]
+
+        self.tri_bmin = np.minimum(self.tri_v0, np.minimum(self.tri_v1, self.tri_v2))
+        self.tri_bmax = np.maximum(self.tri_v0, np.maximum(self.tri_v1, self.tri_v2))
+        self.tri_centroids = (self.tri_v0 + self.tri_v1 + self.tri_v2) / 3.0
+
+        all_indices = np.arange(len(self.faces), dtype=np.int32)
+        self.root = self._build(all_indices, leaf_size)
+
+    def _build(self, indices: np.ndarray, leaf_size: int) -> _AABBNode:
+        bmin = np.min(self.tri_bmin[indices], axis=0)
+        bmax = np.max(self.tri_bmax[indices], axis=0)
+
+        if len(indices) <= leaf_size:
+            return _AABBNode(bmin, bmax, tri_indices=indices)
+
+        c_bmin = np.min(self.tri_centroids[indices], axis=0)
+        c_bmax = np.max(self.tri_centroids[indices], axis=0)
+        extent = c_bmax - c_bmin
+        axis = int(np.argmax(extent))
+
+        if extent[axis] <= 1e-15:
+            return _AABBNode(bmin, bmax, tri_indices=indices)
+
+        sorted_order = np.argsort(self.tri_centroids[indices, axis])
+        sorted_indices = indices[sorted_order]
+        mid = len(indices) // 2
+
+        left_node = self._build(sorted_indices[:mid], leaf_size)
+        right_node = self._build(sorted_indices[mid:], leaf_size)
+        return _AABBNode(bmin, bmax, left=left_node, right=right_node)
+
+    def _point_to_tri(self, p: np.ndarray, tid: int) -> Tuple[np.ndarray, np.ndarray, float]:
+        va = self.tri_v0[tid]
+        vb = self.tri_v1[tid]
+        vc = self.tri_v2[tid]
+        return _point_to_triangle_distance_exact(p, va, vb, vc)
+
+    def closest_point(
+        self, p: np.ndarray, prev_facet: Optional[int] = None
+    ) -> Tuple[np.ndarray, int, np.ndarray, float]:
+        """Find closest point on triangulated mesh using branch-and-bound traversal.
+
+        Args:
+            p: 3D query coordinates, shape (3,).
+            prev_facet: Optional previous closest facet ID as spatial coherence hint.
+
+        Returns:
+            Tuple of:
+            - closest_point: (3,) float64 coordinates on triangle.
+            - facet_id: int index of closest triangle in self.faces.
+            - barycentric_coords: (3,) float64 barycentric coordinates.
+            - distance: Euclidean distance from p to closest_point.
+        """
+        pt = np.asarray(p, dtype=np.float64)
+
+        best_dist = float("inf")
+        best_dist_sq = float("inf")
+        best_q: Optional[np.ndarray] = None
+        best_tid: int = -1
+        best_bary: Optional[np.ndarray] = None
+
+        # 1. Evaluate spatial coherence hint (prev_facet) first
+        if prev_facet is not None and 0 <= prev_facet < len(self.faces):
+            q, bary, d = self._point_to_tri(pt, prev_facet)
+            best_dist = d
+            best_dist_sq = d * d
+            best_q = q
+            best_tid = prev_facet
+            best_bary = bary
+
+        # 2. Branch-and-bound traversal
+        stack = [self.root]
+        px, py, pz = pt[0], pt[1], pt[2]
+
+        while stack:
+            node = stack.pop()
+
+            bmin = node.bmin
+            bmax = node.bmax
+            dx = max(0.0, bmin[0] - px, px - bmax[0])
+            dy = max(0.0, bmin[1] - py, py - bmax[1])
+            dz = max(0.0, bmin[2] - pz, pz - bmax[2])
+            box_dist_sq = dx * dx + dy * dy + dz * dz
+
+            if box_dist_sq >= best_dist_sq:
+                continue
+
+            if node.tri_indices is not None:
+                for tid in node.tri_indices:
+                    q, bary, d = self._point_to_tri(pt, int(tid))
+                    d_sq = d * d
+                    if d_sq < best_dist_sq:
+                        best_dist = d
+                        best_dist_sq = d_sq
+                        best_q = q
+                        best_tid = int(tid)
+                        best_bary = bary
+            else:
+                left = node.left
+                right = node.right
+
+                dx_l = max(0.0, left.bmin[0] - px, px - left.bmax[0])
+                dy_l = max(0.0, left.bmin[1] - py, py - left.bmax[1])
+                dz_l = max(0.0, left.bmin[2] - pz, pz - left.bmax[2])
+                dl_sq = dx_l * dx_l + dy_l * dy_l + dz_l * dz_l
+
+                dx_r = max(0.0, right.bmin[0] - px, px - right.bmax[0])
+                dy_r = max(0.0, right.bmin[1] - py, py - right.bmax[1])
+                dz_r = max(0.0, right.bmin[2] - pz, pz - right.bmax[2])
+                dr_sq = dx_r * dx_r + dy_r * dy_r + dz_r * dz_r
+
+                if dl_sq < dr_sq:
+                    if dr_sq < best_dist_sq:
+                        stack.append(right)
+                    if dl_sq < best_dist_sq:
+                        stack.append(left)
+                else:
+                    if dl_sq < best_dist_sq:
+                        stack.append(left)
+                    if dr_sq < best_dist_sq:
+                        stack.append(right)
+
+        return best_q, best_tid, best_bary, best_dist
+
+    def query(
+        self, points: np.ndarray, prev_facet: Optional[int] = None
+    ) -> Union[
+        Tuple[float, np.ndarray, int, np.ndarray],
+        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    ]:
+        """Query closest point(s) on the mesh.
+
+        Args:
+            points: Query point coordinates, shape (3,) or (N, 3).
+            prev_facet: Optional initial facet hint.
+
+        Returns:
+            If 1D: (distance, closest_point, facet_id, barycentric_coords).
+            If 2D: (distances, closest_points, facet_ids, barycentric_coords).
+        """
+        pts = np.asarray(points, dtype=np.float64)
+        if pts.ndim == 1:
+            q, tid, bary, dist = self.closest_point(pts, prev_facet=prev_facet)
+            return dist, q, tid, bary
+
+        n_pts = len(pts)
+        dists = np.empty(n_pts, dtype=np.float64)
+        closest_pts = np.empty((n_pts, 3), dtype=np.float64)
+        facet_ids = np.empty(n_pts, dtype=np.int32)
+        bary_coords = np.empty((n_pts, 3), dtype=np.float64)
+
+        hint = prev_facet if (prev_facet is not None and 0 <= prev_facet < len(self.faces)) else -1
+        for i in range(n_pts):
+            q, tid, bary, d = self.closest_point(pts[i], prev_facet=hint)
+            dists[i] = d
+            closest_pts[i] = q
+            facet_ids[i] = tid
+            bary_coords[i] = bary
+            hint = tid
+
+        return dists, closest_pts, facet_ids, bary_coords
+
+
+# ==============================================================================
+# WP2: Generalized Winding Numbers (Oosterom & Strackee 1983 / Jacobson et al. 2013)
+# ==============================================================================
+
+
+def compute_mesh_winding_number(
+    points: np.ndarray,
+    tri_v0: np.ndarray,
+    tri_v1: np.ndarray,
+    tri_v2: np.ndarray,
+    chunk_size: int = 1024,
+) -> np.ndarray:
+    """Computes Generalized Winding Numbers W(x) = (1 / 4pi) sum Omega_t(x)
+    following Oosterom & Strackee (1983) and Jacobson et al. (2013).
+
+    Args:
+        points: (N, 3) or (3,) query point coordinates.
+        tri_v0: (T, 3) first vertex of all triangles.
+        tri_v1: (T, 3) second vertex of all triangles.
+        tri_v2: (T, 3) third vertex of all triangles.
+        chunk_size: Block size of triangles to evaluate per chunk.
+
+    Returns:
+        Winding numbers of shape (N,) or scalar float if 1D input.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    is_single = (pts.ndim == 1)
+    p = np.atleast_2d(pts)
+    n_pts = len(p)
+    n_tri = len(tri_v0)
+
+    total_solid_angles = np.zeros(n_pts, dtype=np.float64)
+
+    for start_t in range(0, n_tri, chunk_size):
+        end_t = min(start_t + chunk_size, n_tri)
+        a = tri_v0[start_t:end_t]
+        b = tri_v1[start_t:end_t]
+        c = tri_v2[start_t:end_t]
+
+        ra = a[None, :, :] - p[:, None, :]
+        rb = b[None, :, :] - p[:, None, :]
+        rc = c[None, :, :] - p[:, None, :]
+
+        da = np.linalg.norm(ra, axis=-1)
+        db = np.linalg.norm(rb, axis=-1)
+        dc = np.linalg.norm(rc, axis=-1)
+
+        rb_cross_rc = np.cross(rb, rc)
+        num = np.sum(ra * rb_cross_rc, axis=-1)
+
+        ra_dot_rb = np.sum(ra * rb, axis=-1)
+        ra_dot_rc = np.sum(ra * rc, axis=-1)
+        rb_dot_rc = np.sum(rb * rc, axis=-1)
+
+        denom = (
+            da * db * dc
+            + ra_dot_rb * dc
+            + ra_dot_rc * db
+            + rb_dot_rc * da
+        )
+
+        omega = 2.0 * np.arctan2(num, denom)
+        total_solid_angles += np.sum(omega, axis=1)
+
+    wn = total_solid_angles / (4.0 * np.pi)
+    return wn[0] if is_single else wn
+
+
+# ==============================================================================
+# WP2: Differentiable VoroMesh Bisector Loss (Maruani et al. 2023)
+# ==============================================================================
+
+
+def voromesh_bisector_loss(
+    points: np.ndarray,
+    seeds: np.ndarray,
+    k: int = 16,
+    seed_signs: Optional[np.ndarray] = None,
+    use_native: bool = True,
+) -> Tuple[float, np.ndarray, np.ndarray]:
+    """Differentiable VoroMesh bisector loss following Maruani et al. (2023).
+
+    Args:
+        points: (N, 3) surface query points.
+        seeds: (M, 3) Voronoi generator seeds.
+        k: Number of nearest neighbor seeds to consider for bisector planes (default: 16).
+        seed_signs: Optional (M,) array of seed sign indicators (+1/-1). If provided,
+            only neighbor pairs with opposing signs are evaluated, with fallback.
+        use_native: Whether to use compiled C++ acceleration if available.
+
+    Returns:
+        Tuple containing:
+        - loss: Scalar mean squared distance to closest Voronoi bisector plane.
+        - distances: (N,) float64 Euclidean distance to closest bisector plane.
+        - gradients: (N, 3) float64 outward unit normal gradients ||grad_x d|| == 1.0.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    s_arr = np.asarray(seeds, dtype=np.float64)
+    n_pts = len(pts)
+    n_seeds = len(s_arr)
+
+    if n_seeds < 2:
+        raise ValueError("At least 2 seeds required for Voronoi bisector loss.")
+
+    k_eff = min(k, n_seeds - 1)
+
+    # 1. Native C++ acceleration attempt
+    if use_native:
+        dll = _get_sdf_dll()
+        if dll is not None and hasattr(dll, "cfd_sdf_voromesh_loss"):
+            try:
+                c_points = pts.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                c_seeds = s_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                out_loss = ctypes.c_double(0.0)
+                out_dists = np.empty(n_pts, dtype=np.float64)
+                out_grads = np.empty((n_pts, 3), dtype=np.float64)
+                c_signs = (
+                    np.ascontiguousarray(seed_signs, dtype=np.float64).ctypes.data_as(
+                        ctypes.POINTER(ctypes.c_double)
+                    )
+                    if seed_signs is not None
+                    else None
+                )
+
+                res = dll.cfd_sdf_voromesh_loss(
+                    c_points,
+                    ctypes.c_int64(n_pts),
+                    c_seeds,
+                    ctypes.c_int64(n_seeds),
+                    ctypes.c_int32(k_eff),
+                    ctypes.byref(out_loss),
+                    out_dists.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                    out_grads.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                    c_signs,
+                )
+                if res == 0:
+                    return float(out_loss.value), out_dists, out_grads
+            except Exception:
+                pass
+
+    # 2. Pure Python fallback
+    seed_tree = cKDTree(s_arr)
+    _, nearest_seed_idx = seed_tree.query(pts, k=1)
+    if nearest_seed_idx.ndim == 0:
+        nearest_seed_idx = np.array([nearest_seed_idx])
+
+    _, seed_neighbors = seed_tree.query(s_arr, k=k_eff + 1)
+    nbr_indices = seed_neighbors[:, 1:]
+
+    qi = s_arr[nearest_seed_idx]
+    pt_nbr_indices = nbr_indices[nearest_seed_idx]
+    qj = s_arr[pt_nbr_indices]
+
+    qi_exp = qi[:, None, :]
+    midpoints = 0.5 * (qi_exp + qj)
+    delta = qj - qi_exp
+    delta_len = np.linalg.norm(delta, axis=-1, keepdims=True)
+    delta_len_safe = np.where(delta_len < 1e-15, 1.0, delta_len)
+    normals = delta / delta_len_safe
+
+    pts_exp = pts[:, None, :]
+    h = np.sum((pts_exp - midpoints) * normals, axis=-1)
+    d = np.abs(h)
+
+    if seed_signs is not None:
+        s_signs = np.asarray(seed_signs, dtype=np.float64)
+        qi_signs = s_signs[nearest_seed_idx, None]
+        qj_signs = s_signs[pt_nbr_indices]
+        valid_pairs = (qi_signs * qj_signs) < 0.0
+        d_eff = np.where(valid_pairs, d, np.inf)
+        has_valid = np.any(valid_pairs, axis=1)
+        best_k = np.zeros(n_pts, dtype=np.int64)
+        if np.any(has_valid):
+            best_k[has_valid] = np.argmin(d_eff[has_valid], axis=1)
+        if not np.all(has_valid):
+            best_k[~has_valid] = np.argmin(d[~has_valid], axis=1)
+    else:
+        best_k = np.argmin(d, axis=1)
+
+    rows = np.arange(n_pts)
+
+    distances = d[rows, best_k]
+    best_h = h[rows, best_k]
+    best_normal = normals[rows, best_k]
+
+    sign = np.where(best_h >= 0.0, 1.0, -1.0)[:, None]
+    gradients = sign * best_normal
+
+    loss = float(np.mean(distances ** 2))
+    return loss, distances, gradients
+
+
+# ==============================================================================
+# Native C-ABI Helper
+# ==============================================================================
+
+
+_SDF_CABI_CONFIGURED: bool = False
+
+
+def _get_sdf_dll() -> Optional[ctypes.CDLL]:
+    global _SDF_CABI_CONFIGURED
+    dll = get_native_dll()
+    if dll is not None and hasattr(dll, "cfd_sdf_create") and not _SDF_CABI_CONFIGURED:
+        dll.cfd_sdf_create.argtypes = [
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int64,
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.c_int64,
+        ]
+        dll.cfd_sdf_create.restype = ctypes.c_void_p
+
+        dll.cfd_sdf_free.argtypes = [ctypes.c_void_p]
+        dll.cfd_sdf_free.restype = None
+
+        dll.cfd_sdf_evaluate.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int64,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+        ]
+        dll.cfd_sdf_evaluate.restype = ctypes.c_int32
+
+        dll.cfd_sdf_winding_number.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int64,
+            ctypes.POINTER(ctypes.c_double),
+        ]
+        dll.cfd_sdf_winding_number.restype = ctypes.c_int32
+
+        dll.cfd_sdf_voromesh_loss.argtypes = [
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int64,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int64,
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+        ]
+        dll.cfd_sdf_voromesh_loss.restype = ctypes.c_int32
+        _SDF_CABI_CONFIGURED = True
+    return dll
+
+
+# ==============================================================================
 # SurfaceMesh to Continuous SDF Evaluator (CADMeshSDF)
 # ==============================================================================
 
 
 class CADMeshSDF(BaseSDF):
     """Continuous Signed Distance Field (SDF) and outward normal gradient evaluator
-    derived from a triangulated SurfaceMesh using spatial cKDTree acceleration.
+    derived from a triangulated SurfaceMesh using spatial AABB tree and pseudonormals.
 
     Guarantees:
-    - Zero external dependency on rtree.
-    - Evaluates 10,000 points on 61k faces in < 0.20s.
+    - Zero sign flips along 30° and 90° sharp edges/corners (Bærentzen & Aanæs 2005).
+    - Generalized Winding Numbers on dirty / non-watertight CAD meshes (Jacobson et al. 2013).
+    - Dual-engine parity between Python and C++20 native kernels.
     - Outward unit normal gradient norm ||grad phi|| == 1.0 everywhere.
     """
 
     def __init__(
         self,
         mesh: SurfaceMesh,
-        k_candidates: int = 8,
+        k_candidates: Optional[int] = None,
         inside_is_negative: bool = True,
         auto_compact: bool = True,
+        sign_method: Optional[str] = None,
+        use_native: bool = True,
     ) -> None:
         """Initialize CADMeshSDF.
 
         Args:
             mesh: Triangulated SurfaceMesh.
-            k_candidates: Number of nearest candidate triangle centroids to query (default: 8).
+            k_candidates: Optional number of nearest candidate triangle centroids.
+                If explicitly provided without specifying sign_method, enables legacy M1 candidate search.
             inside_is_negative: If True, phi < 0 inside solid body, phi > 0 in exterior.
             auto_compact: If True, purges unreferenced/orphan vertices before building index.
+            sign_method: 'pseudonormal', 'winding_number', or 'face_normal'.
+            use_native: If True, uses compiled C++20 acceleration when available.
         """
         if len(mesh.faces) == 0:
             raise ValueError("Cannot initialize CADMeshSDF from empty surface mesh.")
 
-        if auto_compact:
-            used_indices, inverse = np.unique(mesh.faces, return_inverse=True)
-            self.vertices = mesh.vertices[used_indices].astype(np.float64)
-            self.faces = inverse.reshape(mesh.faces.shape).astype(np.int32)
-        else:
-            self.vertices = mesh.vertices.astype(np.float64)
-            self.faces = mesh.faces.astype(np.int32)
+        raw_verts = mesh.vertices.astype(np.float64)
+        raw_faces = mesh.faces.astype(np.int32)
 
-        self.k_candidates = min(max(1, k_candidates), len(self.faces))
+        if auto_compact:
+            used_indices, inverse = np.unique(raw_faces, return_inverse=True)
+            self.vertices = np.ascontiguousarray(raw_verts[used_indices], dtype=np.float64)
+            self.faces = np.ascontiguousarray(inverse.reshape(raw_faces.shape), dtype=np.int32)
+        else:
+            self.vertices = np.ascontiguousarray(raw_verts, dtype=np.float64)
+            self.faces = np.ascontiguousarray(raw_faces, dtype=np.int32)
+
+        # Consistent outward face orientation for closed/oriented meshes
+        v0_init = self.vertices[self.faces[:, 0]]
+        v1_init = self.vertices[self.faces[:, 1]]
+        v2_init = self.vertices[self.faces[:, 2]]
+        signed_vol = float(np.sum(np.sum(v0_init * np.cross(v1_init, v2_init), axis=-1)) / 6.0)
+        if signed_vol < -1e-8:
+            self.faces = np.ascontiguousarray(self.faces[:, [0, 2, 1]], dtype=np.int32)
+
+        self._legacy_k = k_candidates
+        self.k_candidates = min(max(1, k_candidates if k_candidates is not None else 8), len(self.faces))
         self.inside_is_negative = inside_is_negative
+        if sign_method is not None:
+            self.sign_method = sign_method
+        elif k_candidates is not None:
+            self.sign_method = "legacy"
+        else:
+            self.sign_method = "pseudonormal"
+        self.use_native = use_native
+        self._prev_facet_hint = -1
+        self._native_engine: Optional[ctypes.c_void_p] = None
 
         # Precompute triangle vertex coordinates
         self.tri_v0 = self.vertices[self.faces[:, 0]]
         self.tri_v1 = self.vertices[self.faces[:, 1]]
         self.tri_v2 = self.vertices[self.faces[:, 2]]
 
-        # Precompute face unit normal vectors
+        # Precompute face unit normal vectors and centroids (backward compatibility)
         cross = np.cross(self.tri_v1 - self.tri_v0, self.tri_v2 - self.tri_v0)
         lengths = np.linalg.norm(cross, axis=1, keepdims=True)
         lengths[lengths < 1e-20] = 1.0
         self.normals = cross / lengths
-
-        # Precompute triangle centroids and build KDTree
         self.centroids = (self.tri_v0 + self.tri_v1 + self.tri_v2) / 3.0
         self.tree = cKDTree(self.centroids)
+
+        # Precompute Angle-Weighted Pseudonormals & Triangle AABB Tree
+        (
+            self.face_normals,
+            self.vertex_pseudonormals,
+            self.edge_pseudonormals,
+            self.face_edge_map,
+        ) = compute_angle_weighted_pseudonormals(self.vertices, self.faces)
+        self.aabb_tree = TriangleAABBTree(self.vertices, self.faces)
+
+        # Initialize native C-ABI engine if available
+        if self.use_native:
+            dll = _get_sdf_dll()
+            if dll is not None and hasattr(dll, "cfd_sdf_create"):
+                try:
+                    c_verts = self.vertices.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                    c_faces = self.faces.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
+                    self._native_engine = dll.cfd_sdf_create(
+                        c_verts, ctypes.c_int64(len(self.vertices)),
+                        c_faces, ctypes.c_int64(len(self.faces))
+                    )
+                except Exception:
+                    self._native_engine = None
+
+    def __del__(self) -> None:
+        if getattr(self, "_native_engine", None):
+            try:
+                dll = _get_sdf_dll()
+                if dll is not None and hasattr(dll, "cfd_sdf_free"):
+                    dll.cfd_sdf_free(self._native_engine)
+            except Exception:
+                pass
+            self._native_engine = None
 
     @classmethod
     def from_surface_mesh(
         cls,
         mesh: SurfaceMesh,
-        k_candidates: int = 8,
+        k_candidates: Optional[int] = None,
         inside_is_negative: bool = True,
         auto_compact: bool = True,
+        sign_method: Optional[str] = None,
+        use_native: bool = True,
     ) -> CADMeshSDF:
         """Factory constructor creating CADMeshSDF from SurfaceMesh."""
         return cls(
@@ -652,6 +1362,8 @@ class CADMeshSDF(BaseSDF):
             k_candidates=k_candidates,
             inside_is_negative=inside_is_negative,
             auto_compact=auto_compact,
+            sign_method=sign_method,
+            use_native=use_native,
         )
 
     def evaluate(self, points: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -670,16 +1382,164 @@ class CADMeshSDF(BaseSDF):
         p = np.atleast_2d(pts)
         n_pts = len(p)
 
-        # 1. Query nearest candidate triangle centroids via cKDTree
+        # Guard against extreme large coordinates (>= 1e30)
+        p_max = np.max(np.abs(p), axis=1)
+        extreme_mask = p_max >= 1e30
+        if np.any(extreme_mask):
+            phi_arr = np.empty(n_pts, dtype=np.float64)
+            grad_arr = np.empty((n_pts, 3), dtype=np.float64)
+
+            # Normal points
+            norm_indices = np.where(~extreme_mask)[0]
+            if len(norm_indices) > 0:
+                p_sub = p[norm_indices]
+                p_save = self._evaluate_standard(p_sub)
+                phi_arr[norm_indices] = p_save[0]
+                grad_arr[norm_indices] = p_save[1]
+
+            # Extreme points: approximate analytically with safe scaled norm
+            ext_indices = np.where(extreme_mask)[0]
+            for idx in ext_indices:
+                p_vec = p[idx]
+                m_coord = float(np.max(np.abs(p_vec)))
+                if m_coord < 1e-20:
+                    m_coord = 1.0
+                scaled_p = p_vec / m_coord
+                unit_norm = float(np.linalg.norm(scaled_p))
+                if unit_norm < 1e-20:
+                    unit_norm = 1.0
+                unit_grad = scaled_p / unit_norm
+                p_norm = m_coord * unit_norm
+                if not np.isfinite(p_norm):
+                    p_norm = 1.7e308
+                phi_arr[idx] = p_norm if self.inside_is_negative else -p_norm
+                grad_arr[idx] = unit_grad if self.inside_is_negative else -unit_grad
+
+            if is_single:
+                return float(phi_arr[0]), grad_arr[0]
+            return phi_arr, grad_arr
+
+        phi, grad = self._evaluate_standard(p)
+        if is_single:
+            return float(phi[0]), grad[0]
+        return phi, grad
+
+    def _evaluate_standard(self, p: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        n_pts = len(p)
+
+        # 1. Legacy M1 candidate KD-Tree heuristic for backward compatibility
+        if self.sign_method == "legacy":
+            return self._evaluate_legacy_kdtree(p)
+
+        # 2. Generalized Winding Numbers
+        if self.sign_method == "winding_number":
+            dists, qs, tids, _ = self.aabb_tree.query(p, prev_facet=self._prev_facet_hint)
+            self._prev_facet_hint = int(tids[-1]) if n_pts > 0 else -1
+
+            wn = self.winding_number(p)
+            sign = np.where(wn >= 0.5, -1.0, 1.0)
+            if not self.inside_is_negative:
+                sign = -sign
+
+            phi = sign * dists
+            diff = p - qs
+            diff_norm = np.linalg.norm(diff, axis=1, keepdims=True)
+            diff_norm_safe = np.where(diff_norm < 1e-15, 1.0, diff_norm)
+            unit_diff = diff / diff_norm_safe
+            fallback_normals = self.face_normals[tids] if self.inside_is_negative else -self.face_normals[tids]
+            grad = np.where(diff_norm > 1e-12, sign[:, None] * unit_diff, fallback_normals)
+            g_len = np.linalg.norm(grad, axis=1, keepdims=True)
+            grad = grad / np.where(g_len < 1e-15, 1.0, g_len)
+            return phi, grad
+
+        # 3. Angle-Weighted Pseudonormals (Bærentzen & Aanæs 2005)
+        # Try native C-ABI kernel first
+        if self.use_native and self._native_engine:
+            dll = _get_sdf_dll()
+            if dll is not None and hasattr(dll, "cfd_sdf_evaluate"):
+                try:
+                    p_contig = np.ascontiguousarray(p, dtype=np.float64)
+                    c_points = p_contig.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                    out_phi = np.ascontiguousarray(np.empty(n_pts, dtype=np.float64))
+                    out_grad = np.ascontiguousarray(np.empty((n_pts, 3), dtype=np.float64))
+                    res = dll.cfd_sdf_evaluate(
+                        self._native_engine,
+                        c_points,
+                        ctypes.c_int64(n_pts),
+                        out_phi.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                        out_grad.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                    )
+                    if res == 0:
+                        if not self.inside_is_negative:
+                            out_phi = -out_phi
+                            out_grad = -out_grad
+                        return out_phi, out_grad
+                except Exception:
+                    pass
+
+        # Pure-Python AABB tree + Pseudonormals evaluation
+        dists, qs, tids, barys = self.aabb_tree.query(p, prev_facet=self._prev_facet_hint)
+        self._prev_facet_hint = int(tids[-1]) if n_pts > 0 else -1
+
+        # Classify closest points into vertex, edge, or interior
+        u = barys[:, 0]
+        v = barys[:, 1]
+        w = barys[:, 2]
+        eps = 1e-5
+
+        m_v0 = (u > 1.0 - 2.0 * eps)
+        m_v1 = (v > 1.0 - 2.0 * eps)
+        m_v2 = (w > 1.0 - 2.0 * eps)
+
+        not_vert = ~(m_v0 | m_v1 | m_v2)
+        m_e0 = not_vert & (w <= eps)
+        m_e1 = not_vert & (u <= eps)
+        m_e2 = not_vert & (v <= eps)
+        m_face = ~(m_v0 | m_v1 | m_v2 | m_e0 | m_e1 | m_e2)
+
+        n_pseudo = np.empty((n_pts, 3), dtype=np.float64)
+        if np.any(m_v0):
+            n_pseudo[m_v0] = self.vertex_pseudonormals[self.faces[tids[m_v0], 0]]
+        if np.any(m_v1):
+            n_pseudo[m_v1] = self.vertex_pseudonormals[self.faces[tids[m_v1], 1]]
+        if np.any(m_v2):
+            n_pseudo[m_v2] = self.vertex_pseudonormals[self.faces[tids[m_v2], 2]]
+        if np.any(m_e0):
+            n_pseudo[m_e0] = self.edge_pseudonormals[self.face_edge_map[tids[m_e0], 0]]
+        if np.any(m_e1):
+            n_pseudo[m_e1] = self.edge_pseudonormals[self.face_edge_map[tids[m_e1], 1]]
+        if np.any(m_e2):
+            n_pseudo[m_e2] = self.edge_pseudonormals[self.face_edge_map[tids[m_e2], 2]]
+        if np.any(m_face):
+            n_pseudo[m_face] = self.face_normals[tids[m_face]]
+
+        diff = p - qs
+        diff_norm = np.linalg.norm(diff, axis=1, keepdims=True)
+        diff_norm_safe = np.where(diff_norm < 1e-15, 1.0, diff_norm)
+        unit_diff = diff / diff_norm_safe
+
+        dot_val = np.sum(diff * n_pseudo, axis=1)
+        sign = np.where(dot_val >= 0.0, 1.0, -1.0)
+        if not self.inside_is_negative:
+            sign = -sign
+
+        phi = sign * dists
+        fallback_normal = n_pseudo if self.inside_is_negative else -n_pseudo
+        grad = np.where(diff_norm > 1e-12, sign[:, None] * unit_diff, fallback_normal)
+        g_len = np.linalg.norm(grad, axis=1, keepdims=True)
+        grad = grad / np.where(g_len < 1e-15, 1.0, g_len)
+        return phi, grad
+
+    def _evaluate_legacy_kdtree(self, p: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Legacy M1 centroid KDTree candidate projection for backward compatibility."""
+        n_pts = len(p)
         _, cand_idx = self.tree.query(p, k=self.k_candidates)
         if self.k_candidates == 1:
             cand_idx = cand_idx[:, None]
 
-        # Guard against cKDTree overflow on extreme coordinates (>= 1e160 or Inf)
         num_faces = len(self.tri_v0)
         cand_idx = np.clip(cand_idx, 0, num_faces - 1)
 
-        # 2. Vectorized projection of (N * k) point-triangle pairs
         p_flat = np.repeat(p, self.k_candidates, axis=0)
         idx_flat = cand_idx.flatten()
 
@@ -708,17 +1568,14 @@ class CADMeshSDF(BaseSDF):
         inside_mask = (s_param >= 0.0) & (t_param >= 0.0) & (s_param + t_param <= 1.0)
         q_inside = a_pts + s_param[:, None] * u + t_param[:, None] * v
 
-        # Edge 1: AB (t = 0)
         s1 = np.clip(d_coeff / np.maximum(a_coeff, 1e-20), 0.0, 1.0)
         q1 = a_pts + s1[:, None] * u
         d1_sq = np.sum((p_flat - q1) ** 2, axis=-1)
 
-        # Edge 2: AC (s = 0)
         t2 = np.clip(e_coeff / np.maximum(c_coeff, 1e-20), 0.0, 1.0)
         q2 = a_pts + t2[:, None] * v
         d2_sq = np.sum((p_flat - q2) ** 2, axis=-1)
 
-        # Edge 3: BC
         w_b = p_flat - b_pts
         e_bc = c_pts - b_pts
         bc_len_sq = np.sum(e_bc * e_bc, axis=-1)
@@ -736,7 +1593,6 @@ class CADMeshSDF(BaseSDF):
         q_cand = np.where(inside_mask[:, None], q_inside, q_edge)
         dist_cand_sq = np.sum((p_flat - q_cand) ** 2, axis=-1)
 
-        # 3. Reduce across k candidate triangles to identify global minimum
         dist_cand_sq = dist_cand_sq.reshape(n_pts, self.k_candidates)
         q_cand = q_cand.reshape(n_pts, self.k_candidates, 3)
         idx_cand = idx_flat.reshape(n_pts, self.k_candidates)
@@ -749,19 +1605,8 @@ class CADMeshSDF(BaseSDF):
         best_face_id = idx_cand[rows, min_k]
         unsigned_dist = np.sqrt(best_dist_sq)
 
-        # 4. Outward normal evaluation & sign determination
         best_normal = self.normals[best_face_id]
         diff = p - best_q
-
-        overflow_mask = ~np.isfinite(unsigned_dist)
-        if np.any(overflow_mask):
-            diff_sub = diff[overflow_mask]
-            diff_max = np.max(np.abs(diff_sub), axis=-1, keepdims=True)
-            diff_max_safe = np.where(diff_max < 1e-20, 1.0, diff_max)
-            scaled = diff_sub / diff_max_safe
-            sub_norm = np.squeeze(diff_max * np.sqrt(np.sum(scaled * scaled, axis=-1, keepdims=True)), axis=-1)
-            unsigned_dist[overflow_mask] = np.nan_to_num(sub_norm, nan=1e300, posinf=1e300)
-
         dot = np.sum(diff * best_normal, axis=1)
 
         sign = np.where(dot < 0.0, -1.0, 1.0)
@@ -770,7 +1615,6 @@ class CADMeshSDF(BaseSDF):
 
         phi = sign * unsigned_dist
 
-        # 5. Outward unit normal gradient
         diff_max = np.max(np.abs(diff), axis=1, keepdims=True)
         diff_max_safe = np.where(diff_max < 1e-20, 1.0, diff_max)
         scaled_diff = diff / diff_max_safe
@@ -787,9 +1631,6 @@ class CADMeshSDF(BaseSDF):
         grad_len = np.linalg.norm(grad_phi, axis=1, keepdims=True)
         grad_len[grad_len < 1e-15] = 1.0
         grad_phi = grad_phi / grad_len
-
-        if is_single:
-            return phi[0], grad_phi[0]
         return phi, grad_phi
 
     def distance(self, points: np.ndarray) -> np.ndarray:
@@ -801,6 +1642,47 @@ class CADMeshSDF(BaseSDF):
         """Evaluate continuous outward unit normal gradient."""
         _, grad_phi = self.evaluate(points)
         return grad_phi
+
+    def winding_number(self, points: np.ndarray) -> np.ndarray:
+        """Computes Generalized Winding Numbers W(x) for query points."""
+        pts = np.asarray(points, dtype=np.float64)
+        is_single = (pts.ndim == 1)
+        p = np.atleast_2d(pts)
+
+        if self.use_native and self._native_engine:
+            dll = _get_sdf_dll()
+            if dll is not None and hasattr(dll, "cfd_sdf_winding_number"):
+                try:
+                    p_contig = np.ascontiguousarray(p, dtype=np.float64)
+                    c_points = p_contig.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                    out_wn = np.ascontiguousarray(np.empty(len(p), dtype=np.float64))
+                    res = dll.cfd_sdf_winding_number(
+                        self._native_engine,
+                        c_points,
+                        ctypes.c_int64(len(p)),
+                        out_wn.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                    )
+                    if res == 0:
+                        return float(out_wn[0]) if is_single else out_wn
+                except Exception:
+                    pass
+
+        return compute_mesh_winding_number(points, self.tri_v0, self.tri_v1, self.tri_v2)
+
+    def compute_winding_numbers(self, points: np.ndarray) -> np.ndarray:
+        """Alias for winding_number."""
+        return self.winding_number(points)
+
+    def compute_voromesh_bisector_loss(
+        self,
+        seeds: np.ndarray,
+        k: int = 16,
+        seed_signs: Optional[np.ndarray] = None,
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """Compute VoroMesh bisector loss from mesh vertices to seed generators."""
+        return voromesh_bisector_loss(
+            self.vertices, seeds, k=k, seed_signs=seed_signs, use_native=self.use_native
+        )
 
     def project_to_boundary(
         self, points: np.ndarray, max_iter: int = 5, eps: float = 1e-6, tol: float = 1e-10
@@ -814,6 +1696,12 @@ class CADMeshSDF(BaseSDF):
         else:
             proj = pts - phi[:, None] * grad
         return proj
+
+    def project(
+        self, points: np.ndarray, max_iter: int = 5, eps: float = 1e-6, tol: float = 1e-10
+    ) -> np.ndarray:
+        """Alias for project_to_boundary."""
+        return self.project_to_boundary(points, max_iter=max_iter, eps=eps, tol=tol)
 
     def project_to_surface(self, points: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Project query points onto the zero level set surface and return (proj, phi)."""
@@ -829,6 +1717,7 @@ class CADMeshSDF(BaseSDF):
     def get_bounding_box(self) -> BoundingBox:
         """Compute spatial bounding box enclosing the surface mesh."""
         return BoundingBox.from_points(self.vertices)
+
 
 
 # ==============================================================================

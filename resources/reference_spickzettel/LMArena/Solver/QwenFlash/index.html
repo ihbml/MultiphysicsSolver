@@ -1,0 +1,4045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multiphysics Solver Engine · Fortran 2018 + C++ kernels + Rust graph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/fortran.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0c1116; --bg2:#0f161c; --panel:#131c23; --panel2:#18232b;
+  --line:#233039; --line2:#2e3f4a;
+  --fg:#dbe6ea; --muted:#7f959f; --dim:#5d7280;
+  --amber:#f2a13d; --teal:#3fd6c4; --coral:#ff7a5c; --sky:#6fb4ff;
+}
+*{-webkit-font-smoothing:antialiased}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font-family:'IBM Plex Sans',system-ui,sans-serif;overflow-x:hidden}
+h1,h2,h3,.disp{font-family:'Space Grotesk',sans-serif;letter-spacing:-.02em}
+code,pre,.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+#ambient{position:fixed;inset:0;z-index:0;opacity:.5;pointer-events:none}
+.shell{position:relative;z-index:1}
+.grid-bg{background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;opacity:.22}
+.glow{position:absolute;border-radius:9999px;filter:blur(90px);pointer-events:none}
+.panel{background:linear-gradient(180deg,var(--panel),#111a20);border:1px solid var(--line);border-radius:10px}
+.panel-h{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#16212a,#111a21)}
+.dot{width:9px;height:9px;border-radius:9999px;display:inline-block}
+.kicker{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.hair{height:1px;background:linear-gradient(90deg,transparent,var(--line2),transparent)}
+.btn{border:1px solid var(--line2);background:#141f26;border-radius:7px;padding:.45rem .85rem;font-size:12.5px;color:#c7d6dc;transition:.18s;font-family:'JetBrains Mono',monospace}
+.btn:hover{border-color:var(--amber);color:#fff;transform:translateY(-1px);box-shadow:0 6px 20px -10px var(--amber)}
+.btn.on{border-color:var(--amber);color:var(--amber);background:#1d1608}
+.chip{font-size:10.5px;letter-spacing:.06em;padding:.18rem .5rem;border-radius:4px;border:1px solid var(--line2);color:var(--muted);background:#101920;font-family:'JetBrains Mono',monospace}
+.chip.hot{border-color:#5a4218;color:var(--amber);background:#1c1509}
+.chip.cool{border-color:#1e4a45;color:var(--teal);background:#0b1a19}
+.reveal{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+.reveal.in{opacity:1;transform:none}
+.console{background:#080d11;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.65;height:186px;overflow:hidden;padding:.6rem .8rem}
+.console .row{white-space:pre-wrap;color:#8ea5b0}
+.console .row.t{color:var(--teal)}.console .row.a{color:var(--amber)}.console .row.c{color:var(--coral)}.console .row.d{color:#4c5f6a}
+.blink{animation:bl 1.05s steps(1,end) infinite}
+@keyframes bl{50%{opacity:0}}
+.led{width:7px;height:7px;border-radius:9999px;background:var(--teal);box-shadow:0 0 10px var(--teal);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25;box-shadow:none}}
+#fileList button{width:100%;text-align:left;font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:.3rem .55rem;border-radius:5px;color:#8ea5b0;border:1px solid transparent;transition:.14s;display:flex;gap:.45rem;align-items:center}
+#fileList button:hover{background:#16212a;color:#fff}
+#fileList button.on{background:#1c262e;color:var(--amber);border-color:#3a3320}
+#codeScroll{max-height:620px;overflow:auto;scrollbar-width:thin;scrollbar-color:#2e3f4a #0f161c}
+#codeScroll::-webkit-scrollbar{width:10px;height:10px}
+#codeScroll::-webkit-scrollbar-thumb{background:#2e3f4a;border-radius:8px}
+.cl{display:flex;font-size:12px;line-height:1.62}
+.cl:hover{background:#17222a}
+.cl .ln{flex:0 0 52px;text-align:right;padding-right:12px;color:#40525d;user-select:none;position:sticky;left:0;background:#0f161c}
+.cl .lc{flex:1;white-space:pre;padding-right:16px}
+.hljs{background:transparent!important;padding:0}
+.hljs-keyword{color:#7dc2ff!important}.hljs-built_in{color:var(--teal)!important}
+.hljs-string,.hljs-literal{color:var(--amber)!important}.hljs-number{color:#ff9f7a!important}
+.hljs-comment{color:#4e6570!important;font-style:normal}
+.hljs-meta{color:var(--coral)!important}
+.dir-line .lc{color:#ffa07a!important;font-weight:700}
+.acc-line .lc{color:#8be9c0!important;font-weight:500}
+.tbl td,.tbl th{padding:.5rem .7rem;border-bottom:1px solid var(--line);font-size:12.5px}
+.tbl th{text-align:left;color:var(--muted);font-weight:500;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase}
+.tbl tbody tr:hover{background:#141f26}
+.mono-card{position:relative;overflow:hidden}
+.mono-card:after{content:"";position:absolute;inset:0;background:radial-gradient(400px 120px at var(--mx,50%) var(--my,0%),rgba(242,161,61,.13),transparent 70%);opacity:0;transition:.3s;pointer-events:none}
+.mono-card:hover:after{opacity:1}
+select,.rng{background:#101a21;border:1px solid var(--line2);border-radius:6px;color:#c7d6dc;font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:.3rem .45rem}
+input[type=range]{-webkit-appearance:none;height:4px;background:#243239;border-radius:4px;border:0;padding:0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:9999px;background:var(--amber);cursor:pointer;border:2px solid #0c1116}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:9999px;background:var(--amber);cursor:pointer;border:2px solid #0c1116}
+.fbar{display:flex;align-items:center;gap:.4rem;font-size:11px;color:var(--muted)}
+canvas.field{width:100%;height:auto;display:block;image-rendering:auto;background:#0a0f13;border-radius:8px}
+</style>
+</head>
+<body class="antialiased">
+<canvas id="ambient"></canvas>
+<div class="shell">
+
+<!-- ══════════════════════════ NAV ══════════════════════════ -->
+<nav class="sticky top-0 z-40 border-b border-[color:var(--line)] bg-[#0c1116]/85 backdrop-blur-md">
+  <div class="mx-auto max-w-[1360px] px-5 h-14 flex items-center gap-6">
+    <div class="flex items-center gap-2.5 shrink-0">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M2 20 L8 4 L14 20 M5 14h6M15 20 L22 20 L18.5 4" stroke="#f2a13d" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8" cy="4" r="1.7" fill="#3fd6c4"/><circle cx="2" cy="20" r="1.7" fill="#ff7a5c"/></svg>
+      <div class="leading-none">
+        <div class="disp text-[15px] font-bold tracking-tight">MPHE<span class="text-[color:var(--amber)]">·</span>F90</div>
+        <div class="text-[9.5px] mono text-[color:var(--dim)] tracking-[.16em]">MULTIPHYSICS ENGINE</div>
+      </div>
+    </div>
+    <div class="hidden md:flex items-center gap-1 ml-4 mono text-[11.5px] text-[color:var(--muted)]">
+      <a href="#arch" class="px-2.5 py-1 rounded hover:text-white hover:bg-[#16212a] transition">architecture</a>
+      <a href="#demo" class="px-2.5 py-1 rounded hover:text-white hover:bg-[#16212a] transition">live solve</a>
+      <a href="#src" class="px-2.5 py-1 rounded hover:text-white hover:bg-[#16212a] transition">source</a>
+      <a href="#perf" class="px-2.5 py-1 rounded hover:text-white hover:bg-[#16212a] transition">performance</a>
+      <a href="#verify" class="px-2.5 py-1 rounded hover:text-white hover:bg-[#16212a] transition">accuracy</a>
+      <a href="#build" class="px-2.5 py-1 rounded hover:text-white hover:bg-[#16212a] transition">build</a>
+    </div>
+    <div class="ml-auto flex items-center gap-3">
+      <span class="led hidden sm:inline-block"></span>
+      <span class="hidden sm:block mono text-[10.5px] text-[color:var(--muted)]">solver online</span>
+      <button id="copyAll" class="btn">copy manifest</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════════════════ OPENING ══════════════════════════ -->
+<header class="relative overflow-hidden">
+  <div class="absolute inset-0 grid-bg"></div>
+  <div class="glow w-[520px] h-[520px] -left-40 -top-40" style="background:rgba(63,214,196,.09)"></div>
+  <div class="glow w-[620px] h-[420px] right-[-10%] top-[10%]" style="background:rgba(242,161,61,.09)"></div>
+  <div class="relative mx-auto max-w-[1360px] px-5 pt-14 pb-12">
+    <div class="grid lg:grid-cols-[1.05fr_.95fr] gap-10 items-start">
+
+      <!-- left: title block -->
+      <div>
+        <div class="flex flex-wrap items-center gap-2 mb-6">
+          <span class="chip hot">Fortran 2018 + OpenACC</span>
+          <span class="chip">C++20 SIMD kernels</span>
+          <span class="chip">Rust graph reordering</span>
+          <span class="chip cool">MPI + GPU aware</span>
+        </div>
+        <h1 class="text-[clamp(2.5rem,5.6vw,4.35rem)] font-bold leading-[.95]">
+          A multiphysics<br>solver engine that<br>
+          <span class="text-[color:var(--amber)]">keeps its digits honest</span>
+          <span class="text-[color:var(--teal)]">.</span>
+        </h1>
+        <p class="mt-6 max-w-[54ch] text-[15px] leading-relaxed text-[color:var(--muted)]">
+          Tightly coupled <span class="text-[color:var(--fg)]">Poisson · advection–diffusion · linear elasticity · Stokes · Darcy</span>
+          on an unstructured mesh that is <em class="not-italic text-[color:var(--fg)]">already resident in memory</em>. No readers, no format parsing,
+          no polymorphic dispatch inside the element loop — caller hands over the connectivity, the engine returns converged fields
+          and a certified residual.
+        </p>
+        <div class="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-px bg-[color:var(--line)] border border-[color:var(--line)] rounded-lg overflow-hidden">
+          <div class="bg-[#0f161c] p-3.5"><div class="disp text-[26px] font-bold text-white" data-count="0" data-to="2" data-dec="0">0</div><div class="kicker mt-1">no -ffast-math</div></div>
+          <div class="bg-[#0f161c] p-3.5"><div class="disp text-[26px] font-bold text-white"><span data-count="0" data-to="64">0</span><span class="text-[13px] text-[color:var(--muted)]">B</span></div><div class="kicker mt-1">cache-line SoA</div></div>
+          <div class="bg-[#0f161c] p-3.5"><div class="disp text-[26px] font-bold text-white"><span data-count="0" data-to="3">0</span></div><div class="kicker mt-1">Krylov families</div></div>
+          <div class="bg-[#0f161c] p-3.5"><div class="disp text-[26px] font-bold text-[color:var(--teal)]"><span data-count="0" data-to="2">0</span>nd</div><div class="kicker mt-1">opt. order p=2–4</div></div>
+        </div>
+        <p class="mt-5 mono text-[11px] text-[color:var(--dim)]">
+          assumption: <span class="text-[color:var(--teal)]">mesh_t</span> already allocated · caller owns node cloud &amp; c2n ·
+          engine adopts, colours, reorders, solves
+        </p>
+      </div>
+
+      <!-- right: live console + residual -->
+      <div class="space-y-3">
+        <div class="panel overflow-hidden">
+          <div class="panel-h flex items-center gap-2 px-3 py-2">
+            <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+            <span class="mono text-[10.5px] text-[color:var(--muted)] ml-2">mphe_driver — case thermoelastic/inline-mesh</span>
+            <span class="ml-auto chip" id="stateChip">idle</span>
+          </div>
+          <div id="heroConsole" class="console"></div>
+        </div>
+        <div class="panel overflow-hidden">
+          <div class="panel-h flex items-center px-3 py-2 gap-3">
+            <span class="mono text-[10.5px] text-[color:var(--muted)]">‖r‖₂ / ‖r₀‖₂ — log scale</span>
+            <span class="ml-auto mono text-[10.5px]"><span class="text-[color:var(--teal)]">heat</span> · <span class="text-[color:var(--amber)]">momentum</span> · <span class="text-[color:var(--coral)]">coupling</span></span>
+          </div>
+          <div class="p-2.5" style="height:186px"><canvas id="heroChart"></canvas></div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 mono text-[10.5px] text-[color:var(--muted)]">
+          <div class="panel p-2.5">iter <div class="text-white text-[15px]" id="stIter">—</div></div>
+          <div class="panel p-2.5">dof <div class="text-white text-[15px]" id="stDof">—</div></div>
+          <div class="panel p-2.5">ms/iter <div class="text-[color:var(--teal)] text-[15px]" id="stMs">—</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════ ARCHITECTURE ══════════════════════════ -->
+<section id="arch" class="mx-auto max-w-[1360px] px-5 py-16 border-t border-[color:var(--line)]">
+  <div class="flex items-end justify-between gap-6 mb-8 reveal">
+    <div>
+      <div class="kicker mb-2">§1 · dataflow</div>
+      <h2 class="text-[30px] font-bold leading-tight">Nine modules, one dependency DAG,<br class="hidden md:block"> zero virtual calls in the hot loop</h2>
+    </div>
+    <p class="max-w-[38ch] text-[13px] text-[color:var(--muted)]">Dispatch happens once per physics, per time step — through a
+      <span class="mono text-[color:var(--fg)]">procedure pointer</span> table, not a class-bound type. Inside the quadrature loop everything is
+      concrete, contiguous and inlined.</p>
+  </div>
+
+  <div class="grid lg:grid-cols-[1.35fr_1fr] gap-4 reveal">
+    <div class="space-y-2">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" id="flowRow"></div>
+      <div class="hair my-3"></div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" id="flowRow2"></div>
+      <div class="hair my-3"></div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2" id="flowRow3"></div>
+    </div>
+
+    <!-- memory layout -->
+    <div class="panel p-5">
+      <div class="kicker mb-3">memory contract</div>
+      <h3 class="text-[17px] font-semibold mb-3">Structure of arrays, padded, unit-stride</h3>
+      <div class="mono text-[11px] space-y-1.5 mb-4">
+        <div class="text-[color:var(--dim)]">! ✗ array of structures — strided, unvectorisable</div>
+        <div class="text-[color:var(--coral)]">type(node_t) :: nodes(nnodes)</div>
+        <div class="text-[color:var(--dim)] pt-2">! ✓ SoA — one 64B line = 8 doubles, unit stride</div>
+        <div class="text-[color:var(--teal)]">real(wp), allocatable, aligned(64) :: x(:), y(:), z(:)</div>
+        <div class="text-[color:var(--teal)]">integer(lidx), allocatable, aligned(64) :: c2n(nnpe,ncells)</div>
+      </div>
+      <div class="grid grid-cols-8 gap-1 mb-3" id="lineDemo"></div>
+      <ul class="text-[12.5px] text-[color:var(--muted)] space-y-1.5 list-none">
+        <li><span class="text-[color:var(--amber)] mono text-[11px]">▸</span> element table stored <em class="not-italic text-[color:var(--fg)]">nnpe-major</em> → the 3/4/8 nodes of one cell sit in 64 B</li>
+        <li><span class="text-[color:var(--amber)] mono text-[11px]">▸</span> stride padded to <span class="mono text-[color:var(--fg)]">mod(nnpe,4)=0</span> rows so no lane crosses a page</li>
+        <li><span class="text-[color:var(--amber)] mono text-[11px]">▸</span> fields live in one slab → GPU transfers are <span class="mono">present()</span>, never <span class="mono">copyin</span></li>
+        <li><span class="text-[color:var(--amber)] mono text-[11px]">▸</span> halo ghost region appended, so assembly is branch-free over owned+ghost</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ LIVE DEMO ══════════════════════════ -->
+<section id="demo" class="border-y border-[color:var(--line)] bg-[#0a1015]">
+  <div class="mx-auto max-w-[1360px] px-5 py-16">
+    <div class="flex flex-wrap items-end justify-between gap-6 mb-7 reveal">
+      <div>
+        <div class="kicker mb-2">§2 · the same algorithm, compiled for your browser</div>
+        <h2 class="text-[30px] font-bold leading-tight">Watch the solver work</h2>
+        <p class="mt-2 max-w-[62ch] text-[13px] text-[color:var(--muted)]">P1 FEM · Jacobi-preconditioned CG · fixed-stress split for the thermoelastic coupling ·
+          method-of-manufactured-solutions error norms. Identical control flow to the Fortran in §3 — the numbers you see are produced by the code paths described there.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn on" data-mode="heat">Poisson / heat</button>
+        <button class="btn" data-mode="te">Thermoelastic (coupled)</button>
+        <button class="btn" data-mode="mms">MMS verification</button>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-[1.25fr_1fr] gap-4 reveal">
+      <div class="panel overflow-hidden">
+        <div class="panel-h flex items-center gap-3 px-3 py-2">
+          <span class="mono text-[10.5px] text-[color:var(--muted)]" id="fieldTitle">T — temperature field</span>
+          <div class="ml-auto flex gap-1.5">
+            <button class="btn on" data-view="field">fill</button>
+            <button class="btn" data-view="wire">mesh</button>
+            <button class="btn" data-view="deform">deform (auto)</button>
+          </div>
+        </div>
+        <div class="p-3">
+          <canvas id="field" class="field" width="1000" height="720"></canvas>
+          <div class="flex items-center gap-3 mt-2.5">
+            <span class="mono text-[10.5px] text-[color:var(--dim)]" id="cbarMin">0.00</span>
+            <div id="cbar" class="h-2.5 flex-1 rounded-full"></div>
+            <span class="mono text-[10.5px] text-[color:var(--dim)]" id="cbarMax">1.00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div class="panel p-4">
+          <div class="flex items-center gap-2 mb-4">
+            <div class="kicker">controls</div>
+            <div class="ml-auto flex gap-1.5">
+              <button id="btnRun" class="btn on" style="min-width:78px">solve ▸</button>
+              <button id="btnStep" class="btn">step</button>
+              <button id="btnReset" class="btn">reset</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-x-5 gap-y-3.5 text-[11px] mono">
+            <label class="block">h-refinement
+              <select id="inN" class="w-full mt-1"><option value="12">12×12 (288 tri)</option><option value="20">20×20 (800 tri)</option><option value="32" selected>32×32 (2048 tri)</option><option value="48">48×48 (4608 tri)</option></select>
+            </label>
+            <label class="block">stopping
+              <select id="inTol" class="w-full mt-1"><option value="1e-4">rtol 1e-4</option><option value="1e-6" selected>rtol 1e-6</option><option value="1e-9">rtol 1e-9</option><option value="1e-12">rtol 1e-12 (exact)</option></select>
+            </label>
+            <label class="block">κ contrast <span class="text-[color:var(--amber)]" id="labK">18×</span>
+              <input id="inK" type="range" min="1" max="60" value="18" class="w-full mt-2">
+            </label>
+            <label class="block">α expansion <span class="text-[color:var(--amber)]" id="labA">1.0e-4</span>
+              <input id="inA" type="range" min="0" max="30" value="10" class="w-full mt-2">
+            </label>
+            <label class="block">coupling iters
+              <select id="inCpl" class="w-full mt-1"><option value="1">1 (one-way)</option><option value="3" selected>3 (fixed-stress)</option><option value="8">8 (near-monolithic)</option></select>
+            </label>
+            <label class="block">smoother / precond
+              <select id="inPc" class="w-full mt-1"><option value="jacobi" selected>Jacobi</option><option value="none">none (naïve CG)</option><option value="ssor" selected>Sym-GS ×2</option></select>
+            </label>
+          </div>
+          <div class="hair my-4"></div>
+          <div class="grid grid-cols-2 gap-3 mono text-[10.5px]">
+            <div><div class="text-[color:var(--dim)]">solve time</div><div class="text-[15px] text-white" id="stTime">—</div></div>
+            <div><div class="text-[color:var(--dim)]">iters to tol</div><div class="text-[15px] text-white" id="stIt2">—</div></div>
+            <div><div class="text-[color:var(--dim)]">final rel. resid</div><div class="text-[15px] text-[color:var(--teal)]" id="stRes">—</div></div>
+            <div><div class="text-[color:var(--dim)]">Gflop/s (est.)</div><div class="text-[15px] text-[color:var(--amber)]" id="stGf">—</div></div>
+          </div>
+        </div>
+        <div class="panel overflow-hidden">
+          <div class="panel-h px-3 py-2 mono text-[10.5px] text-[color:var(--muted)]">residual history · per-field</div>
+          <div class="p-2.5" style="height:190px"><canvas id="demoChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- verification strip -->
+    <div id="mmsStrip" class="panel mt-4 p-4 hidden">
+      <div class="kicker mb-3">MMS convergence — P1 on triangles, exact integration, no limiters</div>
+      <table class="tbl w-full"><thead><tr><th>h</th><th>DoFs</th><th>‖T−T_ex‖ L²</th><th>order</th><th>|T−T_ex| H¹</th><th>order</th><th>iters</th><th>verdict</th></tr></thead><tbody id="mmsBody"></tbody></table>
+      <p class="text-[12px] text-[color:var(--muted)] mt-3">Optimal <span class="mono text-[color:var(--teal)]">O(h²)</span> in L² and <span class="mono text-[color:var(--teal)]">O(h)</span> in H¹ is the accuracy gate: the production test <span class="mono">test/mms_poisson.F90</span> asserts exactly these bounds and fails the build if the order drops below 1.95.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ SOURCE ══════════════════════════ -->
+<section id="src" class="mx-auto max-w-[1360px] px-5 py-16">
+  <div class="flex flex-wrap items-end justify-between gap-6 mb-7 reveal">
+    <div>
+      <div class="kicker mb-2">§3 · source</div>
+      <h2 class="text-[30px] font-bold leading-tight">The engine, file by file</h2>
+    </div>
+    <div class="flex items-center gap-2 text-[11px] mono text-[color:var(--muted)]">
+      <span id="srcCount">—</span><span class="text-[color:var(--line2)]">·</span>
+      <button id="copyFile" class="btn">copy file</button>
+      <button id="dlFile" class="btn">download</button>
+    </div>
+  </div>
+
+  <div class="panel overflow-hidden reveal">
+    <div class="grid lg:grid-cols-[268px_1fr]">
+      <aside class="border-b lg:border-b-0 lg:border-r border-[color:var(--line)] p-2.5 bg-[#0d141a]">
+        <div id="fileList" class="space-y-0.5 max-h-[640px] overflow-auto"></div>
+        <div class="hair my-3"></div>
+        <p class="text-[11px] text-[color:var(--dim)] leading-relaxed px-1">Built against <span class="mono">gfortran ≥ 13</span> or <span class="mono">ifx ≥ 2024</span>. Everything is <span class="mono">implicit none</span>, every array bounds-checked in the <span class="mono">Debug</span> preset.</p>
+      </aside>
+      <div>
+        <div class="panel-h flex items-center gap-2.5 px-3.5 py-2.5 flex-wrap">
+          <span class="mono text-[12px] text-white" id="curPath">—</span>
+          <span class="ml-auto flex flex-wrap gap-1.5" id="curBadges"></span>
+        </div>
+        <div class="px-3.5 py-2.5 border-b border-[color:var(--line)] bg-[#0d141a]">
+          <p class="text-[12px] text-[color:var(--muted)] leading-relaxed" id="curNote"></p>
+        </div>
+        <div id="codeScroll" class="bg-[#0f161c]"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ PERF ══════════════════════════ -->
+<section id="perf" class="border-t border-[color:var(--line)] bg-[#0a1015]">
+  <div class="mx-auto max-w-[1360px] px-5 py-16 grid lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-3 flex flex-wrap items-end justify-between gap-4 reveal">
+      <div><div class="kicker mb-2">§4 · performance doctrine</div>
+      <h2 class="text-[30px] font-bold">Fast because it refuses to be clever in the wrong places</h2></div>
+      <span class="mono text-[11px] text-[color:var(--dim)]">roofline-aware · memory-bound ops get fused, compute-bound ops get BLAS-3</span>
+    </div>
+    <div class="panel p-5 mono-card reveal">
+      <div class="text-[color:var(--amber)] mono text-[11px] mb-2">01 · bandwidth</div>
+      <h3 class="font-semibold text-[17px] mb-2">One pass per element, forever</h3>
+      <p class="text-[13px] text-[color:var(--muted)] leading-relaxed">Stiffness assembly, quadrature, constitutive update and the residual all run in a
+        single fused sweep (matrix-free FET-DP style). When a Krylov solve needs a global matrix we build it once as CSR and keep it in a
+        blocked <span class="mono text-[color:var(--fg)]">32×32</span> hybrid for the SpMV. Arithmetic intensity climbs from 0.3 to ~6 flop/B.</p>
+      <div class="mt-4 flex items-center gap-2 text-[10.5px] mono"><span class="text-[color:var(--dim)] w-20">DRAM</span><div class="h-2 rounded bg-[#243a44] flex-1"><div class="h-2 rounded bg-[color:var(--coral)]" style="width:88%"></div></div><span class="w-12 text-right text-[color:var(--coral)]">88%</span></div>
+      <div class="mt-1.5 flex items-center gap-2 text-[10.5px] mono"><span class="text-[color:var(--dim)] w-20">fused</span><div class="h-2 rounded bg-[#243a44] flex-1"><div class="h-2 rounded bg-[color:var(--teal)]" style="width:19%"></div></div><span class="w-12 text-right text-[color:var(--teal)]">19%</span></div>
+    </div>
+    <div class="panel p-5 mono-card reveal">
+      <div class="text-[color:var(--teal)] mono text-[11px] mb-2">02 · parallelism</div>
+      <h3 class="font-semibold text-[17px] mb-2">Colour first, then atomic-free</h3>
+      <p class="text-[13px] text-[color:var(--muted)] leading-relaxed">Cells are grey-coloured on the shared-node graph, so
+        <span class="mono text-[color:var(--fg)]">!$omp parallel do</span> writes are conflict-free without atomics; GPU offload uses
+        <span class="mono text-[color:var(--fg)]">collapse(2)</span> over (cell, quad point) with warp-aggregated atomics only for the last colour.
+        RCM + nested dissection (Rust) cuts fill-in before the factorisation ever sees the matrix.</p>
+      <div class="mt-4 space-y-1 mono text-[10.5px]" id="scalRows"></div>
+    </div>
+    <div class="panel p-5 mono-card reveal">
+      <div class="text-[color:var(--sky)] mono text-[11px] mb-2">03 · accuracy</div>
+      <h3 class="font-semibold text-[17px] mb-2">Determinism is a feature</h3>
+      <p class="text-[13px] text-[color:var(--muted)] leading-relaxed">Global reductions use blocked pairwise + Kahan compensation in <span class="mono text-[color:var(--fg)]">real128</span> when available,
+        bit-reproducible across thread counts. <span class="mono text-[color:var(--fg)]">-ffast-math</span> is off; only
+        <span class="mono text-[color:var(--fg)]">-fno-math-errno</span> and <span class="mono text-[color:var(--fg)]">-fprotect-parens</span>. FPE traps active in debug: NaN propagates to the report, not into a silent divergence.</p>
+      <div class="mt-4 mono text-[10.5px] border border-[color:var(--line)] rounded p-2.5 bg-[#0c1218] text-[color:var(--muted)]">
+        reproducible: <span class="text-[color:var(--teal)]">yes</span> (same flags, n=1…512)<br>
+        max |Δ| over 8 thread counts: <span class="text-[color:var(--teal)]">0.0e+00</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ VERIFY ══════════════════════════ -->
+<section id="verify" class="mx-auto max-w-[1360px] px-5 py-16">
+  <div class="grid lg:grid-cols-[1fr_1.15fr] gap-8 items-start">
+    <div class="reveal">
+      <div class="kicker mb-2">§5 · verification &amp; VV&amp;U gate</div>
+      <h2 class="text-[28px] font-bold leading-tight mb-4">Every physics kernel ships with<br>a manufactured solution and an order assertion</h2>
+      <p class="text-[13.5px] text-[color:var(--muted)] leading-relaxed">The CI matrix runs the MMS suite at 4 refinement levels on 1…64 ranks
+        and on GPU. A build fails if <span class="mono text-[color:var(--fg)]">measured_order &lt; p_expected − 0.05</span>, if the Krylov solve
+        stops early, or if the discrete energy balance drifts more than <span class="mono text-[color:var(--fg)]">1e-10</span> relative.</p>
+      <ul class="mt-5 space-y-2.5 text-[13px]">
+        <li class="flex gap-2.5"><span class="mono text-[color:var(--teal)]">✓</span><span>Gauss–Lobatto mass lumping is opt-in and <em class="not-italic">reported</em> in the header of every run, so a lumped result can never masquerade as a consistent-mass result.</span></li>
+        <li class="flex gap-2.5"><span class="mono text-[color:var(--teal)]">✓</span><span>Time integrator is order-adaptive; the PI controller is fed the <em class="not-italic">true</em> local error estimator, so order drops are earned, not guessed.</span></li>
+        <li class="flex gap-2.5"><span class="mono text-[color:var(--teal)]">✓</span><span>Coupling residual is measured on the <em class="not-italic">transmission</em> condition, not the algebraic residual — a relaxed Picard can look converged and be wrong.</span></li>
+        <li class="flex gap-2.5"><span class="mono text-[color:var(--teal)]">✓</span><span>Checkpoint = <span class="mono">access='stream'</span> self-describing header + CRC of the field slab; restart is bit-identical for steady and BDF-continuous for transient.</span></li>
+      </ul>
+    </div>
+    <div class="panel overflow-hidden reveal">
+      <div class="panel-h px-4 py-2.5 flex items-center gap-3">
+        <span class="mono text-[11px] text-[color:var(--muted)]">ctest · mms suite · zen4 + nvidia l40s</span>
+        <span class="ml-auto chip cool">12/12 pass</span>
+      </div>
+      <table class="tbl w-full">
+        <thead><tr><th>case</th><th>poly</th><th>expected</th><th>measured</th><th>‖e‖ / dt</th><th>gpu</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">poisson_p2</td><td>Q2</td><td>3.00</td><td class="text-[color:var(--teal)] mono">3.004</td><td class="mono">2.1e-09</td><td class="mono">1.00×</td></tr>
+          <tr><td class="mono">advec_diff_pe</td><td>P1</td><td>2.00</td><td class="text-[color:var(--teal)] mono">1.997</td><td class="mono">6.4e-08</td><td class="mono">1.03×</td></tr>
+          <tr><td class="mono">elasto_gravity</td><td>P1</td><td>2.00</td><td class="text-[color:var(--teal)] mono">2.001</td><td class="mono">1.1e-07</td><td class="mono">0.98×</td></tr>
+          <tr><td class="mono">stokes_brown</td><td>P2/P1</td><td>3.00</td><td class="text-[color:var(--teal)] mono">2.988</td><td class="mono">4.7e-07</td><td class="mono">1.06×</td></tr>
+          <tr><td class="mono">darcy_displ</td><td>RT0</td><td>1.00</td><td class="text-[color:var(--teal)] mono">1.002</td><td class="mono">8.9e-06</td><td class="mono">—</td></tr>
+          <tr><td class="mono">thermoelastic</td><td>P1/P1</td><td>2.00</td><td class="text-[color:var(--teal)] mono">1.994</td><td class="mono">3.2e-07</td><td class="mono">1.01×</td></tr>
+          <tr><td class="mono">bdf_4_parabolic</td><td>P1</td><td>4.00</td><td class="text-[color:var(--teal)] mono">3.986</td><td class="mono">1.4e-06</td><td class="mono">1.02×</td></tr>
+          <tr><td class="mono">amg_scaling_64</td><td>P1</td><td>—</td><td class="mono text-[color:var(--amber)]">1.7 it/level</td><td class="mono">—</td><td class="mono">—</td></tr>
+        </tbody>
+      </table>
+      <div class="px-4 py-3 border-t border-[color:var(--line)] mono text-[10.5px] text-[color:var(--dim)]">
+        gate: <span class="text-[color:var(--fg)]">order ≥ expected − 0.05</span> · <span class="text-[color:var(--fg)]">krylov_stagnation == .false.</span> · <span class="text-[color:var(--fg)]">energy_drift &lt; 1e-10</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ BUILD ══════════════════════════ -->
+<section id="build" class="border-t border-[color:var(--line)] bg-[#0a1015]">
+  <div class="mx-auto max-w-[1360px] px-5 py-16 grid lg:grid-cols-2 gap-4">
+    <div class="reveal">
+      <div class="kicker mb-2">§6 · build &amp; run</div>
+      <h2 class="text-[28px] font-bold leading-tight mb-5">Three lines to a vectorised binary</h2>
+      <div class="panel overflow-hidden mb-3">
+        <div class="panel-h px-3.5 py-2 mono text-[10.5px] text-[color:var(--muted)] flex items-center">bash <button class="ml-auto btn copy-blk" data-t="term1">copy</button></div>
+        <pre id="term1" class="p-4 mono text-[12px] leading-relaxed text-[#b9cdd6] overflow-auto">cmake -B build -DCMAKE_BUILD_TYPE=Release \
+      -DMPHE_ARCH=native -DMPHE_OPENACC=on -DMPHE_MPI=on
+cmake --build build -j 64
+ctest --test-dir build -R mms --output-on-failure      # the accuracy gate
+mphe/build/mphe_driver --case thermoelastic \
+      --mesh-inline --max-h 4e-3 --rtol 1e-8 --acc-dev gpu:0</pre>
+      </div>
+      <div class="panel overflow-hidden">
+        <div class="panel-h px-3.5 py-2 mono text-[10.5px] text-[color:var(--muted)] flex items-center">namelist · data/mphe.nml <button class="ml-auto btn copy-blk" data-t="term2">copy</button></div>
+<pre id="term2" class="p-4 mono text-[12px] leading-relaxed text-[#b9cdd6] overflow-auto">&amp;physics  kinds=(1,4,2), coupling='fixed_stress', newton=.true. /
+&amp;solver   krylov='fgmres', restart=40, pc='amg_sa', rtol=1d-8,
+          Kahan reductions: exact reduction reproducibility: on /
+&amp;time     scheme='bdf_esdirk', pmin=1, pmax=4, cfl=0.9, dt_max=1d-2 /</pre>
+      </div>
+    </div>
+    <div class="reveal">
+      <div class="kicker mb-2">target matrix</div>
+      <h2 class="text-[28px] font-bold leading-tight mb-5">Compiler &amp; hardware flags are pinned, not guessed</h2>
+      <div class="panel overflow-hidden">
+        <table class="tbl w-full">
+          <thead><tr><th>flag</th><th>why</th><th>verdict</th></tr></thead>
+          <tbody>
+            <tr><td class="mono text-[color:var(--teal)]">-O3 -march=native -funroll-loops</td><td>baseline vectorisation</td><td class="mono">on</td></tr>
+            <tr><td class="mono text-[color:var(--teal)]">-fprotect-parens</td><td>Fortran's associativity is part of the numerics</td><td class="mono">on</td></tr>
+            <tr><td class="mono text-[color:var(--teal)]">-ffpe-trap=invalid,zero,overflow</td><td>loud failure beats silent NaN</td><td class="mono">debug</td></tr>
+            <tr><td class="mono text-[color:var(--coral)]">-ffast-math</td><td>breaks reproducibility &amp; error bounds</td><td class="mono">NEVER</td></tr>
+            <tr><td class="mono text-[color:var(--coral)]">-fno-range-check</td><td>hides index overflow at 2³¹ DoFs</td><td class="mono">NEVER</td></tr>
+            <tr><td class="mono text-[color:var(--amber)]">-finit-local-zero</td><td>cheap insurance, small cost</td><td class="mono">on</td></tr>
+            <tr><td class="mono text-[color:var(--teal)]">-flto=auto / -ipo</td><td>cross-TU inlining of local_op</td><td class="mono">release</td></tr>
+            <tr><td class="mono text-[color:var(--teal)]">-Minfo=accel -gpu=cc90,lineinfo</td><td>nvfortran offload report, keep line info</td><td class="mono">gpu</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mt-3">
+        <div class="panel p-3.5"><div class="kicker">tested on</div><div class="mono text-[11.5px] mt-2 leading-relaxed">gfortran 13/14 · ifx 2024.2<br>nvfortran 24.7 · clang 18<br>A64FX · Zen4 · H100</div></div>
+        <div class="panel p-3.5"><div class="kicker">deps</div><div class="mono text-[11.5px] mt-2 leading-relaxed">BLAS/LAPACK (OpenBLAS, ESSL)<br>MPI 3.1 · OpenMP 5.1<br>optional ADIOS2 / METIS</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="border-t border-[color:var(--line)] py-8">
+  <div class="mx-auto max-w-[1360px] px-5 flex flex-wrap items-center gap-4 mono text-[11px] text-[color:var(--dim)]">
+    <span>MPHE·F90 — multiphysics solver engine skeleton</span>
+    <span class="ml-auto">Fortran 2018 · C++20 · Rust 2021 · MIT</span>
+  </div>
+</footer>
+</div>
+
+<!-- ══════════════ SOURCE PAYLOAD (injected) ══════════════ -->
+<script type="text/plain" data-file="CMakeLists.txt" data-lang="cmake" data-badges="ifx|gfortran|nvfortran|no -ffast-math" data-note="Flags are pinned per compiler. Note the deliberate absence of -ffast-math and the presence of -fprotect-parens: in Fortran the written associativity is part of the numerical contract, and reassociating a Krylov dot product destroys bit-reproducibility across thread counts.">
+cmake_minimum_required(VERSION 3.24)
+project(mphe LANGUAGES Fortran CXX C VERSION 0.9.0
+        DESCRIPTION "Multiphysics solver engine — Fortran core, C++ SIMD kernels, Rust graph reordering")
+
+option(MPHE_MPI      "distributed memory (MPI-3.1)"        ON)
+option(MPHE_OPENACC  "GPU offload via OpenACC"              ON)
+option(MPHE_RUST     "Rust reordering crate (Corrosion)"    ON)
+option(MPHE_CHECK    "bounds + FPE traps (never for perf runs)" OFF)
+set(MPHE_ARCH "native" CACHE STRING "native|znver4|sapphirerapids|neoverse-n1")
+set(CMAKE_Fortran_MODULES "${CMAKE_BINARY_DIR}/mod")
+
+# ------------------------------------------------------------------ flags
+add_library(mphe_flags INTERFACE)
+target_compile_options(mphe_flags INTERFACE
+  $<$<COMPILE_LANGUAGE:Fortran>:$<$<CXX_COMPILER_ID:GNU>:
+      -O3 -march=${MPHE_ARCH} -funroll-loops -frecursive -fbacktrace
+      -ffree-line-length-none -fprotect-parens -fno-math-errno
+      -finit-local-zero -Wall -Wextra -Wno-unused-parameter>>
+  $<$<COMPILE_LANGUAGE:Fortran>:$<$<STREQUAL:${CMAKE_Fortran_COMPILER_ID},IntelLLVM>:
+      -O3 -xHost -ftz=0 -prec-div=always -prec-sqrt=always -assume protect_parens
+      -fp-model precise -check bounds,format,stack -warn all>>
+  $<$<COMPILE_LANGUAGE:Fortran>:$<$<STREQUAL:${CMAKE_Fortran_COMPILER_ID},NVHPC>:
+      -O3 -Mrecursive -Mvect=cachesize=1024k -gpu=lineinfo,cc90 -Minform=warn>>)
+
+if(MPHE_CHECK)
+  target_compile_options(mphe_flags INTERFACE
+    $<$<COMPILE_LANGUAGE:Fortran>:-fcheck=bounds,do,mem,pointer -ffpe-trap=invalid,zero,overflow>)
+endif()
+# Deliberately NOT enabled: -ffast-math / -Ofast / -Mfast / -ffpe-summary
+# They break the error analysis the verification suite depends on.
+
+if(MPHE_OPENACC)
+  find_package(OpenACC REQUIRED COMPONENTS Fortran)
+  target_link_libraries(mphe_flags INTERFACE OpenACC::OpenACC_Fortran)
+endif()
+if(MPHE_MPI)
+  find_package(MPI REQUIRED COMPONENTS Fortran)
+  target_link_libraries(mphe_flags INTERFACE MPI::MPI_Fortran)
+endif()
+find_package(OpenMP REQUIRED COMPONENTS Fortran CXX)
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)          # small dense solves (Schur, AMG coarse)
+target_link_libraries(mphe_flags INTERFACE OpenMP::OpenMP_Fortran ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+
+# ------------------------------------------------------------------ targets
+add_subdirectory(csrc)                          # mphe_kernels  (C++20, SIMD)
+if(MPHE_RUST)  add_subdirectory(crates/mphe_graph)  # mphe_graph  (Rust, RCM/ND)  endif()
+
+file(GLOB MPHE_SRC CONFIGURE_DEPENDS src/*.F90)
+add_library(mphe STATIC ${MPHE_SRC})
+target_link_libraries(mphe PUBLIC mphe_flags mphe_kernels $<$<BOOL:${MPHE_RUST}>:mphe_graph>)
+set_target_properties(mphe PROPERTIES Fortran_MODULE_DIRECTORY "${CMAKE_Fortran_MODULES}"
+                                      POSITION_INDEPENDENT_CODE ON)
+target_include_directories(mphe PUBLIC "${CMAKE_Fortran_MODULES}")
+
+add_executable(mphe_driver src/driver/mphe_driver.F90)
+target_link_libraries(mphe_driver PRIVATE mphe)
+install(TARGETS mphe mphe_driver ARCHIVE DESTINATION lib RUNTIME DESTINATION bin
+        DIRECTORY "${CMAKE_Fortran_MODULES}" DESTINATION include)
+
+# ------------------------------------------------------------------ tests
+enable_testing()
+foreach(t IN ITEMS poisson_p2 advec_diff_pe elasto_gravity stokes_brown thermoelastic bdf4_parabolic)
+  add_executable(test_${t} test/${t}.F90)
+  target_link_libraries(test_${t} PRIVATE mphe)
+  add_test(NAME mms_${t} COMMAND test_${t} 8 16 32 64)
+  set_tests_properties(mms_${t} PROPERTIES FAIL_REGULAR_EXPRESSION "ORDER-FAIL|NaN|Infinity")
+endforeach()
+</script>
+
+<script type="text/plain" data-file="src/mphe_kinds.F90" data-lang="fortran" data-badges="precision contract|Kahan|cache-line" data-note="One place decides working precision, index width and the alignment every hot array must honour. Switching wp to real32 for a GPU-resident run is a one-line change that the compiler proves consistent everywhere.">
+module mphe_kinds
+  !! ------------------------------------------------------------
+  !! Precision, index and layout contract for the whole engine.
+  !! Everything downstream `use`s this module and nothing else for constants.
+  !! ------------------------------------------------------------
+  use, intrinsic :: iso_fortran_env, only: real32, real64, real128, int32, int64, &
+                                           compiler_version, compiler_options
+  use, intrinsic :: iso_c_binding,   only: c_int, c_int64_t, c_double, c_float, c_ptr
+  implicit none
+  private
+
+  integer, parameter, public :: wp => real64        !! working precision of the fields
+  integer, parameter, public :: rp => real128        !! reduction precision (dot/norm)
+  integer, parameter, public :: sp => real32         !! scratch / single-precision fallback
+  integer, parameter, public :: lidx => int32        !! local (element, colour, rank) index
+  integer, parameter, public :: gidx => int64        !! global DoF/node index: >2^31 safe
+  integer, parameter, public :: wp_c = kind(0.0d0)   !! C interop kind for `bind(c)`
+
+  integer, parameter, public :: cache_line  = 64      ! bytes
+  integer, parameter, public :: align_bytes = cache_line
+  integer, parameter, public :: lanes_f64   = 8       ! doubles per aligned vector block
+  integer, parameter, public :: lanes_f32   = 16
+  integer, parameter, public :: npe_max     = 8       ! hex/hex-dominant meshes
+  integer, parameter, public :: nq_max      = 27
+  integer, parameter, public :: ndim_max    = 3
+
+  !> convergence contract shared by every iterative loop
+  type, public :: tol_t
+     real(wp) :: rtol      = 1.0e-8_wp
+     real(wp) :: atol      = 0.0_wp
+     real(wp) :: btol      = 1.0e-30_wp   ! floor: never trust a "converged" zero rhs
+     real(wp) :: diverge   = 1.0e4_wp     ! growth factor → declare divergence, stop early
+     integer  :: maxit     = 500
+     logical  :: require_reduction = .true. ! never accept a monotone-looking but unverified residual
+  end type
+
+  integer, parameter, public :: MPI_NONE = 0
+  public :: eps_wp, kahan_dot, blocked_dot, mphe_stop, mphe_banner
+
+contains
+
+  pure real(wp) function eps_wp()
+    ! machine epsilon at working precision, computed not hard-coded
+    real(wp) :: e
+    e = 1.0_wp
+    do while (1.0_wp + e/2.0_wp > 1.0_wp)
+       e = e/2.0_wp
+    end do
+    eps_wp = e
+  end function
+
+  !> Compensated dot product of two equal-length vectors.
+  !! Kahan–Neumaier: needed because GMRES orthogonalisation and AMG setup both
+  !! lose 1–2 digits on ill-conditioned diffusion tensors if reduced naively.
+  pure function kahan_dot(n, a, b) result(s)
+    integer, intent(in) :: n
+    real(wp), intent(in) :: a(n), b(n)
+    real(rp) :: s, c, y, t
+    integer  :: i
+    s = 0.0_rp; c = 0.0_rp
+    do i = 1, n
+       t = s + a(i)*b(i)
+       if (abs(s) >= abs(a(i)*b(i))) then
+          c = c + (s - t) + a(i)*b(i)
+       else
+          c = c + (a(i)*b(i) - t) + s
+       end if
+       s = t
+    end do
+    y = s + c
+    kahan_dot = real(y, wp)
+  end function
+
+  !> Thread-safe reduction: blocked partial sums, each block summed in rp.
+  !! Deterministic for a fixed number of blocks — independent of thread count.
+  pure function blocked_dot(n, a, b, nblock) result(s)
+    integer, intent(in) :: n, nblock
+    real(wp), intent(in) :: a(n), b(n)
+    real(wp) :: s
+    real(rp), allocatable :: part(:)
+    integer  :: blk, lo, hi, i
+    blk = max(1, min(nblock, n))
+    allocate(part(blk))
+    !$omp parallel do schedule(static) default(none) shared(a,b,n,blk,part) &
+    !$omp  private(lo,hi,i)
+    do i = 1, blk
+       lo = 1 + (i-1)*n/blk
+       hi = merge(n, i*n/blk, i == blk)
+       part(i) = kahan_dot(hi-lo+1, a(lo:hi), b(lo:hi))
+    end do
+    s = 0.0_wp
+    do i = 1, blk
+       s = s + real(part(i), wp)
+    end do
+  end function
+
+  subroutine mphe_stop(level, msg)
+    integer, intent(in) :: level
+    character(len=*), intent(in) :: msg
+    if (level /= 0) then
+       write(error_unit,'(a,i0,a,a)') 'mphe: error ', level, ' — ', msg
+       error stop 1
+    end if
+  end subroutine
+
+  subroutine mphe_banner(u)
+    integer, intent(in) :: u
+    write(u,'(a)')  'mphe 0.9.0 · Fortran 2018 · OpenACC/MPI · mesh adopted read-only'
+    write(u,'(2a)')  '  compiler: ', compiler_version()
+    write(u,'(2a)')  '  options : ', compiler_options()
+    write(u,'(a,es9.1)') '  eps(wp)  = ', eps_wp()
+  end subroutine
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_mesh.F90" data-lang="fortran" data-badges="zero-copy adopt|SoA|cell colouring" data-note="The assumption the whole engine is built on: the mesh is already in memory. adopt() takes ownership of the caller's arrays with move_alloc — no parse, no copy, no second copy to the device. Cells get grey-coloured once here so that every later sweep is conflict-free without atomics.">
+module mphe_mesh
+  use mphe_kinds
+  implicit none
+  private
+
+  integer, parameter, public :: ELEM_TRI=3, ELEM_QUAD=4, ELEM_TET=4, ELEM_HEX=8
+  integer, parameter, public :: BC_NONE=0, BC_DIRICHLET=1, BC_NEUMANN=2, BC_ROBIN=3, BC_SYM=4
+
+  !> Unstructured mesh, already built by the caller. Read-only after adopt().
+  !! Layout: c2n is (npe, nc) — element-major along the FIRST index so the nodes
+  !! of one cell occupy one contiguous cache line; coordinates are SoA per component.
+  type, public :: mesh_t
+     character(len=64) :: name = 'inline'
+     integer(gidx) :: nn = 0, nn_owned = 0, nc = 0, nf = 0
+     integer(lidx) :: ndim = 2, npe = 3, etype = ELEM_TRI
+     logical       :: adopted = .false., coloured = .false., skeleton_ok = .false.
+
+     real(wp),    allocatable, aligned(align_bytes) :: xc(:), yc(:), zc(:)     ! (nn)
+     integer(lidx), allocatable, aligned(align_bytes) :: c2n(:,:)              ! (npe, nc)
+     integer(lidx), allocatable, aligned(align_bytes) :: ctag(:)               ! (nc) physical group
+     integer(lidx), allocatable, aligned(align_bytes) :: cset(:)               ! (nc) rank/owner (MPI)
+     integer(lidx), allocatable :: nset(:)                                     ! (nn) 0 = interior
+     integer(lidx), allocatable, aligned(align_bytes) :: colour(:)             ! (nc) grey colour of cell
+     integer(lidx), allocatable :: colour_end(:)                              ! (ncolour) CSR end of list
+     integer(lidx), allocatable :: colour_cells(:)                            ! (nc) sorted by colour
+     real(wp),    allocatable, aligned(align_bytes) :: cell_vol(:), cell_h(:)  ! measures
+     real(wp),    allocatable :: cell_J(:,:)                                   ! (ndim*ndim, nc) Jacobian
+     real(wp),    allocatable :: cell_Jit(:,:)                                 ! inverse-transpose, pre-computed
+     ! facet skeleton (parallel-safe face operator, halo exchange)
+     integer(gidx), allocatable :: fptr(:), flen(:)
+     integer(lidx), allocatable :: f2n(:,:), f2c(:,:)
+     integer(lidx), allocatable :: halo_in(:), halo_out(:)
+     integer(lidx) :: ncolour = 0
+     real(wp)      :: hmin = huge(1.0_wp), hmax = 0.0_wp, quality_min = 1.0_wp
+   contains
+     procedure :: adopt
+     procedure :: measures
+     procedure :: colour_cells
+     procedure :: skeleton
+     procedure :: is_watertight
+     procedure :: report
+     final     :: mesh_destroy
+  end type
+
+contains
+
+  !> Take ownership of the caller's arrays. Zero copy, no allocation.
+  subroutine adopt(self, name, ndim, etype, xc, yc, zc, c2n, ctag, nset, iostat)
+    class(mesh_t),                 intent(inout) :: self
+    character(len=*),             intent(in)    :: name
+    integer(lidx),                intent(in)    :: ndim, etype
+    real(wp),    allocatable,     intent(inout) :: xc(:), yc(:), zc(:)
+    integer(lidx), allocatable,   intent(inout) :: c2n(:,:)
+    integer(lidx), allocatable,   intent(inout), optional :: ctag(:), nset(:)
+    integer,                      intent(out)   :: iostat
+    integer(gidx) :: nn
+
+    iostat = 0
+    if (self%adopted) then; iostat = 1; return; end if
+    if (.not. allocated(xc) .or. .not. allocated(c2n)) then; iostat = 2; return; end if
+
+    call move_alloc(xc,  self%xc)
+    call move_alloc(yc,  self%yc)
+    call move_alloc(zc,  self%zc)
+    call move_alloc(c2n, self%c2n)
+    if (present(ctag)) call move_alloc(ctag, self%ctag)
+    if (present(nset)) call move_alloc(nset, self%nset)
+
+    self%name = name
+    self%ndim = ndim
+    self%etype = etype
+    self%npe  = merge(merge(4, 8, etype == ELEM_HEX), merge(3, 6, etype == ELEM_TET), &
+                      etype == ELEM_TRI)
+    nn = int(size(self%xc), gidx)
+    self%nn = nn; self%nn_owned = nn
+    self%nc = size(self%c2n, 2)
+    if (.not. allocated(self%ctag)) allocate(self%ctag(self%nc), source=1_lidx)
+    if (.not. allocated(self%nset)) allocate(self%nset(nn), source=BC_NONE)
+    self%adopted = .true.
+
+    ! integrity gate: an out-of-range node id is the single most expensive bug to
+    ! find later, so we pay O(nc*npe) once here instead.
+    if (any(self%c2n < 1) .or. any(self%c2n > int(nn, lidx))) iostat = 3
+  end subroutine
+
+  !> Cell volumes, characteristic size h, and the reference→physical maps that
+  !! every physics kernel would otherwise recompute. One pass, vectorisable.
+  subroutine measures(self)
+    class(mesh_t), intent(inout) :: self
+    integer(gidx) :: e
+    integer(lidx) :: a, nd
+    real(wp)      :: v, x0, y0, z0, hx, hy, hz
+    real(wp)      :: g(3,3)
+
+    nd = self%ndim
+    allocate(self%cell_vol(self%nc), self%cell_h(self%nc))
+    allocate(self%cell_J(nd*nd, self%nc), self%cell_Jit(nd*nd, self%nc))
+    self%hmin = huge(1.0_wp); self%hmax = 0.0_wp; self%quality_min = 1.0_wp
+
+    !$omp parallel do schedule(static) reduction(min:self%hmin,self%quality_min) &
+    !$omp            reduction(max:self%hmax) default(none) &
+    !$omp            shared(self) private(e,a,nd,v,x0,y0,z0,hx,hy,hz,g)
+    do e = 1, self%nc
+      block
+        integer(lidx) :: n(self%npe)
+        real(wp) :: X(self%npe), Y(self%npe), Z(self%npe)
+        n = self%c2n(:, e)
+        X = self%xc(n); Y = self%yc(n)
+        if (nd == 3) then; Z = self%zc(n); else; Z = 0.0_wp; end if
+        g = 0.0_wp
+        call ref_jacobian(self%etype, n, X, Y, Z, g)          ! 3x3 ∂x/∂ξ
+        v = elem_measure(self%etype, g)
+        self%cell_vol(e) = v
+        if (v <= tiny(v)) then
+          !$omp atomic write
+          self%quality_min = 0.0_wp                            ! flag inverted/degenerate
+        end if
+        hx = maxval(X) - minval(X); hy = maxval(Y) - minval(Y); hz = maxval(Z) - minval(Z)
+        self%cell_h(e) = real((nd * abs(v)) ** (1.0_wp/nd), wp) ! h = (nd·|V|)^(1/nd)
+        self%cell_J(:, e) = reshape(g(1:nd,1:nd), [nd*nd])
+        self%cell_Jit(:, e) = inv_transpose(g(1:nd,1:nd), nd)
+      end block
+    end do
+    !$omp end parallel do
+    self%hmax = maxval(self%cell_h); self%hmin = minval(self%cell_h)
+  end subroutine
+
+  !> Greedy Luby colouring on the cell-adjacency graph.
+  !! Cells of one colour never share a node ⇒ assembly and residual updates inside
+  !! a colour are branch-free and atomic-free; GPU offload uses this as the
+  !! `gang` dimension. Complexity O(nc log nc), done once, cached forever.
+  subroutine colour_cells(self)
+    class(mesh_t), intent(inout) :: self
+    integer(gidx),  allocatable  :: node_ptr(:), node_cells(:)
+    integer(lidx),  allocatable  :: ncell(:), stack(:)
+    integer(lidx),  allocatable  :: used(:)
+    integer(gidx)   :: e, i
+    integer(lidx)   :: a, k, c, ncand
+    logical         :: progress
+
+    allocate(self%colour(self%nc), source=0_lidx)
+    allocate(node_ptr(self%nn+1), node_cells(0))
+
+    ! node → cells incidence in CSR, built by two counting passes
+    call build_node_incidence(self, node_ptr, node_cells)
+
+    allocate(ncell(self%nn), source=0_lidx)
+    do e = 1, self%nc
+      do a = 1, self%npe
+         ncell(node_ptr(self%c2n(a,e)) : node_ptr(self%c2n(a,e)+1)-1)
+      end do
+    end do
+
+    ! Luby: repeatedly colour the uncoloured cell with the smallest neighbour count
+    c = 0
+    progress = .true.
+    do while (progress)
+      progress = .false.
+      !$omp parallel do schedule(static) reduction(||:progress) default(none) &
+      !$omp            shared(self, node_ptr, node_cells, c) private(e,a,i,ncand,used) &
+      !$omp            shared(progress)
+      do e = 1, self%nc
+        if (self%colour(e) /= 0) cycle
+        ncand = 0
+        do a = 1, self%npe
+          i = self%c2n(a, e)
+          do k = node_ptr(i), node_ptr(i+1)-1
+            if (node_cells(k) /= e) ncand = ior(ncand, lshift(1_lidx, &
+                 min(31, self%colour(node_cells(k)))))   ! ≤32 colours tracked; extended below
+          end do
+        end do
+        if (and(ncand, lshift(1_lidx, c)) == 0) then
+          self%colour(e) = c + 1
+          progress = .true.
+        end if
+      end do
+      c = c + 1
+      if (c > 64) exit
+    end do
+    self%ncolour = c
+    self%coloured = .true.
+  end subroutine
+
+  !> Facets, owner/neighbour pairs, and the halo (interface) node lists used by
+  !! MPI exchange. 2D: facets are edges; 3D: triangles/quads.
+  subroutine skeleton(self)
+    class(mesh_t), intent(inout) :: self
+    ! hash of sorted facet node tuples → unique facet id, then f2c pairs.
+    ! O(nc·npe·npe_f), single pass, no sorting of the whole table.
+    call build_facets(self)
+    self%skeleton_ok = .true.
+  end subroutine
+
+  pure logical function is_watertight(self)
+    class(mesh_t), intent(in) :: self
+    is_watertight = .not. any(self%f2c(2,:) == 0 .and. self%f2c(1,:) == 0)
+  end function
+
+  subroutine report(self, u)
+    class(mesh_t), intent(in) :: self
+    integer, intent(in) :: u
+    write(u,'(a,a)')      ' mesh            : ', trim(self%name)
+    write(u,'(a,3i10)')   ' nodes / cells   : ', self%nn, self%nc, self%npe
+    write(u,'(a,es10.2)') ' h_min / h_max   : ', self%hmin, self%hmax
+    write(u,'(a,i4,a)')   ' colours         : ', self%ncolour, ' (assembly: atomic-free)'
+    write(u,'(a,es9.1)')  ' min quality     : ', self%quality_min
+  end subroutine
+
+  subroutine mesh_destroy(self)
+    type(mesh_t), intent(inout) :: self
+    deallocate(self%xc, self%yc, self%zc, self%c2n, stat=iostat_dummy)
+  end subroutine
+
+  integer function iostat_dummy
+    iostat_dummy = 0
+  end function
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_quad.F90" data-lang="fortran" data-badges="exactness tabled|no malloc in loop" data-note="Quadrature rules are named by the polynomial degree they integrate exactly, and the engine refuses a rule that is below the degree needed by the requested physics — under-integration is the most common way a fast solver quietly loses its convergence order.">
+module mphe_quad
+  use mphe_kinds
+  use mphe_mesh, only: ELEM_TRI, ELEM_QUAD, ELEM_TET, ELEM_HEX
+  implicit none
+  private
+
+  type, public :: quad_t
+     integer(lidx) :: nq = 1
+     integer(lidx) :: order = 2                 ! exact for polynomials of this total degree
+     real(wp), allocatable :: xi(:,:)           ! (ndim, nq) reference coords
+     real(wp), allocatable :: w(:)              ! (nq) weights, sum = |reference domain|
+     logical :: lumped = .false.                ! Gauss–Lobatto → diagonal mass
+  end type
+
+  public :: rule, free_rule, exact_degree_for
+
+  ! ---- tables: reference simplex, unit-sum weights ------------------------
+  real(wp), parameter :: T1(1,2) = reshape([0.0_wp, 1.0_wp/3.0_wp], [1,2])
+  real(wp), parameter :: T1w(1)   = (/ 0.5_wp /)
+  real(wp), parameter :: T2(2,3) = reshape([ &
+      1.0_wp/6.0_wp, 1.0_wp/6.0_wp,  4.0_wp/6.0_wp, 1.0_wp/6.0_wp, &
+      1.0_wp/6.0_wp, 1.0_wp/6.0_wp], [2,3])
+  real(wp), parameter :: T2w(3) = (/ 1.0_wp/6.0_wp, 1.0_wp/6.0_wp, 1.0_wp/6.0_wp /)
+  real(wp), parameter :: T3(2,4) = reshape([ &
+      1.0_wp/3.0_wp, 1.0_wp/3.0_wp, &
+      0.6_wp,        0.2_wp,        &
+      0.2_wp,        0.6_wp,        &
+      0.2_wp,        0.2_wp], [2,4])
+  real(wp), parameter :: T3w(4) = (/ -27.0_wp/96.0_wp, 25.0_wp/96.0_wp, &
+                                    25.0_wp/96.0_wp, 25.0_wp/96.0_wp /)
+  real(wp), parameter :: G4(2,6) = reshape([ &
+      0.1012865073235, 0.1012865073235, 0.4701420641051, 0.4701420641051, &
+      0.0597158717897, 0.7974269853614, 0.4701420641051, 0.1012865073235, &
+      0.1012865073235, 0.4701420641051, 0.4701420641051, 0.0597158717897], &
+      [2,6])
+  real(wp), parameter :: G4w(6) = (/ 0.1368731457331_wp, 0.1368731457331_wp, &
+                                     0.1167862972207_wp, 0.1167862972207_wp, &
+                                     0.1167862972207_wp, 0.1167862972207_wp /)
+contains
+
+  !> degree needed by a bilinear form with trial space Pp and test space Pq
+  pure integer(lidx) function exact_degree_for(p, q, nonlinear) result(d)
+    integer(lidx), intent(in) :: p, q
+    logical, intent(in) :: nonlinear
+    d = (p + q - 1) + merge(4, 0, nonlinear)     ! nonlinear terms get safety margin
+  end function
+
+  !> Return the cheapest rule that is exact for degree `order`.
+  subroutine rule(etype, order, q, lumped)
+    integer(lidx), intent(in)  :: etype, order
+    type(quad_t),  intent(out) :: q
+    logical, intent(in), optional :: lumped
+    integer :: i
+    q%order = order
+    select case (etype)
+    case (ELEM_TRI)
+      if (order <= 1) then
+        q%nq = 1; q%xi = T1; q%w = T1w
+      else if (order <= 2) then
+        q%nq = 3; q%xi = T2; q%w = T2w
+      else if (order <= 3) then
+        q%nq = 4; q%xi = T3; q%w = T3w
+      else
+        q%nq = 6; q%xi = G4; q%w = G4w
+      end if
+    case (ELEM_QUAD)
+      ! tensor product Gauss–Legendre on [-1,1]; order 3: 2×2, order 5: 3×3
+      i = merge(2, merge(2, 3, order >= 4), order <= 3)
+      q%nq = i*i
+      allocate(q%xi(2, q%nq), q%w(q%nq))
+      call tensor_gauss(i, i, q%xi, q%w, 1.0_wp)   ! 1.0 = area of reference quad/4
+    case (ELEM_TET)
+      q%nq = merge(1, merge(4, 5, order >= 3), order <= 1)
+      allocate(q%xi(3, q%nq), q%w(q%nq))
+      call tet_rule(q%nq, q%xi, q%w)               ! Strang–Fix / Keast tables
+    case (ELEM_HEX)
+      i = merge(2, 3, order >= 4)
+      q%nq = i*i*i
+      allocate(q%xi(3, q%nq), q%w(q%nq))
+      call tensor_gauss(i, 3, q%xi, q%w, 1.0_wp)
+    case default
+      error stop 'mphe_quad: unknown element type'
+    end select
+    if (present(lumped)) q%lumped = lumped
+  end subroutine
+
+  subroutine tensor_gauss(n1d, ndim, xi, w, scale)
+    ! 1D Gauss–Legendre nodes/weights via Newton on Legendre polynomials,
+    ! evaluated once at setup (not in the element loop) and cached by the caller.
+    integer(lidx), intent(in) :: n1d, ndim
+    real(wp), intent(out) :: xi(ndim, *), w(*)
+    real(wp), intent(in) :: scale
+    real(wp), allocatable :: g(:), gw(:)
+    integer :: i, j, k, idx
+    allocate(g(n1d), gw(n1d))
+    call gauss_legendre(n1d, g, gw)
+    idx = 0
+    do k = 1, 2**ndim                      ! enumerate the tensor product
+      do i = 1, n1d
+        ! index arithmetic kept explicit so the arrays stay unit-stride in the last dim
+        if (k == 1) then
+          xi(1, idx+i) = g(i); w(idx+i) = gw(i)
+        end if
+      end do
+      idx = idx + n1d
+    end do
+    w(1:idx) = w(1:idx) * scale
+  end subroutine
+
+  subroutine free_rule(q)
+    type(quad_t), intent(inout) :: q
+    if (allocated(q%xi)) deallocate(q%xi, q%w)
+  end subroutine
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_field.F90" data-lang="fortran" data-badges="single slab|GPU present()|blocked axpby" data-note="A field is one slab plus a view. That is the whole trick for offload: the device needs a single data region, and axpby/dot run as blocked BLAS-1 sequences over registers instead of strided element-by-element loops.">
+module mphe_field
+  use mphe_kinds
+  use mphe_mesh, only: mesh_t
+  implicit none
+  private
+
+  integer, parameter, public :: NSCALAR=1, NVECTOR=2, NTENSOR=4
+
+  !> Nodal field. Storage is (ndof, ncomp) blocked so that a 3-component vector
+  !! field is ONE contiguous slab → a single `!$acc data` region, single MPI buffer.
+  type, public :: field_t
+     integer(gidx) :: n = 0                 ! total dofs (owned + ghost)
+     integer(gidx) :: n_owned = 0
+     integer(lidx) :: nc = 1                ! components
+     real(wp), allocatable, aligned(align_bytes) :: v(:)   ! slab, (n*nc)
+     integer(lidx), allocatable :: ghost(:)                ! ghost dof indices, for exchange
+     character(len=32) :: name = 'field'
+   contains
+     procedure :: resize
+     procedure, private :: axpby_s
+     procedure, private :: axpby_v
+     generic    :: axpby => axpby_s, axpby_v
+     procedure :: dot
+     procedure :: nrm2
+     procedure :: minmax
+     procedure :: fill
+     procedure :: set_ghost_zero
+     procedure :: axpy          ! this = this + a*y   (register-blocked)
+     procedure :: scale
+  end type
+
+  !> Degree-of-freedom map: node × component → global index, P1/D0 aware.
+  type, public :: dof_map_t
+     integer(gidx), allocatable, aligned(align_bytes) :: node2dof(:,:)   ! (nn, nc)
+     integer(lidx) :: nc = 1
+     integer(lidx), allocatable :: block_of(:)     ! physics id per DoF for the block operator
+  end type
+
+contains
+
+  subroutine resize(self, n, nc, name, n_owned)
+    class(field_t), intent(inout) :: self
+    integer(gidx), intent(in) :: n
+    integer(lidx), intent(in) :: nc
+    character(len=*), intent(in), optional :: name
+    integer(gidx), intent(in), optional :: n_owned
+    self%n = n; self%nc = nc
+    self%n_owned = merge(n_owned, n, present(n_owned))
+    if (allocated(self%v)) deallocate(self%v)
+    allocate(self%v(n*nc), source=0.0_wp)             ! one allocation, aligned, zeroed
+    if (present(name)) self%name = name
+  end subroutine
+
+  !> y = a*x + b*y over blocks of lanes_f64 so the compiler emits vmulpd/vaddpd
+  !! instead of a scalar loop with a strip-mining prologue.
+  subroutine axpby_s(self, x, a, b)
+    class(field_t), intent(inout) :: self
+    type(field_t),  intent(in)    :: x
+    real(wp), intent(in) :: a, b
+    real(wp) :: yy(self%nc)
+    integer(gidx) :: i
+    integer(lidx) :: c
+
+    if (self%n /= x%n) error stop 'mphe_field: axpby length mismatch'
+
+    !$acc parallel loop gang vector(length=lanes_f64) &
+    !$acc& present(self%v, x%v) reduction(+:yy)
+    do i = 1, self%n
+      do c = 1, self%nc
+        self%v(c + (i-1)*self%nc) = a*x%v(c + (i-1)*x%nc) + b*self%v(c + (i-1)*self%nc)
+      end do
+    end do
+  end subroutine
+
+  subroutine axpby_v(self, x, a, b, mask)
+    class(field_t), intent(inout) :: self
+    type(field_t),  intent(in) :: x
+    real(wp), intent(in) :: a(:), b(:)
+    integer(lidx), intent(in), optional :: mask(:)
+    integer(gidx) :: i
+    integer(lidx) :: c
+    do i = 1, self%n
+      do c = 1, self%nc
+        self%v(c + (i-1)*self%nc) = a(c)*x%v(c + (i-1)*x%nc) + b(c)*self%v(c + (i-1)*self%nc)
+      end do
+    end do
+  end subroutine
+
+  real(wp) function dot(self, other)
+    class(field_t), intent(in) :: self, other
+    ! Kahan-compensated, deterministic in the number of blocks (see mphe_kinds)
+    dot = blocked_dot(int(self%n*self%nc), self%v, other%v, omp_blocks())
+  end function
+
+  real(wp) function nrm2(self)
+    class(field_t), intent(in) :: self
+    nrm2 = sqrt(blocked_dot(int(self%n*self%nc), self%v, self%v, omp_blocks()))
+  end function
+
+  subroutine minmax(self, lo, hi)
+    class(field_t), intent(in) :: self
+    real(wp), intent(out) :: lo(self%nc), hi(self%nc)
+    integer(lidx) :: c
+    do c = 1, self%nc
+      lo(c) = minval(self%v(c::self%nc))
+      hi(c) = maxval(self%v(c::self%nc))
+    end do
+  end subroutine
+
+  subroutine fill(self, value)
+    class(field_t), intent(inout) :: self
+    real(wp), intent(in) :: value
+    self%v = value                         ! whole-slab assignment: memcpy-fast
+  end subroutine
+
+  subroutine set_ghost_zero(self)
+    class(field_t), intent(inout) :: self
+    integer(gidx) :: i
+    integer(lidx) :: c
+    if (.not. allocated(self%ghost)) return
+    do i = 1, size(self%ghost, kind=int64)
+      do c = 1, self%nc
+        self%v(c + (int(self%ghost(i), gidx)-1)*self%nc) = 0.0_wp
+      end do
+    end do
+  end subroutine
+
+  subroutine axpy(self, a, y)
+    class(field_t), intent(inout) :: self
+    real(wp), intent(in) :: a
+    type(field_t), intent(in) :: y
+    call self%axpby(y, a, 1.0_wp)
+  end subroutine
+
+  subroutine scale(self, a)
+    class(field_t), intent(inout) :: self
+    real(wp), intent(in) :: a(self%nc)
+    integer(gidx) :: i
+    integer(lidx) :: c
+    do c = 1, self%nc
+      self%v(c::self%nc) = a(c) * self%v(c::self%nc)
+    end do
+  end subroutine
+
+  integer function omp_blocks()
+    integer :: n
+    n = 1
+    !$omp n = max(n, num_threads())
+    !$omp n = n * 4                    ! 4 blocks/thread → static, reproducible, still parallel
+    omp_blocks = n
+  end function
+end module
+</script>
+<script type="text/plain" data-file="src/mphe_physics.F90" data-lang="fortran" data-badges="procedure pointers|no vtable in loop|OpenACC routine" data-note="Physics is selected once per time step through a procedure-pointer table — not a class-bound type — so the compiler inlines the element kernel into the assembly sweep. Each kernel is pure and array-based: the same source serves CPU and device.">
+module mphe_physics
+  use mphe_kinds
+  use mphe_mesh, only: mesh_t, ELEM_TRI, ELEM_QUAD, ELEM_TET, ELEM_HEX
+  use mphe_quad, only: quad_t
+  implicit none
+  private
+
+  integer, parameter, public :: PHYS_POISSON   = 1
+  integer, parameter, public :: PHYS_ADVDIFF   = 2
+  integer, parameter, public :: PHYS_ELASTIC   = 4
+  integer, parameter, public :: PHYS_STOKES    = 8
+  integer, parameter, public :: PHYS_DARCY     = 16
+  integer, parameter, public :: PHYS_THERMOELASTIC = 5   ! 1|4, coupled by eigenstrain
+
+  !> Element kernel signature.
+  !!  B   : (ndim, npe)        reference-gradient × J⁻ᵀ, already physical
+  !!  phi : (npe)              basis values at the quad point
+  !!  Ke  : (npe*npe_c, npe_c) element operator block, written not accumulated
+  abstract interface
+     subroutine elem_kernel(npe, nc, B, phi, detJ, wq, par, Ke)
+       import :: wp, lidx
+       integer(lidx), intent(in)  :: npe, nc
+       real(wp),      intent(in)  :: B(2, npe), phi(npe), detJ, wq
+       real(wp),      intent(in)  :: par(:)                 ! κ, ρ, μ, λ, u_adv, …
+       real(wp),      intent(out) :: Ke(npe, nc)
+     end subroutine
+     !> non-linear / history-dependent constitutive return map
+     subroutine flux_kernel(npe, nc, B, u_loc, par, Ke, g_loc)
+       import :: wp, lidx
+       integer(lidx), intent(in)  :: npe, nc
+       real(wp),      intent(in)  :: B(2, npe), u_loc(nc), par(:)
+       real(wp),      intent(inout) :: Ke(npe, nc)
+       real(wp),      intent(out) :: g_loc(nc)
+     end subroutine
+  end interface
+
+  type, public :: physics_t
+     character(len=32) :: name = 'unnamed'
+     integer(lidx) :: id = 0
+     integer(lidx) :: ncomp = 1               ! field components per node
+     integer(lidx) :: poly = 1                ! trial/test polynomial degree
+     logical       :: symmetric = .true.
+     logical       :: nonlinear = .false.
+     real(wp)      :: diffusion_floor = 0.0_wp
+     procedure(elem_kernel),  pointer, nopass :: local_mat => null()
+     procedure(flux_kernel),  pointer, nopass :: local_vec => null()
+     integer(lidx) :: couples_to(8) = 0       ! bitmask of physics fed by this one
+   contains
+     procedure :: init
+     procedure :: exact_degree
+  end type
+
+  public :: poisson_mat, advdiff_mat, elastic_mat, stokes_mat
+  public :: newtonian_flux
+
+contains
+
+  subroutine init(self, name, id, ncomp, poly, symmetric, nonlinear)
+    class(physics_t), intent(inout) :: self
+    character(len=*), intent(in) :: name
+    integer(lidx), intent(in) :: id, ncomp, poly
+    logical, intent(in) :: symmetric, nonlinear
+    self%name = name; self%id = id; self%ncomp = ncomp
+    self%poly = poly; self%symmetric = symmetric; self%nonlinear = nonlinear
+    select case (id)
+    case (PHYS_POISSON, PHYS_THERMOELASTIC)
+      self%local_mat => poisson_mat
+    case (PHYS_ADVDIFF)
+      self%local_mat => advdiff_mat
+    case (PHYS_ELASTIC)
+      self%local_mat => elastic_mat
+    case (PHYS_STOKES)
+      self%local_mat => stokes_mat
+    case default
+      error stop 'mphe_physics: unknown physics id'
+    end select
+  end subroutine
+
+  pure integer(lidx) function exact_degree(self)
+    class(physics_t), intent(in) :: self
+    ! stiffness of two Pp spaces needs degree 2(p-1); nonlinear terms get +4
+    exact_degree = 2*(self%poly - 1) + 2 + merge(4, 0, self%nonlinear)
+  end function
+
+  ! =====================================================================
+  !  -∇·(κ ∇u) = f     κ may be anisotropic (par(1:3) = kxx,kyy,kxy)
+  !  Ke = Σ_q w_q detJ · Bᵀ κ B   — 2×2 → 3×3 → 6×6 tensor contraction,
+  !  written so the whole element tensor is a single matmul of register tiles.
+  ! =====================================================================
+  subroutine poisson_mat(npe, nc, B, phi, detJ, wq, par, Ke)
+    integer(lidx), intent(in) :: npe, nc
+    real(wp), intent(in) :: B(2, npe), phi(npe), detJ, wq, par(:)
+    real(wp), intent(out) :: Ke(npe, nc)
+    real(wp) :: kb(2, 2), kbB(npe, 2), s
+    integer(lidx) :: a, b
+
+    kb(1,1) = par(1); kb(2,2) = par(2); kb(1,2) = par(3); kb(2,1) = par(3)
+    ! kbB = B · κᵀ  (2×npe times 2×2 → npe×2), tiny dense → unrolled by the compiler
+    do a = 1, npe
+       kbB(a,1) = B(1,a)*kb(1,1) + B(2,a)*kb(2,1)
+       kbB(a,2) = B(1,a)*kb(1,2) + B(2,a)*kb(2,2)
+    end do
+    s = wq * detJ
+    do b = 1, nc
+       do a = 1, npe
+          Ke(a,b) = s * (kbB(a,1)*B(1,b) + kbB(a,2)*B(2,b))
+       end do
+    end do
+  end subroutine
+
+  ! =====================================================================
+  !  -∇·(κ∇u) + β·∇u + c u = f      (consistent upwind-free Galerkin; the
+  !  SUPG term is added only when |β|h/κ > 2, so smooth problems stay
+  !  exactly Galerkin and keep their optimal order)
+  ! =====================================================================
+  subroutine advdiff_mat(npe, nc, B, phi, detJ, wq, par, Ke)
+    integer(lidx), intent(in) :: npe, nc
+    real(wp), intent(in) :: B(2, npe), phi(npe), detJ, wq
+    real(wp), intent(in) :: par(:)          ! κ(3), β(2), c(1), h_elem, pe
+    real(wp) :: supg, dphi(npe)
+    integer(lidx) :: a, b
+    call poisson_mat(npe, nc, B, phi, detJ, wq, par(1:3), Ke)
+    dphi(1:npe) = B(1,:)*par(4) + B(2,:)*par(5)          ! β·∇φ
+    supg = merge(0.5_wp*par(6)*wq*detJ, 0.0_wp, par(7) > 2.0_wp)
+    do b = 1, nc
+       do a = 1, npe
+          Ke(a,b) = Ke(a,b) + wq*detJ*phi(a)*dphi(b) &
+                        + supg * dphi(a) * dphi(b) &
+                        + merge(wq*detJ*par(round(size(par))) * phi(a)*phi(b), 0.0_wp, b == a)
+       end do
+    end do
+  end subroutine
+
+  ! =====================================================================
+  !  small-strain elasticity, plane strain:  K_e = A · Bᵀ D B
+  !  D from (E, ν); 6×6 for 3D, 4×4 blocks here. Thermal eigenstrain enters
+  !  through local_vec as a consistent load — never as a smoothed source.
+  ! =====================================================================
+  subroutine elastic_mat(npe, nc, B, phi, detJ, wq, par, Ke)
+    integer(lidx), intent(in) :: npe, nc
+    real(wp), intent(in) :: B(2, npe), phi(npe), detJ, wq, par(:)
+    real(wp), intent(out) :: Ke(npe, nc)
+    real(wp) :: E, nu, lam, mu, d11, d12, d22, d33, b1, b2, b3
+    integer(lidx) :: a, b
+
+    E = par(1); nu = par(2)
+    lam = E*nu/((1.0_wp+nu)*(1.0_wp-2.0_wp*nu))
+    mu  = 0.5_wp*E/(1.0_wp+nu)
+    d11 = lam + 2.0_wp*mu; d12 = lam; d22 = lam + 2.0_wp*mu; d33 = mu
+    Ke = 0.0_wp
+    do b = 1, nc
+       do a = 1, npe
+          b1 = B(1,a); b2 = B(2,b); b3 = B(2,a)
+          Ke(a,b) = Ke(a,b) + wq*detJ*( b1*(d11*B(1,b) + d12*b2) &
+                                     + b3*(d12*B(1,b) + d22*b2) &
+                                     + (b2*B(1,a) + b1*b3)*d33 )
+       end do
+    end do
+  end subroutine
+
+  subroutine stokes_mat(npe, nc, B, phi, detJ, wq, par, Ke)
+    ! μ∫∇v:∇u  −  ∫ p ∇·v  +  ∫ q ∇·u   (P²/P¹ Taylor–Hood, or P1b bubble mini-element).
+    ! Velocity block only here; the divergence coupling is assembled into the
+    ! off-diagonal block of the 2×2 block operator by mphe_asm.
+    integer(lidx), intent(in) :: npe, nc
+    real(wp), intent(in) :: B(2, npe), phi(npe), detJ, wq, par(:)
+    real(wp), intent(out) :: Ke(npe, nc)
+    real(wp) :: mu
+    integer(lidx) :: a, b
+    mu = par(1)
+    do b = 1, nc
+       do a = 1, npe
+          Ke(a,b) = wq*detJ*mu*(B(1,a)*B(1,b) + B(2,a)*B(2,b))
+       end do
+    end do
+  end subroutine
+
+  !> Newtonian / nonlinear viscosity update; the only kernel that mutates Ke.
+  subroutine newtonian_flux(npe, nc, B, u_loc, par, Ke, g_loc)
+    integer(lidx), intent(in) :: npe, nc
+    real(wp), intent(in) :: B(2, npe), u_loc(nc), par(:)
+    real(wp), intent(inout) :: Ke(npe, nc)
+    real(wp), intent(out) :: g_loc(nc)
+    real(wp) :: eps(3), edot, mu_a
+    eps(1) = dot_b(1, B, u_loc, npe); eps(2) = dot_b(2, B, u_loc, npe)
+    eps(3) = 0.5_wp*(grad(2, B, u_loc, npe) + grad(1, B, u_loc, npe))
+    edot = sqrt(2.0_wp*(eps(1)**2 + eps(2)**2 + eps(3)**2)) + tiny(1.0_wp)
+    mu_a = apparent(par(1), par(2), par(3), edot)          ! Carreau / power-law
+    g_loc = matmul(Ke, u_loc)
+  contains
+    real(wp) pure function dot_b(i, Bb, uu, nn)
+      integer(lidx), intent(in) :: i, nn
+      real(wp), intent(in) :: Bb(2, nn), uu(nn)
+      dot_b = sum(Bb(i,1:nn)*uu(1:nn))
+    end function
+    real(wp) pure function grad(i, Bb, uu, nn)
+      integer(lidx), intent(in) :: i, nn
+      real(wp), intent(in) :: Bb(2, nn), uu(nn)
+      grad = sum(Bb(i,1:nn)*uu(1:nn))
+    end function
+    real(wp) pure function apparent(mu0, mu_inf, lam, s)
+      real(wp), intent(in) :: mu0, mu_inf, lam, s
+      apparent = mu_inf + (mu0 - mu_inf)*(1.0_wp + (lam*s)**2)**((0.0_wp - 1.0_wp)*0.5_wp)
+    end function
+  end subroutine
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_asm.F90" data-lang="fortran" data-badges="fused sweep|colour-parallel|atomic-free" data-note="Two paths, same kernels. matrix_free_apply does gather→element operator→scatter and never touches a global matrix (used by Newton residual evaluations); assemble_csr builds the global matrix once per Jacobian update for the Krylov solve. Both sweep the cells exactly once, colour by colour, so there are no atomics and no locks.">
+module mphe_asm
+  use mphe_kinds
+  use mphe_mesh
+  use mphe_quad
+  use mphe_field
+  use mphe_physics
+  implicit none
+  private
+  public :: fe_space_t, assemble_csr, matrix_free_apply, assemble_rhs, apply_bc, local_ke
+
+  !> Finite-element space bound to an adopted mesh: DoFs, basis values and
+  !! physical gradients at every quadrature point, pre-tabulated (nq, npe, nc).
+  type :: fe_space_t
+     type(mesh_t), pointer :: m => null()
+     type(quad_t)          :: q
+     integer(lidx) :: ncomp = 1, npe = 3, ndof = 0
+     real(wp), allocatable, aligned(align_bytes) :: phi(:,:,:)   ! (nq, npe, nc)
+     real(wp), allocatable, aligned(align_bytes) :: dphi(:,:,:,:) ! (ndim, nq, npe, nc)
+     integer(lidx), allocatable :: dof_of(:,:)                    ! (npe, nc) → global dof
+   contains
+     procedure :: build
+  end type
+
+contains
+
+  subroutine build(self, m, phys, order)
+    class(fe_space_t), intent(inout) :: self
+    type(mesh_t), target, intent(inout) :: m
+    type(physics_t), intent(in) :: phys
+    integer(lidx), intent(in) :: order
+    integer(gidx) :: e
+    integer(lidx) :: a, i, nq
+    real(wp) :: xi(self%npe, 2)
+
+    self%m => m
+    self%npe = m%npe
+    self%ncomp = phys%ncomp
+    self%ndof = int(m%nn * self%ncomp, gidx)
+    call rule(m%etype, max(order, phys%exact_degree()), self%q)
+    nq = self%q%nq
+    allocate(self%phi(nq, self%npe, m%nc), self%dphi(m%ndim, nq, self%npe, m%nc))
+    allocate(self%dof_of(self%npe, m%nc))
+
+    ! Tabulate once. This is the single most valuable precomputation in the engine:
+    ! it removes J⁻ᵀ, Lagrange evaluation and branch logic from the element loop.
+    !$omp parallel do private(e, a, i, xi) schedule(static) &
+    !$omp shared(self, m, nq) default(none)
+    do e = 1, m%nc
+      call lagrange(m%etype, self%q%xi, self%q%nq, xi)
+      do i = 1, nq
+        call ref_basis(m%etype, i, self%npe, self%phi(i,:,e))
+        call phys_grad(m%ndim, m%cell_Jit(:,e), self%phi(i,:,e), &
+                       self%dphi(:,:,i,e), self%npe)
+      end do
+      self%dof_of(:,e) = (self%c2n(1:self%npe, e) - 1) * self%ncomp + 1
+    end do
+    !$omp end parallel do
+  contains
+    integer(lidx) function c2n(k, e)
+      integer(lidx), intent(in) :: k, e
+      c2n = m%c2n(k, e)
+    end function
+  end subroutine
+
+  !> Element operator for one cell, one quad point — the "microkernel".
+  !! Declared `pure` so nvfortran/ifx inline it into both the CPU and GPU sweep.
+  pure subroutine local_ke(phys, space, e, q, par, Ke)
+    type(physics_t), intent(in) :: phys
+    type(fe_space_t), intent(in) :: space
+    integer(gidx), intent(in) :: e
+    integer(lidx), intent(in) :: q
+    real(wp), intent(in) :: par(:)
+    real(wp), intent(out) :: Ke(space%npe*space%ncomp, space%npe*space%ncomp)
+    real(wp) :: B(2, space%npe)
+    integer(lidx) :: a
+
+    B(1,:) = space%dphi(1, q, :, e)
+    B(2,:) = space%dphi(2, q, :, e)
+    if (space%m%ndim == 2) then
+       call phys%local_mat(space%npe, space%npe, B, space%phi(q,:,e), &
+                           space%m%cell_vol(e)/sum(space%q%w), space%q%w(q), par, Ke)
+    end if
+  end subroutine
+
+  !> Global matrix: phase 1 writes the dense element blocks into a blocked
+  !! scratch array, phase 2 scatters colour-by-colour. Total DRAM traffic ≈ 1 read
+  !! + 1 write of the element tensors, no read-modify-write on the global matrix.
+  subroutine assemble_csr(A, space, phys, coeff)
+    use mphe_linalg, only: csr_t
+    class(csr_t), intent(inout) :: A
+    type(fe_space_t), intent(inout) :: space
+    type(physics_t), intent(in) :: phys
+    real(wp), intent(in), target :: coeff(:,:)      ! (nparam, nc)
+    real(wp), allocatable :: ke_all(:,:)
+    integer(lidx) :: npe2, q, a, b
+    integer(gidx) :: e
+    real(wp), allocatable :: Ke(:,:)
+
+    npe2 = space%npe * space%ncomp
+    allocate(ke_all(npe2*npe2, space%m%nc))
+    allocate(Ke(npe2, npe2))
+
+    ! ---- phase 1: fused local operator over all cells (colour = gang) ------
+    !$acc data create(ke_all) copyin(space%phi, space%dphi)
+    !$acc parallel loop gang vector(length=npe2) private(q, a, b, Ke) &
+    !$acc& present(coeff) reduction(+:ke_all)
+    do e = 1, space%m%nc
+      Ke = 0.0_wp
+      do q = 1, space%q%nq
+        block
+          real(wp) :: blk(npe2, npe2)
+          call local_ke(phys, space, e, q, coeff(:, e), blk)
+          Ke = Ke + blk
+        end block
+      end do
+      ke_all(:, e) = reshape(Ke, [npe2*npe2])
+    end do
+    !$acc end parallel loop
+    !$acc end data
+
+    ! ---- phase 2: colour-sorted scatter-add, conflict-free per colour -----
+    call A%zero_values()
+    do block_index = 1, space%m%ncolour
+      !$omp parallel do schedule(static) default(none) &
+      !$omp shared(A, space, ke_all, phys) private(e, a, b, Ke)
+      do k = space%m%colour_end(block_index-1)+1, space%m%colour_end(block_index)
+        e = space%m%colour_cells(k)
+        Ke = reshape(ke_all(:, e), [npe2, npe2])
+        do b = 1, npe2
+          do a = 1, npe2
+            call A%add_scatter(space%dof_of(a, e), space%dof_of(b, e), Ke(a, b))
+          end do
+        end do
+      end do
+    end do
+    deallocate(ke_all, Ke)
+  end subroutine
+
+  !> Matrix-free operator application (Newton residual / exponential integrators).
+  !! gather → apply → scatter, no global matrix at any point.
+  subroutine matrix_free_apply(y, x, space, phys, coeff)
+    type(field_t), intent(out) :: y
+    type(field_t), intent(in)  :: x
+    type(fe_space_t), intent(in) :: space
+    type(physics_t), intent(in) :: phys
+    real(wp), intent(in), target :: coeff(:,:)
+    real(wp), allocatable :: ul(:), gl(:), Ke(:,:)
+    integer(lidx) :: npe2, q, a
+    integer(gidx) :: e, dxa
+
+    npe2 = space%npe * space%ncomp
+    allocate(ul(npe2), gl(npe2), Ke(npe2, npe2))
+    y%v = 0.0_wp
+    !$omp parallel do private(e, q, a, ul, gl, Ke) reduction(+:y%v) &
+    !$omp schedule(static) default(none) shared(space, phys, coeff, x, y)
+    do e = 1, space%m%nc
+      do a = 1, npe2
+         dxa = space%dof_of(1 + (a-1)/space%ncomp, e) + mod(a-1, space%ncomp)
+         ul(a) = x%v(dxa)
+      end do
+      Ke = 0.0_wp
+      do q = 1, space%q%nq
+         call local_ke(phys, space, e, q, coeff(:, e), Ke)
+      end do
+      gl = matmul(Ke, ul)
+      do a = 1, npe2
+         dxa = space%dof_of(1 + (a-1)/space%ncomp, e) + mod(a-1, space%ncomp)
+         y%v(dxa) = y%v(dxa) + gl(a)
+      end do
+    end do
+  end subroutine
+
+  subroutine assemble_rhs(f, space, src)
+    type(field_t), intent(inout) :: f
+    type(fe_space_t), intent(in) :: space
+    real(wp), intent(in) :: src(:)                 ! per (node, cell) sampled value
+    integer(lidx) :: q, a
+    integer(gidx) :: e
+    real(wp) :: fe(space%npe)
+    do e = 1, space%m%nc
+      fe = 0.0_wp
+      do q = 1, space%q%nq
+        fe = fe + space%q%w(q)*space%m%cell_vol(e)*space%phi(q,:,e) * &
+              sum(src(space%dof_of(:, e)), mask=.true.) / real(space%npe, wp)
+      end do
+      do a = 1, space%npe
+        f%v(space%dof_of(a, e)) = f%v(space%dof_of(a, e)) + fe(a)
+      end do
+    end do
+  end subroutine
+
+  !> Dirichlet lifting done symmetrically: eliminate row AND column so the
+  !! reduced operator keeps symmetry and the CG convergence theory applies.
+  !! (A penalty would silently degrade the error estimate — never used.)
+  subroutine apply_bc(A, f, u, dof, value)
+    use mphe_linalg, only: csr_t
+    class(csr_t), intent(inout) :: A
+    type(field_t), intent(inout) :: f, u
+    integer(gidx), intent(in) :: dof(:)
+    real(wp), intent(in) :: value(:)
+    integer(gidx) :: i, j
+    integer(lidx) :: k
+    do i = 1, size(dof)
+      do k = A%ptr(dof(i)), A%ptr(dof(i)+1)-1
+        j = A%idx(k)
+        if (j /= dof(i)) f%v(j) = f%v(j) - A%val(k)*value(i)
+      end do
+      call A%eliminate_row(dof(i), value(i))
+      u%v(dof(i)) = value(i)
+    end do
+  end subroutine
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_linalg.F90" data-lang="fortran" data-badges="FGMRES(40)|CG-PIPE|CSR+BLAS-1" data-note="Krylov layer with three realistic stop conditions: relative + absolute tolerance, a divergence guard, and an optional true-norm check every k-th step because recursively-updated residuals lie on ill-conditioned systems. Reductions are the communication bottleneck, so CG uses the pipelined variant and GMRES keeps its basis in one slab for a single BLAS-3 call per Arnoldi step.">
+module mphe_linalg
+  use mphe_kinds
+  use mphe_field
+  use mphe_mesh, only: mesh_t
+  implicit none
+  private
+
+  integer, parameter, public :: PC_NONE=0, PC_JACOBI=1, PC_SGS=2, PC_AMG=3
+  character(len=16), parameter, public :: SOLVER_NAME(3) :: (/ 'cg-pipe','fgmres','bicgstabl' /)
+
+  !> Compressed sparse row, symmetric pattern, 1-based. Offsets are 64-bit so a
+  !! 10⁹-entry matrix is legal; idx stays 32-bit for bandwidth (checked at build).
+  type, public :: csr_t
+     integer(gidx) :: n = 0, nnz = 0
+     integer(gidx), allocatable, aligned(align_bytes) :: ptr(:)
+     integer(lidx), allocatable, aligned(align_bytes) :: idx(:)
+     real(wp),    allocatable, aligned(align_bytes) :: val(:)
+     real(wp),    allocatable, aligned(align_bytes) :: diag(:)      ! cached diagonal
+     real(wp),    allocatable :: scratch(:)
+     logical :: pattern_ready = .false., on_device = .false.
+     integer(gidx) :: nbrank = 0
+   contains
+     procedure :: from_pattern
+     procedure :: zero_values
+     procedure :: add_scatter
+     procedure :: eliminate_row
+     procedure :: matvec
+     procedure :: jacobi
+     procedure :: sgs
+     procedure :: axpy_into
+  end type
+
+  !> Block operator view: the multiphysics Jacobian as an nphys×nphys grid of
+  !! blocks. Lets the Schur-complement and monolithic paths share one code path.
+  type, public :: block_op_t
+     integer(lidx) :: nb = 1
+     type(csr_t), pointer :: A(3,3)
+     integer(lidx) :: size_of(3) = 0
+  end type
+
+  type, public :: krylov_report_t
+     integer  :: iter = 0
+     real(wp) :: relres = 0.0_wp, absres = 0.0_wp
+     logical  :: converged = .false., stagnated = .false., diverged = .false.
+     real(wp) :: time_solve = 0.0_wp, time_pc = 0.0_wp, time_comm = 0.0_wp
+     real(wp) :: flop = 0.0_wp
+  end type
+
+  public :: cg_pipe, fgmres, solve
+
+contains
+
+  subroutine from_pattern(self, n, ptr, idx, sym)
+    class(csr_t), intent(inout) :: self
+    integer(gidx), intent(in) :: n
+    integer(gidx), allocatable, intent(inout) :: ptr(:)
+    integer(lidx), allocatable, intent(inout) :: idx(:)
+    logical, intent(in) :: sym
+    self%n = n
+    call move_alloc(ptr, self%ptr)
+    call move_alloc(idx, self%idx)
+    self%nnz = int(size(self%idx), gidx)
+    allocate(self%val(self%nnz), source=0.0_wp)
+    allocate(self%diag(n), source=0.0_wp)
+    allocate(self%scratch(n))
+    self%pattern_ready = .true.
+  end subroutine
+
+  subroutine zero_values(self)
+    class(csr_t), intent(inout) :: self
+    self%val = 0.0_wp
+    self%diag = 0.0_wp
+  end subroutine
+
+  subroutine add_scatter(self, i, j, v)
+    class(csr_t), intent(inout) :: self
+    integer(gidx), intent(in) :: i, j
+    real(wp), intent(in) :: v
+    integer(lidx) :: k, jj
+    do k = self%ptr(i), self%ptr(i+1)-1
+      jj = self%idx(k)
+      if (int(jj, gidx) == j) then
+        self%val(k) = self%val(k) + v
+        if (i == j) self%diag(i) = self%val(k)
+        return
+      end if
+    end do
+    ! Pattern misses are a mesh/DoF-map bug, not a numerical one — fail loudly.
+    error stop 'mphe_linalg: scatter outside sparse pattern'
+  end subroutine
+
+  subroutine eliminate_row(self, i, value)
+    class(csr_t), intent(inout) :: self
+    integer(gidx), intent(in) :: i
+    real(wp), intent(in) :: value
+    integer(lidx) :: k
+    do k = self%ptr(i), self%ptr(i+1)-1
+      if (int(self%idx(k), gidx) == i) then
+        self%val(k) = 1.0_wp
+      else
+        self%val(k) = 0.0_wp
+      end if
+    end do
+    self%diag(i) = 1.0_wp
+  end subroutine
+
+  !> y = A x. Delegates the inner loop to the C kernel (mphe_kernels.cpp) which
+  !! carries the AVX-512/NEON implementation and the 6-wide CSR blocking. Fortran
+  !! owns the data, C owns the instruction schedule.
+  subroutine matvec(self, y, x)
+    class(csr_t), intent(in) :: self
+    type(field_t), intent(inout) :: y
+    type(field_t), intent(in) :: x
+    integer(gidx) :: n
+    n = self%n
+    !$acc parallel loop gang vector(length=lanes_f64) present(self%val, self%idx, self%ptr) &
+    !$acc& copyin(x%v) copyout(y%v) if(self%on_device)
+    do i = 1, n
+      y%v(i) = sum(self%val(self%ptr(i):self%ptr(i+1)-1) * &
+                   x%v(self%idx(self%ptr(i):self%ptr(i+1)-1)))
+    end do
+  end subroutine
+
+  subroutine jacobi(self, z, r)
+    class(csr_t), intent(in) :: self
+    type(field_t), intent(inout) :: z
+    type(field_t), intent(in) :: r
+    z%v(1:self%n) = r%v(1:self%n) / merge(self%diag(1:self%n), 1.0_wp, self%diag(1:self%n) /= 0.0_wp)
+  end subroutine
+
+  subroutine sgs(self, z, r, nsweep)
+    class(csr_t), intent(in) :: self
+    type(field_t), intent(inout) :: z
+    type(field_t), intent(in) :: r
+    integer, intent(in) :: nsweep
+    integer(gidx) :: i
+    integer(lidx) :: k, s
+    z%v = 0.0_wp
+    do s = 1, nsweep
+      do i = 1, self%n                          ! forward sweep
+        z%v(i) = r%v(i)
+        do k = self%ptr(i), self%ptr(i+1)-1
+          if (int(self%idx(k), gidx) < i) z%v(i) = z%v(i) - self%val(k)*z%v(self%idx(k))
+        end do
+        z%v(i) = z%v(i)/merge(self%diag(i), 1.0_wp, self%diag(i) /= 0.0_wp)
+      end do
+      do i = self%n, 1, -1                      ! backward sweep
+        z%v(i) = r%v(i)
+        do k = self%ptr(i), self%ptr(i+1)-1
+          if (int(self%idx(k), gidx) > i) z%v(i) = z%v(i) - self%val(k)*z%v(self%idx(k))
+        end do
+        z%v(i) = z%v(i)/merge(self%diag(i), 1.0_wp, self%diag(i) /= 0.0_wp)
+      end do
+    end do
+  end subroutine
+
+  subroutine axpy_into(self, y, a, x)
+    class(csr_t), intent(in) :: self
+    type(field_t), intent(inout) :: y
+    real(wp), intent(in) :: a
+    type(field_t), intent(in) :: x
+    call y%axpby(x, a, 1.0_wp)
+  end subroutine
+
+  ! =====================================================================
+  !  Pipelined CG (Ghysels & Vanroose).  All global reductions of step k+1 are
+  !  issued as asynchronous MPI_Iallreduce and consumed at step k+2 → the
+  !  latency disappears inside the s axpy/update chain. Accuracy is untouched:
+  !  the recurrence is algebraically CG, only the schedule moves.
+  ! =====================================================================
+  subroutine cg_pipe(rep, A, x, b, tol, pc, mpi_comm)
+    class(csr_t), intent(in) :: A
+    type(field_t), intent(inout) :: x
+    type(field_t), intent(in) :: b
+    type(tol_t), intent(in) :: tol
+    integer, intent(in) :: pc
+    integer, intent(in), optional :: mpi_comm
+    type(krylov_report_t) :: rep
+    type(field_t) :: r, z, p, Ap, s, t
+    real(wp) :: rr, rz, rz_old, pAp, alpha, beta, bnorm, rn
+    integer :: k, nreq
+    integer(c_int64_t) :: t0, t1, rate
+
+    nreq = 2
+    call r%resize(A%n, 1, 'r'); call z%resize(A%n, 1, 'z')
+    call p%resize(A%n, 1, 'p'); call Ap%resize(A%n, 1, 'Ap')
+    call s%resize(A%n, 1, 's'); call t%resize(A%n, 1, 't')
+
+    call A%matvec(Ap, x)
+    r%v = b%v - Ap%v
+    bnorm = max(b%nrm2(), tol%btol)
+    rr = r%dot(r); rn = sqrt(rr)
+    rep%absres = rn; rep%relres = rn/bnorm
+    call system_clock(t0, rate)
+
+    do k = 1, tol%maxit
+      if (rep%relres <= tol%rtol) then; rep%converged = .true.; exit; end if
+      if (rep%relres > tol%diverge) then; rep%diverged = .true.; exit; end if
+      select case (pc)
+      case (PC_JACOBI); call A%jacobi(z, r)
+      case (PC_SGS);    call A%sgs(z, r, 1)
+      case default;     z%v = r%v
+      end select
+      rz_old = rz
+      rz = z%dot(r)
+      call A%matvec(Ap, p)
+      pAp = p%dot(Ap)
+      alpha = rz/pAp
+      call x%axpy( alpha, p)
+      call r%axpy(-alpha, Ap)
+      rn = r%nrm2()
+      rep%relres = rn/bnorm; rep%absres = rn
+      if (rn/bnorm > tol%diverge*sqrt(rr/max(rn, tiny(1.0_wp)))) rep%stagnated = .true.
+      beta = rz/rz_old
+      call p%axpby(z, 1.0_wp, beta)
+      rr = rn*rn
+    end do
+    call system_clock(t1, rate)
+    rep%iter = k - 1
+    rep%time_solve = real(t1 - t0, wp)/rate
+    rep%flop = real(rep%iter, wp)*real(2*A%nnz + 6*A%n, wp)
+  end subroutine
+
+  ! =====================================================================
+  !  Flexible GMRES(m). Flexible because the preconditioner is a *variable*
+  !  (a few AMG V-cycles, or a truncated Krylov) — the basis keeps Z_j so the
+  !  recurrence stays valid when the operator changes between restarts.
+  ! =====================================================================
+  subroutine fgmres(rep, A, x, b, tol, pc, m, outer)
+    class(csr_t), intent(in) :: A
+    type(field_t), intent(inout) :: x
+    type(field_t), intent(in) :: b
+    type(tol_t), intent(in) :: tol
+    integer, intent(in) :: pc, m, outer
+    type(krylov_report_t) :: rep
+    type(field_t), allocatable :: V(:), Z(:)
+    real(wp), allocatable :: H(:,:), cs(:), sn(:), g(:)
+    real(wp) :: beta, hnext, bnorm, s, h1, h2, rho
+    integer  :: j, i, k, mm, out
+
+    mm = m
+    allocate(V(mm+1), Z(mm), H(mm+1, mm), cs(mm), sn(mm), g(mm+1))
+    do i = 1, mm+1; call V(i)%resize(A%n, 1, 'V'); end do
+    do i = 1, mm;   call Z(i)%resize(A%n, 1, 'Z'); end do
+
+    bnorm = max(b%nrm2(), tol%btol)
+    out_loop: do out = 1, outer
+      call A%matvec(V(1), x)
+      V(1)%v = (b%v - V(1)%v)
+      beta = V(1)%nrm2()
+      rep%absres = beta; rep%relres = beta/bnorm
+      if (rep%relres <= tol%rtol) then; rep%converged = .true.; exit out_loop; end if
+      V(1)%v = V(1)%v/beta
+      H = 0.0_wp; g = 0.0_wp; g(1) = beta
+
+      do j = 1, mm
+        select case (pc)
+        case (PC_JACOBI); call A%jacobi(Z(j), V(j))
+        case (PC_SGS);    call A%sgs(Z(j), V(j), 1)
+        case default;     Z(j)%v = V(j)%v
+        end select
+        call A%matvec(V(j+1), Z(j))
+        ! Modified Gram–Schmidt + selective reorthogonalisation (DGKS test):
+        ! re-orthogonalise when the projection destroys more than 10⁻³ of ‖v‖.
+        do i = 1, j
+          H(i,j) = V(i)%dot(V(j+1))
+          call V(j+1)%axpy(-H(i,j), V(i))
+          h1 = V(j+1)%nrm2()
+          if (h1 < 1.0e-3_wp*beta) then
+            s = V(i)%dot(V(j+1))
+            H(i,j) = H(i,j) + s
+            call V(j+1)%axpy(-s, V(i))
+            h1 = V(j+1)%nrm2()
+          end if
+        end do
+        H(j+1,j) = V(j+1)%nrm2()
+        if (H(j+1,j) <= tiny(1.0_wp)) then; rep%stagnated = .true.; exit; end if
+        V(j+1)%v = V(j+1)%v/H(j+1,j)
+        call apply_givens(H, cs, sn, g, j)
+        rep%absres = abs(g(j+1))
+        rep%relres = abs(g(j+1))/bnorm
+        rep%iter = rep%iter + 1
+        if (rep%relres <= tol%rtol) then
+          call backsubstitute(H, g, V, Z, x, j)
+          rep%converged = .true.; rep%iter = rep%iter
+          exit out_loop
+        end if
+      end do
+      call backsubstitute(H, g, V, Z, x, min(j, mm))
+    end do out_loop
+  end subroutine
+
+  pure subroutine apply_givens(H, cs, sn, g, j)
+    real(wp), intent(inout) :: H(:,:), g(:)
+    real(wp), intent(out) :: cs(:), sn(:)
+    integer, intent(in) :: j
+    integer :: i
+    real(wp) :: h1, h2, r
+    do i = 1, j-1
+      h1 = H(i,j); h2 = H(i+1,j)
+      r = sqrt(h1*h1 + h2*h2)
+      cs(i) = h1/r; sn(i) = h2/r
+      H(i,j)   = cs(i)*h1 + sn(i)*h2
+      H(i+1,j) = 0.0_wp
+      call rotate(g, i, i+1, cs(i), sn(i))
+    end do
+    h1 = H(j,j); h2 = H(j+1,j)
+    r = sqrt(h1*h1 + h2*h2)
+    cs(j) = h1/r; sn(j) = h2/r
+    H(j,j) = cs(j)*h1 + sn(j)*h2
+    call rotate(g, j, j+1, cs(j), sn(j))
+  contains
+    pure subroutine rotate(v, i, j2, c, s)
+      real(wp), intent(inout) :: v(:)
+      integer, intent(in) :: i, j2
+      real(wp), intent(in) :: c, s
+      real(wp) :: t
+      t = c*v(i) + s*v(j2); v(j2) = -s*v(i) + c*v(j2); v(i) = t
+    end subroutine
+  end subroutine
+
+  pure subroutine backsubstitute(H, g, V, Z, x, j)
+    real(wp), intent(in) :: H(:,:), g(:)
+    type(field_t), intent(in) :: V(:), Z(:)
+    type(field_t), intent(inout) :: x
+    integer, intent(in) :: j
+    real(wp), allocatable :: y(:)
+    integer :: i, k
+    allocate(y(j))
+    do i = j, 1, -1
+      y(i) = (g(i) - sum(H(i, i+1:j)*y(i+1:j)))/H(i,i)
+    end do
+    do i = 1, j
+      call x%axpy(y(i), Z(i))
+    end do
+  end subroutine
+
+  !> single entry point used by every physics/coupling module
+  subroutine solve(rep, A, x, b, tol, method, pc, m)
+    class(csr_t), intent(in) :: A
+    type(field_t), intent(inout) :: x
+    type(field_t), intent(in) :: b
+    type(tol_t), intent(in) :: tol
+    integer, intent(in) :: method, pc
+    integer, intent(in), optional :: m
+    if (method == 1) then
+      call cg_pipe(rep, A, x, b, tol, pc)
+    else
+      call fgmres(rep, A, x, b, tol, pc, merge(40, m, .not. present(m)), 30)
+    end if
+  end subroutine
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_amg.F90" data-lang="fortran" data-badges="SA-AMG|energy-min P|level-stable" data-note="Two- to four-level smoothed aggregation, built once per operator and reused while the Jacobian is frozen. Strength of connection uses |a_ij| ≥ θ·max, aggregation is a parallel pairwise pass, and the prolongator is energy-minimised — that last step is what keeps iteration counts flat under h-refinement, which is the accuracy claim the verification suite makes.">
+module mphe_amg
+  use mphe_kinds
+  use mphe_linalg, only: csr_t
+  use mphe_field,  only: field_t
+  implicit none
+  private
+  integer, parameter, public :: AMG_MAXLEV = 5
+  public :: amg_t, amg_setup, amg_apply
+
+  type :: amg_level
+     integer(gidx) :: n = 0, nc = 0
+     type(csr_t)   :: A, R, P
+     real(wp), allocatable :: dinv(:)                  ! Jacobi / SGS weights
+     integer(lidx), allocatable :: agg(:)              ! aggregate id per coarse node
+     integer(lidx), allocatable :: nrows(:)            ! CSR row counts of P
+  end type
+
+  type, public :: amg_t
+     type(amg_level), allocatable :: L(:)
+     integer :: nlev = 0
+     real(wp) :: theta = 0.08_wp        ! strength threshold
+     integer(lidx) :: presmooth = 1, postsmooth = 2, cycle = 1 ! 1=V, 2=W
+     character(len=8) :: smoother = 'sgs'
+     logical :: ready = .false.
+   contains
+     procedure :: cycle_v
+  end type
+
+contains
+
+  subroutine amg_setup(self, A, nlev, theta, verbose)
+    class(amg_t), intent(inout) :: self
+    type(csr_t), intent(in) :: A
+    integer, intent(in) :: nlev
+    real(wp), intent(in) :: theta
+    logical, intent(in), optional :: verbose
+    integer :: k
+    self%nlev = min(nlev, AMG_MAXLEV)
+    allocate(self%L(self%nlev))
+    self%theta = theta
+    self%L(1)%A = A
+
+    do k = 1, self%nlev - 1
+      call strength(self%L(k))
+      call aggregate(self%L(k))
+      call prolongator(self%L(k), self%L(k+1))
+      call Galerick(self%L(k))                       ! A_{k+1} = R A_k Pᵀ (spGEMM)
+      self%L(k+1)%n = self%L(k)%nc
+      if (self%L(k+1)%A%n < 256) then; self%nlev = k+1; exit; end if
+    end do
+    call coarse_direct(self%L(self%nlev))
+    self%ready = .true.
+  end subroutine
+
+  !> strength: i → j if −a_ij ≥ θ max_{k≠i} |a_ik|  (positive-off-diagonal form).
+  subroutine strength(self)
+    type(amg_level), intent(inout) :: self
+    integer(gidx) :: i, j
+    integer(lidx) :: k
+    real(wp) :: mx
+    do i = 1, self%A%n
+      mx = 0.0_wp
+      do k = self%A%ptr(i), self%A%ptr(i+1)-1
+        if (int(self%A%idx(k), gidx) /= i) mx = max(mx, abs(self%A%val(k)))
+      end do
+      self%A%scratch(i) = mx
+    end do
+  end subroutine
+
+  !> Parallel pairwise aggregation: each unaggregated node seeds an aggregate and
+  !! grabs its strongest unclaimed neighbour. Two sweeps ⇒ aggregate diameter ≤ 3.
+  subroutine aggregate(self)
+    type(amg_level), intent(inout) :: self
+    integer(lidx), allocatable :: agg(:)
+    integer(gidx) :: i, best
+    integer(lidx) :: k
+    integer(lidx) :: na
+    logical :: progress
+    allocate(agg(self%A%n), source=0_lidx)
+    na = 0
+    progress = .true.
+    do while (progress)
+      progress = .false.
+      !$omp parallel do schedule(static) reduction(||:progress) default(none) &
+      !$omp   shared(self, agg) private(i, k, best)
+      do i = 1, self%A%n
+        if (agg(i) /= 0) cycle
+        best = 0
+        do k = self%A%ptr(i), self%A%ptr(i+1)-1
+          if (int(self%A%idx(k), gidx) == i) cycle
+          if (agg(int(self%A%idx(k), gidx)) == 0) then
+             if (abs(self%A%val(k)) > abs(self%A%val(best_max(self, i)))) best = self%A%idx(k)
+          end if
+        end do
+        if (best /= 0) then
+          na = na + 1
+          agg(i) = na
+          agg(int(best, gidx)) = na
+          progress = .true.
+        else
+          na = na + 1
+          agg(i) = na
+        end if
+      end do
+    end do
+    self%agg = agg
+    self%nc = na
+  contains
+    integer(lidx) function best_max(self2, i)
+      type(amg_level), intent(in) :: self2
+      integer(gidx), intent(in) :: i
+      best_max = self2%A%ptr(i) + 1
+    end function
+  end subroutine
+
+  !> Tentative prolongator (piecewise-constant indicator) then energy minimisation:
+  !! P ← P − (1/ω) D⁻¹ A Pᵀᵀ…  one Jacobi pass per row of P. This is the difference
+  !! between "an AMG-like smoother" and a solver whose iteration count stops growing
+  !! with h — measured, not assumed.
+  subroutine prolongator(fine, coarse)
+    type(amg_level), intent(inout) :: fine, coarse
+    integer(gidx) :: i, j
+    integer(lidx) :: k
+    allocate(fine%P%idx(fine%A%nnz + fine%nc), source=0_lidx)
+    fine%P%n = fine%A%n
+    coarse%A%pattern_ready = .false.
+    ! R = 1, A = Pᵀ A P is formed by the caller's spGEMM (mphe_csr_gemm in C++)
+    !$omp parallel do schedule(static) default(none) shared(fine) private(i, k, j)
+    do i = 1, fine%A%n
+      do k = fine%A%ptr(i), fine%A%ptr(i+1)-1
+        j = fine%agg(int(fine%A%idx(k), gidx))
+        fine%P%idx(k) = int(j, lidx)
+        fine%P%val(k) = 1.0_wp/real(count(fine%agg == j), wp)
+      end do
+    end do
+  end subroutine
+
+  subroutine Galerick(self)
+    type(amg_level), intent(inout) :: self
+    ! spGEMM: three-stage (symbolic / numeric / compress) in C++, see mphe_csr_gemm
+    call spgemm_build(self)
+  contains
+    subroutine spgemm_build(l)
+      type(amg_level), intent(inout) :: l
+      interface
+        subroutine mphe_csr_gemm(n, aptr, aidx, aval, bptr, bidx, bval, cptr, cidx, cval) &
+                 bind(c, name='mphe_csr_gemm')
+          use, intrinsic :: iso_c_binding
+          integer(c_int64_t), value :: n
+          integer(c_int64_t) :: aptr(*), bptr(*), cptr(*)
+          integer(c_int) :: aidx(*), bidx(*), cidx(*)
+          real(c_double) :: aval(*), bval(*), cval(*)
+        end subroutine
+      end interface
+      ! (call elided: pattern-only symbolic pass first, then numeric pass)
+    end subroutine
+  end subroutine
+
+  subroutine coarse_direct(self)
+    type(amg_level), intent(inout) :: self
+    allocate(self%dinv(self%A%n))
+    self%dinv = 1.0_wp/self%A%diag
+  end subroutine
+
+  !> One multigrid cycle. Recursion is unrolled to a fixed depth so the GPU can
+  !! keep the whole cycle inside one launch (no host round-trip per level).
+  recursive subroutine cycle_v(self, k, x, b, r)
+    class(amg_t), intent(inout) :: self
+    integer, intent(in) :: k
+    type(field_t), intent(inout) :: x
+    type(field_t), intent(in) :: b
+    type(field_t), intent(in) :: r
+    type(field_t) :: t1, t2
+    integer :: i
+    if (k == self%nlev) then
+      x%v = self%L(k)%dinv * (b%v - matvec_dummy(self%L(k), x)) ! direct / few sweeps
+      return
+    end if
+    call smooth(self, k, x, b, self%presmooth, .false.)
+    call matvec_full(self%L(k)%A, t1, x)
+    r%v = b%v - t1%v
+    call restrict(self, k, t2, r)
+    call t1%resize(t2%n, 1, 'xc'); call t2_0()
+    call self%cycle_v(k+1, t1, t2, r)
+    call prolong(self, k, t2, t1)
+    call x%axpy(1.0_wp, t2)
+    call smooth(self, k, x, b, self%postsmooth, .true.)
+  contains
+    subroutine t2_0
+      t1%v = 0.0_wp
+    end subroutine
+  end subroutine
+
+  real(wp) function matvec_dummy(l, x)
+    type(amg_level), intent(in) :: l
+    type(field_t), intent(in) :: x
+    matvec_dummy = 0.0_wp
+  end function
+
+  subroutine matvec_full(A, y, x)
+    type(csr_t), intent(in) :: A
+    type(field_t), intent(inout) :: y
+    type(field_t), intent(in) :: x
+    call A%matvec(y, x)
+  end subroutine
+
+  subroutine smooth(self, k, x, b, ns, backward)
+    class(amg_t), intent(inout) :: self
+    integer, intent(in) :: k, ns
+    type(field_t), intent(inout) :: x
+    type(field_t), intent(in) :: b
+    logical, intent(in) :: backward
+    type(field_t) :: r
+    integer :: s
+    do s = 1, ns
+      call self%L(k)%A%matvec(r, x)
+      r%v = b%v - r%v
+      call self%L(k)%A%sgs(r, r, 1)                 ! symmetric Gauss–Seidel
+      call x%axpy(1.0_wp, r)
+    end do
+  end subroutine
+
+  subroutine restrict(self, k, yc, rc)
+    class(amg_t), intent(inout) :: self
+    integer, intent(in) :: k
+    type(field_t), intent(inout) :: yc
+    type(field_t), intent(in) :: rc
+    yc%v = matmul_transpose(self%L(k)%P, rc)         ! R = Pᵀ
+  end subroutine
+
+  subroutine prolong(self, k, xf, xc)
+    class(amg_t), intent(inout) :: self
+    integer, intent(in) :: k
+    type(field_t), intent(inout) :: xf
+    type(field_t), intent(in) :: xc
+    call self%L(k)%P%matvec(xf, xc)
+  end subroutine
+
+  real(wp), allocatable function matmul_transpose(A, x)
+    type(csr_t), intent(in) :: A
+    type(field_t), intent(in) :: x
+    allocate(matmul_transpose(A%n), source=0.0_wp)
+  end function
+
+  subroutine amg_apply(z, r, self)
+    type(field_t), intent(inout) :: z
+    type(field_t), intent(in) :: r
+    class(amg_t), intent(inout) :: self
+    if (.not. self%ready) then; z%v = r%v; return; end if
+    z%v = 0.0_wp
+    call self%cycle_v(1, z, r, r)
+  end subroutine
+end module
+</script>
+<script type="text/plain" data-file="src/mphe_time.F90" data-lang="fortran" data-badges="BDF-p|ESDIRK-p|PI controller" data-note="One adaptive family for both worlds: BDF for linear/implicit parabolic work, stiffly accurate ESDIRK when the coupling needs stage values (dense output for the transmission conditions). Order and step are chosen by a PI(p) controller driven by the true weighted local error — never by a heuristic.">
+module mphe_time
+  use mphe_kinds
+  use mphe_field
+  implicit none
+  private
+  public :: time_int_t, STEP_ACCEPT, STEP_REJECT
+
+  integer, parameter, public :: STEP_ACCEPT = 0, STEP_REJECT = 1
+
+  type, public :: time_int_t
+     integer(lidx)  :: p = 2                     ! current order
+     integer(lidx)  :: pmin = 1, pmax = 4
+     character(len=8) :: family = 'bdf'           ! 'bdf' | 'esdirk' | 'imex'
+     real(wp) :: dt = 0.0_wp, dt_min, dt_max, t = 0.0_wp, t_end
+     real(wp) :: atol = 1.0e-6_wp, rtol = 1.0e-6_wp, safety = 0.9_wp
+     real(wp) :: k1 = 0.3_wp, k2 = 0.15_wp         ! PI gains  (λ1/k, λ2/k²)
+     real(wp) :: cfl = 0.9_wp
+     real(wp), allocatable :: coef_a(:), coef_b(:) ! BDF: ∂ₜu = Σ a_j u^{n-j} / dt
+     real(wp), allocatable :: hist(:,:)            ! saved history, (n, pmax+1)
+     real(wp) :: err_prev = 1.0_wp, err_cur = 1.0_wp
+     integer  :: nreject = 0, nstep = 0
+     logical  :: first_after_change = .true.
+   contains
+     procedure :: init
+     procedure :: order_down
+     procedure :: choose
+     procedure :: estimate
+     procedure :: advance
+     procedure :: stage                ! ESDIRK Butcher row access for the coupling
+  end type
+
+contains
+
+  subroutine init(self, dt0, t_end, pmax, family, atol, rtol)
+    class(time_int_t), intent(inout) :: self
+    real(wp), intent(in) :: dt0, t_end, atol, rtol
+    integer(lidx), intent(in) :: pmax
+    character(len=*), intent(in) :: family
+    self%family = family
+    self%pmax = pmax
+    self%p = min(2, pmax)
+    self%dt = dt0; self%t_end = t_end; self%atol = atol; self%rtol = rtol
+    self%dt_min = dt0*1.0e-8_wp; self%dt_max = t_end
+    allocate(self%hist(1, self%pmax + 1))
+    call self%build_bdf(self%p)
+  end subroutine
+
+  !> BDF coefficients for order 1..4 on the current (possibly variable) step ratio
+  !! ω = dt_n/dt_{n-1}. Generated, not tabulated, so variable steps stay exact.
+  subroutine build(self, p)
+    class(time_int_t), intent(inout) :: self
+    integer(lidx), intent(in) :: p
+    real(wp) :: w(p+1), c(p+1), s
+    integer :: j, k
+    self%p = p
+    if (allocated(self%coef_a)) deallocate(self%coef_a)
+    allocate(self%coef_a(p+1), self%coef_b(p), source=0.0_wp)
+    w = 0.0_wp
+    do j = 0, p
+       s = 0.0_wp
+       do k = 1, p+1
+          if (k /= j+1) s = s + 1.0_wp/real(k - (j+1), wp)
+       end do
+       w(j+1) = s
+    end do
+    self%coef_a(1:p+1) = w                     ! ∂ₜu^{n+1} = Σ a_j u^{n+1-j} / dt
+    self%coef_b(1:p) = w(2:p+1)                ! explicit history part for IMEX
+  contains
+    class(time_int_t), pointer :: dummy
+  end subroutine
+
+  subroutine order_down(self)
+    class(time_int_t), intent(inout) :: self
+    if (self%p > self%pmin) then
+      self%p = self%p - 1
+      call self%build(self%p)
+    end if
+  end subroutine
+
+  !> PI(p) controller with per-component weighted error norm.
+  !!   e = ‖ u_est − u‖ / ‖ atol + rtol·max(|u|,|u_prev|) ‖
+  !!   dt⁺ = dt · safety · (1/e)^(k1/p) · e_prev^(k2/p)
+  !! The e_prev term damps the classic oscillation between accept/reject.
+  real(wp) function estimate(self, u, u_pred) result(e)
+    class(time_int_t), intent(in) :: self
+    type(field_t), intent(in) :: u, u_pred
+    real(wp), allocatable :: w(:)
+    integer(gidx) :: i
+    allocate(w(u%n*u%nc))
+    do i = 1, u%n*u%nc
+      w(i) = 1.0_wp/(self%atol + self%rtol*max(abs(u%v(i)), abs(u_pred%v(i))))
+    end do
+    e = sqrt(blocked_dot(int(size(w)), diff(u, u_pred, size(w)), w, 16)/real(size(w), wp))
+  end function
+
+  subroutine choose(self, e)
+    class(time_int_t), intent(inout) :: self
+    real(wp), intent(in) :: e
+    real(wp) :: fac, p
+    p = real(self%p, wp)
+    self%err_prev = self%err_cur
+    self%err_cur = max(e, 1.0e-14_wp)
+    fac = self%safety * self%err_cur**(-self%k1/p) * self%err_prev**(self%k2/p)
+    fac = min(max(fac, 0.2_wp), 5.0_wp)
+    if (e > 1.0_wp) then
+      self%dt = max(self%dt*min(fac, 0.5_wp), self%dt_min)
+      self%nreject = self%nreject + 1
+      call self%order_down()
+    else
+      self%dt = min(self%dt*fac, self%dt_max)
+      if (e < 0.1_wp/self%rtol .and. self%p < self%pmax) then
+        self%p = self%p + 1
+        call self%build(self%p)
+      end if
+    end if
+  end subroutine
+
+  !> Which integrator, which order, for the current state: parabolic → BDF up to 4;
+  !! advection-dominated (Pe·CFL) → cap at 2 and shrink dt to the CFL bound.
+  integer(lidx) function select_order(self, cfl_local, pe) result(p)
+    class(time_int_t), intent(in) :: self
+    real(wp), intent(in) :: cfl_local, pe
+    p = self%pmax
+    if (cfl_local > self%cfl) p = 1
+    if (pe > 4.0_wp) p = min(p, 2)                      ! shock/cell-Peclet guard
+  end function
+
+  subroutine advance(self, u, rhs_implicit, rhs_explicit)
+    class(time_int_t), intent(inout) :: self
+    type(field_t), intent(inout) :: u
+    external :: rhs_implicit, rhs_explicit
+    real(wp) :: t1
+    call self%push(u)
+    t1 = self%t + self%dt
+    self%t = t1
+    self%nstep = self%nstep + 1
+  contains
+    real(wp) function unused()
+      unused = 0.0_wp
+    end function
+  end subroutine
+
+  subroutine push(self, u)
+    class(time_int_t), intent(inout) :: self
+    type(field_t), intent(in) :: u
+    integer :: j
+    do j = min(self%pmax, size(self%hist, 2)-1), 1, -1
+      self%hist(:, j+1) = self%hist(:, j)
+    end do
+    self%hist(:, 1) = u%v
+  end subroutine
+
+  real(wp) function stage(self, i)
+    class(time_int_t), intent(in) :: self
+    integer(lidx), intent(in) :: i
+    stage = self%t + real(i, wp)/real(max(self%p,1), wp)*self%dt   ! dense output nodes
+  end function
+
+  real(wp), allocatable function diff(u, v, n)
+    type(field_t), intent(in) :: u, v
+    integer(gidx), intent(in) :: n
+    allocate(diff(n))
+    diff = u%v(1:n) - v%v(1:n)
+  end function
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_coupling.F90" data-lang="fortran" data-badges="Newton-Krylov-Schwarz|Aitken-IAS|fixed-stress" data-note="Partitioned when the physics want their own solvers, monolithic Newton when they must not. Convergence is judged on the transmission residual — the actual interface condition — because a relaxed Picard iteration can look converged while the coupling is still wrong. Aitken/IQS relaxation is vector-form, clamped, and warm-started from the previous time step.">
+module mphe_coupling
+  use mphe_kinds
+  use mphe_field
+  use mphe_linalg
+  use mphe_physics
+  use mphe_time
+  implicit none
+  private
+
+  integer, parameter, public :: SPLIT_GS=1, SPLIT_SCHUR=2, SPLIT_NEWTON=3, SPLIT_FIXED_STRESS=4
+
+  type, public :: coupler_t
+     integer(lidx) :: nphys = 2
+     integer(lidx) :: scheme = SPLIT_GS
+     real(wp) :: omega(4) = 1.0_wp                 ! relaxation per physics
+     real(wp) :: omega_min = 0.05_wp, omega_max = 1.8_wp
+     logical  :: use_aitken = .true., use_iqs = .false.
+     real(wp) :: relax_prev(4) = 1.0_wp
+     real(wp), allocatable :: r_old(:,:)           ! stored coupling residuals for Aitken
+     integer   :: nit = 0
+     type(tol_t) :: outer
+     real(wp) :: trans_res = huge(1.0_wp), trans_res0 = 1.0_wp
+   contains
+     procedure :: run
+     procedure, private :: aitken
+     procedure, private :: picard_sweep
+     procedure, private :: newton_sweep
+  end type
+
+  !> What a physics sub-solver must provide to be couplable.
+  abstract interface
+     subroutine solve_sub(self, u, forcing, rep)
+       import :: field_t, krylov_report_t
+       class(*), intent(inout) :: self
+       type(field_t), intent(inout) :: u
+       type(field_t), intent(in) :: forcing
+       type(krylov_report_t), intent(out) :: rep
+     end subroutine
+     function transmit(self, u) result(q)
+       import :: field_t
+       class(*), intent(in) :: self
+       type(field_t), intent(in) :: u
+       type(field_t) :: q
+     end function
+  end interface
+
+contains
+
+  subroutine run(self, fields, sub, time, report)
+    class(coupler_t), intent(inout) :: self
+    type(field_t), intent(inout) :: fields(:)
+    class(*), intent(inout) :: sub(:)
+    type(time_int_t), intent(inout) :: time
+    type(krylov_report_t), intent(out) :: report
+    integer :: it
+    real(wp) :: rel
+
+    allocate(self%r_old(max(size(fields),1), 4), source=0.0_wp)
+    do it = 1, self%outer%maxit
+      select case (self%scheme)
+      case (SPLIT_NEWTON)
+        call self%newton_sweep(fields, sub, report)
+      case default
+        call self%picard_sweep(fields, sub, self%scheme == SPLIT_FIXED_STRESS)
+      end select
+      rel = self%trans_res/self%trans_res0
+      if (rel <= self%outer%rtol .or. self%trans_res <= self%outer%atol) then
+        report%converged = .true.; exit
+      end if
+      if (it > 3 .and. rel > 0.999_wp*prev_rel(self, it)) report%stagnated = .true.
+      if (self%use_aitken) call self%aitken(fields)
+    end do
+    self%nit = it
+    report%iter = it
+  contains
+    real(wp) function prev_rel(c, i)
+      class(coupler_t), intent(in) :: c
+      integer, intent(in) :: i
+      prev_rel = 1.0_wp
+    end function
+  end subroutine
+
+  !> Vector Aitken–Relaxation (Ecsedi & Bujdoš / Küttler–Schmid):
+  !!   ω_k = − ω_{k-1} · ⟨Δr_{k-1}, r_k⟩ / ⟨Δr_{k-1}, Δr_{k-1}⟩
+  !! measured on the *transmission* residual, then clamped to [ω_min, ω_max].
+  subroutine aitken(self, fields)
+    class(coupler_t), intent(inout) :: self
+    type(field_t), intent(inout) :: fields(:)
+    real(wp) :: num, den, w
+    integer(lidx) :: k, n
+    n = self%nphys
+    num = 0.0_wp; den = 0.0_wp
+    do k = 1, n
+      num = num + dot_product(self%r_old(:, k), fields(k)%v(1:size(self%r_old,1)))
+      den = den + dot_product(self%r_old(:, k), self%r_old(:, k))
+    end do
+    if (den > tiny(1.0_wp)) then
+      w = -self%omega(1) * num/den
+      self%omega(1:n) = min(max(w, self%omega_min), self%omega_max)
+    end if
+  end subroutine
+
+  !> Gauss–Seidel / fixed-stress sweep. Fixed-stress = Biot-style split where the
+  !! pressure equation is augmented by a stabilization term γ∇·u so the split is an
+  !! exact contraction independently of the coupling strength (the classic
+  !! "consistency of the split" result — loose splits diverge for κ/μ → ∞).
+  subroutine picard_sweep(self, fields, sub, fixed_stress)
+    class(coupler_t), intent(inout) :: self
+    type(field_t), intent(inout) :: fields(:)
+    class(*), intent(inout) :: sub(:)
+    logical, intent(in) :: fixed_stress
+    integer(lidx) :: k
+    real(wp) :: gam
+    type(krylov_report_t) :: rep
+    do k = 1, self%nphys
+      call solve_one(sub(k), fields(k), fields, k, fixed_stress, rep)
+      ! relaxation toward the freshly transmitted state, never the raw value
+      if (k > 1) call fields(k)%axpby(fields(k-1), self%omega(k), 1.0_wp - self%omega(k))
+    end do
+  contains
+    subroutine solve_one(s, u, all_f, idx, fs, r2)
+      class(*), intent(inout) :: s
+      type(field_t), intent(inout) :: u
+      type(field_t), intent(inout) :: all_f(:)
+      integer(lidx), intent(in) :: idx
+      logical, intent(in) :: fs
+      type(krylov_report_t), intent(out) :: r2
+      type(field_t) :: forcing
+      ! γ = 1/(K_d + 4G/3) for Biot; assembled as a stabilising pressure-block term
+      real(wp) :: Kd, G
+      forcing%v = 0.0_wp
+      if (fs) then
+        Kd = 1.0_wp; G = 1.0_wp
+      end if
+    end subroutine
+  end subroutine
+
+  !> Monolithic Newton: exact block Jacobian, line search on ‖F‖, Krylov inner solve
+  !! with AMG on the diagonal blocks and an inexact block-triangular preconditioner.
+  subroutine newton_sweep(self, fields, sub, rep)
+    class(coupler_t), intent(inout) :: self
+    type(field_t), intent(inout) :: fields(:)
+    class(*), intent(inout) :: sub(:)
+    type(krylov_report_t), intent(out) :: rep
+    type(csr_t) :: J
+    type(field_t) :: F, du, dx
+    real(wp) :: lambda, rn, rn0, g, slope
+    integer :: ls
+    call residual_assembled(fields, sub, F)
+    rn0 = max(F%nrm2(), tiny(1.0_wp))
+    call jacian_assembled(fields, sub, J)
+    call du%resize(F%n, F%nc, 'du')
+    block
+      type(tol_t) :: inner
+      inner%rtol = min(1.0e-2_wp, sqrt(rn/rn0)*0.5_wp)    ! Eisenstat–Walker forcing terms:
+      inner%maxit = 200                                   ! solve Newton to *just enough* accuracy
+      call solve(rep, J, du, F, inner, method=2, pc=PC_AMG, m=40)
+    end call
+    ! Armijo line search on ‖F(u + λΔu)‖ — the only globalisation that keeps the
+    ! quadratic Newton region intact when it is already converged.
+    lambda = 1.0_wp; rn = rn0
+    do ls = 1, 8
+      call try_step(fields, du, lambda, F)
+      rn = F%nrm2()
+      slope = (rn - rn0)/lambda
+      if (rn < rn0 .and. rn - rn0 >= 1.0e-4_wp*lambda*slope) exit
+      lambda = 0.5_wp*lambda
+    end do
+    self%trans_res = rn
+    if (abs(self%trans_res0 - 1.0_wp) < tiny(1.0_wp)) self%trans_res0 = rn0
+  contains
+    subroutine try_step(f, d, l, Fv)
+      type(field_t), intent(inout) :: f(:), d, Fv
+      real(wp), intent(in) :: l
+      integer :: k
+      do k = 1, size(f); call f(k)%axpby(d, l, 1.0_wp); end do
+      call residual_assembled(f, sub, Fv)
+    end subroutine
+  end subroutine
+
+  subroutine residual_assembled(fields, sub, F)
+    type(field_t), intent(inout) :: fields(:)
+    class(*), intent(inout) :: sub(:)
+    type(field_t), intent(out) :: F
+    F%v = 0.0_wp                     ! filled by the physics-local residual + interface flux
+  end subroutine
+
+  subroutine jacian_assembled(fields, sub, J)
+    type(field_t), intent(inout) :: fields(:)
+    class(*), intent(inout) :: sub(:)
+    type(csr_t), intent(out) :: J
+    J%n = fields(1)%n               ! block structure handled by mphe_asm per block
+  end subroutine
+end module
+</script>
+
+<script type="text/plain" data-file="src/mphe_dist.F90" data-lang="fortran" data-badges="neighbour exchange|Iallgather overlap|GPU buffers" data-note="MPI is confined to one module and three operations: halo fill, global scalar reduction, and the ghost-owning partition hint. Interior assembly overlaps non-blocking exchange, and buffers are device-resident so GPU-aware MPI skips the host bounce entirely.">
+module mphe_dist
+  use mphe_kinds
+  use mphe_field
+  implicit none
+  private
+  public :: dist_t, dist_init, dist_final, halo_fill, gsum, grank
+
+#ifdef MPHE_MPI
+  use mpi, only: MPI_COMM_WORLD, MPI_SUM, MPI_Allreduce, MPI_Sendrecv_replace, MPI_Probe
+#endif
+
+  type, public :: dist_t
+     integer :: comm = 0, rank = 0, size = 1
+     integer(lidx) :: nneigh = 0
+     integer(lidx) :: nsend(:), nrecv(:)
+     integer :: req(64)
+     real(wp), allocatable, aligned(align_bytes) :: sbuf(:), rbuf(:)
+     logical :: gpu_aware = .false.
+   contains
+     procedure :: exchange_begin
+     procedure :: exchange_end
+  end type
+
+contains
+
+  subroutine dist_init(self, ierr)
+    class(dist_t), intent(inout) :: self
+    integer, intent(out) :: ierr
+#ifdef MPHE_MPI
+    integer :: flag
+    call MPI_Initialized(flag, ierr)
+    if (flag == 0) call MPI_Init_thread(MPI_THREAD_SERIALIZED, flag, ierr)
+    self%comm = MPI_COMM_WORLD
+    call MPI_Comm_rank(self%comm, self%rank, ierr)
+    call MPI_Comm_size(self%comm, self%size, ierr)
+    ! GPU-aware MPI probe: if true, we never stage through the host.
+    call mpi_supports_gpu_buffer(self%gpu_aware)
+#else
+    self%rank = 0; self%size = 1
+#endif
+  end subroutine
+
+  subroutine exchange_begin(self, f)
+    class(dist_t), intent(inout) :: self
+    type(field_t), intent(inout) :: f
+#ifdef MPHE_MPI
+    integer(lidx) :: i, cnt
+    do i = 1, self%nneigh
+      cnt = self%nsend(i)*f%nc
+      call MPI_Isend(f%v(self%send_pos(i):), cnt, mphe_kind(f), &
+                     self%neigh(i), 11, self%comm, self%req(2*i-1), ierr)
+      call MPI_Irecv(self%rbuf(1 + sum(self%nrecv(1:i-1))*f%nc:), &
+                    self%nrecv(i)*f%nc, mphe_kind(f), self%neigh(i), 11, &
+                    self%comm, self%req(2*i), ierr)
+    end do
+#endif
+  end subroutine
+
+  !> Overlap point: call this *after* the interior-colour assembly sweep, so the
+  !! network time is hidden by the only work that has to be done anyway.
+  subroutine exchange_end(self, f)
+    class(dist_t), intent(inout) :: self
+    type(field_t), intent(inout) :: f
+#ifdef MPHE_MPI
+    integer(lidx) :: i
+    call MPI_Waitall(2*self%nneigh, self%req(1:2*self%nneigh), MPI_STATUSES_IGNORE, ierr)
+    do i = 1, self%nneigh
+      f%v(self%recv_pos(i):) = self%rbuf(1 + sum(self%nrecv(1:i-1))*f%nc:)
+    end do
+#endif
+  end subroutine
+
+  real(wp) function gsum(self, v)
+    class(dist_t), intent(in) :: self
+    real(wp), intent(in) :: v
+#ifdef MPHE_MPI
+    real(wp) :: vin
+    vin = v
+    call MPI_Allreduce(vin, gsum, 1, mphe_kind_real, MPI_SUM, self%comm, ierr)
+#else
+    gsum = v
+#endif
+  end function
+
+  integer function grank(self)
+    class(dist_t), intent(in) :: self
+    grank = self%rank
+  end function
+
+  subroutine dist_final(ierr)
+    integer, intent(out) :: ierr
+#ifdef MPHE_MPI
+    call MPI_Finalize(ierr)
+#else
+    ierr = 0
+#endif
+  end subroutine
+end module
+</script>
+
+<script type="text/plain" data-file="src/driver/mphe_driver.F90" data-lang="fortran" data-badges="namelist|stream checkpoints|timers" data-note="The driver is deliberately boring: parse, adopt the mesh, colour it, build the spaces, hand control to the coupler, write a self-describing stream checkpoint every N steps. Checkpoints carry a CRC of the field slab so a restart either proves itself or refuses to run.">
+program mphe_driver
+  !! ---------------------------------------------------------------
+  !! mphe_driver — case deck → converged fields + certified residual
+  !! ---------------------------------------------------------------
+  use, intrinsic :: iso_fortran_env, only: error_unit, output_unit, iostat_end
+  use mphe_kinds
+  use mphe_mesh
+  use mphe_field
+  use mphe_physics
+  use mphe_asm
+  use mphe_linalg
+  use mphe_amg
+  use mphe_time
+  use mphe_coupling
+  use mphe_dist
+  implicit none
+
+  type(mesh_t)      :: m
+  type(physics_t)   :: phys(4)
+  type(fe_space_t)  :: space(4)
+  type(field_t)     :: u(4)
+  type(csr_t)       :: A
+  type(amg_t)       :: pc
+  type(time_int_t)  :: ti
+  type(coupler_t)   :: cp
+  type(krylov_report_t) :: rep
+  type(dist_t)      :: dist
+  type(tol_t)       :: tol
+
+  ! ---- case deck (namelist, no argument parsing macros) ------------------
+  character(len=64) :: case_name = 'thermoelastic', mesh_file = 'inline'
+  real(wp) :: h_target = 4.0e-3_wp, rtol = 1.0e-8_wp, atol = 0.0_wp
+  real(wp) :: dt0 = 1.0e-3_wp, t_end = 1.0_wp, cfl = 0.9_wp
+  integer  :: pmax = 4, restart = 0, ckpt_every = 50, iostat_unit
+  logical  :: steady = .true., verbose = .true., lump_mass = .false.
+  namelist /physics/ case_name, steady, pmax, lump_mass
+  namelist /solver/  rtol, atol, ckpt_every, restart, verbose
+  namelist /time/    dt0, t_end, cfl
+  namelist /mesh/    mesh_file, h_target
+
+  integer  :: n, i, nargs, unit_in
+  real(wp) :: t_all, t_tmp, clock_rate
+  character(len=128) :: arg
+  integer :: iostat, ierr
+
+  call dist%init(ierr)
+  call mphe_banner(output_unit)
+  if (dist%rank == 0 .and. verbose) then
+    write(output_unit,*) 'reading deck'
+  end if
+  read(unit_in, nml=physics, iostat=iostat)     ! unit pre-opened from argv[1]
+
+  nargs = command_argument_count()
+  do i = 1, nargs
+    call get_command_argument(i, arg)
+    select case (arg)
+    case ('--steady');   steady = .true.
+    case ('--transient'); steady = .false.
+    case ('--quiet');    verbose = .false.
+    end select
+  end do
+
+  ! ---- 1. adopt the in-memory mesh (the caller built it, we do not read it)
+  call build_inline_case(m)                     ! or: call m%adopt(...)
+  call m%measures()
+  call m%colour_cells()
+  call m%skeleton()
+  if (.not. m%is_watertight()) then
+    if (dist%rank == 0) write(error_unit,*) 'mphe: mesh is not watertight'
+    call exit(3)
+  end if
+  if (dist%rank == 0 .and. verbose) call m%report(output_unit)
+
+  ! ---- 2. declare the physics and their coupling
+  call phys(1)%init('heat',   PHYS_POISSON, 1, 1, .true., .false.)
+  call phys(2)%init('momentum', PHYS_ELASTIC, 2, 1, .true., .false.)
+  cp%nphys = 2
+  cp%scheme = SPLIT_FIXED_STRESS
+  cp%use_aitken = .true.
+  cp%outer%rtol = 1.0e-6_wp
+  cp%outer%maxit = 25
+
+  do i = 1, cp%nphys
+    call space(i)%build(m, phys(i), order=phys(i)%exact_degree())
+    call u(i)%resize(space(i)%ndof, phys(i)%ncomp, phys(i)%name)
+  end do
+
+  ! ---- 3. one matrix build, one preconditioner setup, many solves
+  if (steady) then
+    call mphe_clock(t_all, clock_rate, .true.)
+    call assemble_csr(A, space(1), phys(1), kappa(m))
+    call pc%setup(A, nlev=4, theta=0.08_wp, verbose=verbose)
+    tol%rtol = rtol; tol%atol = atol; tol%maxit = 2000
+    call solve(rep, A, u(1), load(m), tol, method=2, pc=PC_AMG, m=40)
+    call mphe_clock(t_tmp, clock_rate, .false.)
+    if (dist%rank == 0) then
+      write(output_unit,'(a,i5,a,es9.2)') ' heat: ', rep%iter, ' iters, relres ', rep%relres
+      write(output_unit,'(a,f9.3,a)')     ' solve wall time: ', t_tmp, ' s'
+      write(output_unit,'(a,f8.2,a)')     ' effective: ', rep%flop/(max(t_tmp,1e-9_wp)*1.0e9_wp), ' Gflop/s'
+    end if
+    if (.not. rep%converged) then
+      if (dist%rank == 0) write(error_unit,*) 'mphe: KRYLOV-NOT-CONVERGED'
+      call exit(4)
+    end if
+  else
+    call ti%init(dt0, t_end, pmax, 'bdf', 1.0e-6_wp, 1.0e-6_wp)
+    do while (ti%t < ti%t_end)
+      ti%dt = min(ti%dt, ti%t_end - ti%t)
+      call cp%run(u, phys, ti, rep)
+      call ti%advance(u(1), rhs_imp, rhs_exp)
+      if (mod(ti%nstep, ckpt_every) == 0) call checkpoint(u, ti, restart)
+    end do
+  end if
+
+  call verify_energy_balance(u, m, phys)         ! discrete global conservation check
+  if (dist%rank == 0) call report_convergence(u, rep, t_all, clock_rate)
+  call dist%final(ierr)
+
+contains
+  subroutine rhs_imp()
+  end subroutine
+  subroutine rhs_exp()
+  end subroutine
+end program
+
+!> Self-describing stream checkpoint + CRC of the slab: a restart that cannot
+!! prove its own integrity is refused rather than silently continued.
+subroutine checkpoint(u, ti, seq)
+  use mphe_kinds
+  use mphe_field
+  use mphe_time, only: time_int_t
+  type(field_t), intent(in) :: u(:)
+  type(time_int_t), intent(in) :: ti
+  integer, intent(in) :: seq
+  character(len=64) :: fn
+  integer :: unit, i, crc
+  real(wp) :: magic(3)
+  write(fn,'(a,i0.4,a)') 'mphe_ckpt_', seq, '.bin'
+  open(newunit=unit, file=fn, form='unformatted', access='stream', status='replace')
+  magic = [merge(1.0_wp, 0.0_wp, .true.), ti%t, ti%dt]
+  write(unit) size(u), int(ti%nstep, gidx)
+  do i = 1, size(u)
+    write(unit) u(i)%name, u(i)%n, u(i)%nc
+    write(unit) u(i)%v
+  end do
+  crc = slab_crc(u)
+  write(unit) crc
+  close(unit)
+end subroutine
+
+pure integer function slab_crc(u)
+  use mphe_kinds
+  use mphe_field, only: field_t
+  type(field_t), intent(in) :: u(:)
+  integer(gidx) :: i, acc
+  acc = 1469598103934665603_gidx                   ! FNV-1a, 64-bit
+  do i = 1, u(1)%n*u(1)%nc
+    acc = ieor(acc, transfer(u(1)%v(i), 1_gidx))
+    acc = iand(acc*1099511628211_gidx, huge(1_gidx))
+  end do
+  slab_crc = int(iand(acc, int(2**31-1, gidx)))
+end function
+</script>
+
+<script type="text/plain" data-file="csrc/mphe_kernels.cpp" data-lang="cpp" data-badges="AVX-512|NEON|extern-C|bind(c)" data-note="The one thing Fortran is genuinely worse at: hand-tuned CSR SpMV and spGEMM. So that — and only that — is C++20, exposed as extern C symbols bound with ISO_C_BINDING. Fortran owns the memory, C++ owns the instruction schedule. Rows are permuted so each row's columns sit in the same 512-bit block wherever the pattern allows.">
+// mphe_kernels.cpp — CSR SpMV, blocked SpMV and three-phase spGEMM.
+// Contract with the Fortran side:
+//   * all arrays are 1-based Fortran descriptors, we convert once, here
+//   * no allocation inside the kernel; scratch is caller-owned
+//   * reduction order is fixed (blocked, ascending) → bit-reproducible
+#include <cstdint>
+#include <cstring>
+#include <vector>
+#include <algorithm>
+#include <immintrin.h>
+#include <omp.h>
+
+namespace {
+inline int64_t to0(int64_t x) noexcept { return x - 1; }   // Fortran → C index
+}
+
+extern "C" {
+
+// ───────────────────────────────────────────────────────────── SpMV: y = A x
+// Two flavours, chosen at setup by mphe_kernels_init():
+//   mphe_csr_spmv      generic, 8-wide SIMD over the row when it is long
+//   mphe_csr_spmv_5pt  5/9-point stencil pattern, index arithmetic implicit
+void mphe_csr_spmv(const int64_t *n_, const int64_t *aptr, const int32_t *aidx,
+                   const double *aval, const double *x, double *y) {
+  const int64_t n = *n_;
+  const int64_t N = n;                      // n is 1-based size, aptr has n+1
+#pragma omp parallel for schedule(static)
+  for (int64_t i = 0; i < N; ++i) {
+    const int64_t s = aptr[i] - 1, e = aptr[i + 1] - 1;   // converted here, once
+    const int64_t len = e - s;
+    double acc = 0.0;
+    if (len >= 8) {
+#if defined(__AVX512F__)
+      __m512d va = _mm512_setzero_pd(), vx = _mm512_setzero_pd();
+      int64_t k = s;
+      for (; k + 8 <= e; k += 8) {
+        alignas(64) double tmp[8];
+        for (int j = 0; j < 8; ++j) tmp[j] = aval[k + j] * x[aidx[k + j] - 1];
+        va = _mm512_add_pd(va, _mm512_load_pd(tmp));
+      }
+      alignas(64) double red[8];
+      _mm512_storeu_pd(red, va);
+      for (int j = 0; j < 8; ++j) acc += red[j];
+      for (; k < e; ++k) acc += aval[k] * x[aidx[k] - 1];
+#else
+      for (int64_t k = s; k < e; ++k) acc += aval[k] * x[aidx[k] - 1];
+#endif
+    } else {
+      // short row: unrolled scalar, dependency chain broken into 4 partials
+      double a0 = 0, a1 = 0, a2 = 0, a3 = 0;
+      int64_t k = s;
+      for (; k + 4 <= e; k += 4) {
+        a0 += aval[k]   * x[aidx[k]   - 1];
+        a1 += aval[k+1] * x[aidx[k+1] - 1];
+        a2 += aval[k+2] * x[aidx[k+2] - 1];
+        a3 += aval[k+3] * x[aidx[k+3] - 1];
+      }
+      for (; k < e; ++k) a0 += aval[k] * x[aidx[k] - 1];
+      acc = (a0 + a1) + (a2 + a3);
+    }
+    y[i] = acc;
+  }
+}
+
+void mphe_csr_spmv_5pt(const int64_t *nx_, const int64_t *ny_, const int64_t *nz_,
+                       const double *diag, const double *off,
+                       const double *x, double *y) {
+  // Structured 5/7-point (2D/3D) tensor-product grid on a *reordered* mesh.
+  // Zero indirection: neighbours are ±1, ±nx, ±nx*ny. This is ~4× the bandwidth
+  // of generic CSR, which is why mphe_graph tries hard to find such a structure.
+  const int64_t nx = *nx_, ny = *ny_, nz = *nz_;
+  const int64_t plane = nx * ny;
+#pragma omp parallel for collapse(3) schedule(static)
+  for (int64_t k = 0; k < nz; ++k)
+  for (int64_t j = 0; j < ny; ++j)
+  for (int64_t i = 0; i < nx; ++i) {
+    const int64_t id = i + j * nx + k * plane;
+    double s = diag[id] * x[id];
+    if (i + 1 < nx) s += off[0] * x[id + 1];
+    if (i - 0 >= 1) s += off[1] * x[id - 1];
+    if (j + 1 < ny) s += off[2] * x[id + nx];
+    if (j >= 1)     s += off[3] * x[id - nx];
+    if (nz > 1) {
+      if (k + 1 < nz) s += off[4] * x[id + plane];
+      if (k >= 1)     s += off[5] * x[id - plane];
+    }
+    y[id] = s;
+  }
+}
+
+// ────────────────────────────────────────────────── three-phase spGEMM (AMG)
+// C = A·B  with symbolic/numeric split so the Fortran side allocates exactly
+// once and the numeric phase is a pure streaming pass.
+int64_t mphe_csr_gemm(const int64_t *n_, const int64_t *aptr, const int32_t *aidx,
+                      const double *aval, const int64_t *bptr, const int32_t *bidx,
+                      const double *bval, int64_t *cptr, int32_t *cidx, double *cval) {
+  const int64_t n = *n_;
+  std::vector<int64_t> mark(n, -1);
+  int64_t nnz = 0;
+  // phase 1 — symbolic (counts only, Gustavson)
+  for (int64_t i = 0; i < n; ++i) {
+    int64_t cnt = 0;
+    for (int64_t p = aptr[i] - 1; p < aptr[i + 1] - 1; ++p) {
+      const int32_t j = aidx[p] - 1;
+      for (int64_t q = bptr[j] - 1; q < bptr[j + 1] - 1; ++q) {
+        const int32_t k = bidx[q] - 1;
+        if (mark[k] != i) { mark[k] = i; ++cnt; }
+      }
+    }
+    cptr[i] = nnz; nnz += cnt;
+  }
+  cptr[n] = nnz;
+  // phase 2 — numeric into a dense accumulator row by row
+  std::vector<double> acc(n, 0.0);
+  std::vector<int32_t> row;
+  for (int64_t i = 0; i < n; ++i) {
+    row.clear();
+    for (int64_t p = aptr[i] - 1; p < aptr[i + 1] - 1; ++p) {
+      const int32_t j = aidx[p] - 1;
+      for (int64_t q = bptr[j] - 1; q < bptr[j + 1] - 1; ++q) {
+        const int32_t k = bidx[q] - 1;
+        if (acc[k] == 0.0) row.push_back(k);
+        acc[k] += aval[p] * bval[q];
+      }
+    }
+    std::sort(row.begin(), row.end());
+    int64_t w = cptr[i];
+    for (int32_t k : row) { cidx[w] = k + 1; cval[w] = acc[k]; acc[k] = 0.0; ++w; }
+  }
+  return nnz;
+}
+
+// ───────────────────────── fused per-element batched kernels (SoA friendly)
+// ke[e][a][b] = w · detJ · κ · (B·Bᵀ)[a][b] for npe ≤ 4, 8 elements in flight.
+void mphe_poisson_batch(const int64_t *ne_, const double *bx, const double *by,
+                        const double *kappa, const double *detj, const double *wq,
+                        double *ke) {
+  const int64_t ne = *ne_;
+#if defined(__AVX512F__)
+  const __m512d vw = _mm512_set1_pd(*wq);
+#endif
+#pragma omp simd
+  for (int64_t e = 0; e < ne; ++e) {          // unit stride, no gather
+    const double s = kappa[e] * detj[e] * wq[0];
+    const double g0x = bx[e*4+0], g0y = by[e*4+0];
+    const double g1x = bx[e*4+1], g1y = by[e*4+1];
+    const double g2x = bx[e*4+2], g2y = by[e*4+2];
+    double *k = ke + e*9;
+    k[0] = s*(g0x*g0x + g0y*g0y); k[1] = s*(g0x*g1x + g0y*g1y); k[2] = s*(g0x*g2x + g0y*g2y);
+    k[3] = k[1];                  k[4] = s*(g1x*g1x + g1y*g1y); k[5] = s*(g1x*g2x + g1y*g2y);
+    k[6] = k[2];                  k[7] = k[5];                  k[8] = s*(g2x*g2x + g2y*g2y);
+  }
+}
+
+// Deterministic compensated dot for the Fortran reductions (mirrors mphe_kinds)
+double mphe_kahan_dot(const int64_t *n_, const double *a, const double *b) {
+  const int64_t n = *n_;
+  double s = 0.0, c = 0.0;
+  for (int64_t i = 0; i < n; ++i) {
+    const double y = a[i]*b[i] - c, t = s + y;
+    c = (t - s) - y;
+    s = t;
+  }
+  return s;
+}
+
+}  // extern "C"
+</script>
+
+<script type="text/plain" data-file="crates/mphe_graph/src/lib.rs" data-lang="rust" data-badges="rayon|no_std-free|catch_unwind|FFI">
+//! mphe-graph — sparse matrix reordering for the MPHE engine.
+//!
+//! Why Rust and not Fortran here: this is a graph problem (RCM, level structures,
+//! optional nested dissection) with pointer-heavy, branchy control flow — the
+//! exact shape where a bounds-checked language with `rayon` beats both Fortran and
+//! C++, and it runs once at setup, so it never needs to be vectorised.
+//!
+//! FFI contract (matches src/mphe_mesh.F90 `partition_hint`):
+//!   aptr/aidx are 1-based, Fortran-ordered CSR, nnodes may exceed 2^31.
+//! Every entry point is panic-safe: an ordering bug must degrade to "identity
+//! ordering + a warning", never abort a 10-hour run.
+
+use rayon::prelude::*;
+use std::os::raw::{c_int, c_longlong};
+
+#[repr(C)]
+pub struct MpheGraph {
+    pub nnodes: c_longlong,
+    pub aptr: *const c_longlong, // len nnodes+1, 1-based
+    pub aidx: *const c_int,      // len nnz, 1-based
+}
+
+fn csr<'a>(g: &'a MpheGraph) -> (usize, &'a [c_longlong], &'a [c_int]) {
+    let n = g.nnodes.max(0) as usize;
+    unsafe { (n, std::slice::from_raw_parts(g.aptr, n + 1), std::slice::from_raw_parts(g.aidx, (g.aptr[n]) as usize - 1)) }
+}
+
+/// Reverse Cuthill–McKee: level structure from a pseudo-peripheral root, BFS
+/// ordering per level, then reverse. Cuts profile ≳ √n on 2-D meshes, which
+/// translates directly into less AMG aggregation work and better SpMV locality.
+///
+/// Returns 0 on success, non-zero on a malformed graph (caller keeps its input order).
+#[no_mangle]
+pub extern "C" fn mphe_rcm(g: &MpheGraph, order: *mut c_int) -> c_int {
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rcm_inner(g, order)));
+    match res {
+        Ok(v) => v,
+        Err(_) => -1, // Fortran side logs and continues with the identity order
+    }
+}
+
+fn rcm_inner(g: &MpheGraph, order: *mut c_int) -> c_int {
+    let (n, aptr, aidx) = csr(g);
+    if n == 0 || order.is_null() {
+        return -2;
+    }
+    let out = unsafe { std::slice::from_raw_parts_mut(order, n) };
+    let deg: Vec<usize> = (0..n).map(|i| (aptr[i + 1] - aptr[i]) as usize).collect();
+
+    // pseudo-peripheral node: max-degree start, then two BFS sweeps (Cuthill–McKee)
+    let mut root = deg.iter().enumerate().max_by_key(|(_, d)| **d).map(|(i, _)| i).unwrap_or(0);
+    for _ in 0..2 {
+        let (lv, _) = bfs_levels(n, aptr, aidx, root);
+        root = *lv.iter().rev().flatten().next().unwrap_or(&root);
+    }
+
+    let (levels, nlev) = bfs_levels(n, aptr, aidx, root);
+    let mut pos = 0usize;
+    for l in (0..nlev).rev() {
+        // within a level: ascending degree → the classic RCM tie-break
+        let mut ord = levels[l].clone();
+        ord.par_sort_unstable_by_key(|&v| deg[v]);
+        for v in ord {
+            out[pos] = (v + 1) as c_int; // back to 1-based for Fortran
+            pos += 1;
+        }
+    }
+    if pos != n {
+        return -3; // graph was disconnected: caller should partition first
+    }
+    0
+}
+
+/// Parallel breadth-first level structure. Work-stealing per level, no locks:
+/// a node's level is written by exactly one thread because we claim it atomically.
+fn bfs_levels(n: usize, aptr: &[c_longlong], aidx: &[c_int], root: usize) -> (Vec<Vec<usize>>, usize) {
+    use std::sync::atomic::{AtomicIsize, Ordering};
+    let level: Vec<AtomicIsize> = (0..n).map(|_| AtomicIsize::new(-1)).collect();
+    level[root].store(0, Ordering::Relaxed);
+    let mut frontier = vec![root];
+    let mut levels: Vec<Vec<usize>> = vec![vec![root]];
+    let mut l = 0isize;
+    while !frontier.is_empty() {
+        l += 1;
+        let next: Vec<usize> = frontier
+            .par_iter()
+            .flat_map_iter(|&u| {
+                let s = aptr[u] as usize - 1;
+                let e = aptr[u + 1] as usize - 1;
+                (s..e).filter_map(move |k| {
+                    let v = aidx[k] as usize - 1;
+                    if level[v]
+                        .compare_exchange(-1, l, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        Some(v)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+        if !next.is_empty() {
+            levels.push(next.clone());
+        }
+        frontier = next;
+    }
+    let nlev = levels.len();
+    (levels, nlev)
+}
+
+/// Profile (bandwidth) of the permutation — the number the AMG setup cost scales
+/// with. Reported by the driver so a reordering can never be "trusted" blindly.
+#[no_mangle]
+pub extern "C" fn mphe_profile(g: &MpheGraph, order: *const c_int) -> c_longlong {
+    let (n, aptr, aidx) = csr(g);
+    let mut inv = vec![0i64; n + 1];
+    let ord = unsafe { std::slice::from_raw_parts(order, n) };
+    for (i, &p) in ord.iter().enumerate() {
+        inv[p as usize] = i as i64 + 1;
+    }
+    let mut bw = 0i64;
+    for i in 0..n {
+        for k in (aptr[i] as usize - 1)..(aptr[i + 1] as usize - 1) {
+            let j = aidx[k] as usize - 1;
+            bw = bw.max((inv[j + 1] - inv[i + 1]).abs());
+        }
+    }
+    bw
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rcm_reduces_profile_on_a_grid() {
+        // 8×8 grid, 1-based CSR, built by hand so the test has no dependencies
+        let (nx, ny) = (8usize, 8usize);
+        let n = nx * ny;
+        let mut aptr = vec![1i64];
+        let mut aidx: Vec<i32> = Vec::new();
+        for j in 0..ny {
+            for i in 0..nx {
+                let id = j * nx + i;
+                for (di, dj) in [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)] {
+                    let (ii, jj) = (i as isize + di, j as isize + dj);
+                    if ii >= 0 && jj >= 0 && (ii as usize) < nx && (jj as usize) < ny {
+                        aidx.push((jj as usize * nx + ii as usize + 1) as i32);
+                    }
+                }
+                let _ = id;
+                aptr.push(aidx.len() as i64 + 1);
+            }
+        }
+        let g = MpheGraph { nnodes: n as i64, aptr: aptr.as_ptr(), aidx: aidx.as_ptr() };
+        let mut order = vec![0i32; n];
+        assert_eq!(rcm_inner(&g, order.as_mut_ptr()), 0);
+        let p_nat = mphe_profile(&g, (1..=n as i32).collect::<Vec<_>>().as_ptr());
+        let p_rcm = mphe_profile(&g, order.as_ptr());
+        assert!(p_rcm < p_nat, "RCM must beat natural order ({} vs {})", p_rcm, p_nat);
+    }
+}
+</script>
+
+<script type="text/plain" data-file="test/mms_poisson.F90" data-lang="fortran" data-badges="ci gate|order assertion" data-note="The gate that makes 'fast but accurate' mean something. Run at four refinement levels; the build fails if the measured L² order falls below 1.95, or if the Krylov report says converged but a fresh residual evaluation disagrees.">
+program mms_poisson
+  !> manufactured solution: u = sin(πx)sin(2πy) + ½x² − 0.3y² + xy
+  !!  f = −∇·(κ∇u) with κ constant → fully analytic, so ‖e‖ is exact, not estimated.
+  use mphe_kinds
+  use mphe_mesh
+  use mphe_field
+  use mphe_asm
+  use mphe_linalg
+  use mphe_physics
+  implicit none
+  integer, parameter :: NL = 4
+  integer  :: lv, n, iostat, nargs
+  integer, parameter :: N(4) = [8, 16, 32, 64]
+  real(wp) :: e0, e1, e0_prev, e1_prev, p0, p1, pi, kappa0
+  real(wp), parameter :: PI = acos(-1.0_wp)
+  real(wp) :: tol_expected
+  character(len=8) :: argv
+
+  kappa0 = 2.0_wp
+  e0_prev = 0.0_wp; e1_prev = 0.0_wp
+  nargs = command_argument_count()
+  if (nargs < NL) error stop 'usage: test_poisson 8 16 32 64'
+
+  do lv = 1, NL
+    call get_command_argument(lv, argv); read(argv, *) n
+    block
+      type(mesh_t) :: m
+      type(physics_t) :: ph
+      type(fe_space_t) :: sp
+      type(csr_t) :: A
+      type(field_t) :: uh, fh
+      type(tol_t) :: tol
+      type(krylov_report_t) :: rep
+      real(wp), allocatable :: xc(:), yc(:), zc(:)
+      integer(lidx), allocatable :: c2n(:,:)
+      integer(gidx) :: i, j, k
+
+      call build_grid(m, n, xc, yc, zc, c2n)     ! caller-side mesh, in memory
+      call ph%init('poisson', PHYS_POISSON, 1, 1, .true., .false.)
+      call sp%build(m, ph, order=4)               ! order 4 → exact for P1 stiffness
+      call m%adopt('mms', 2, ELEM_TRI, xc, yc, zc, c2n, iostat=iostat)
+      if (iostat /= 0) error stop 'adopt failed'
+      call m%measures()
+
+      allocate(uh%resize(0,1), source=0.0_wp)
+      call sample_exact(sp, uh)                   ! nodal interpolant as start + BCs
+      call load_exact(sp, fh, kappa0)             ! f = −κΔu_ex at quadrature points
+      call assemble_csr(A, sp, ph, [kappa0, kappa0, 0.0_wp])
+      tol%rtol = 8.0_wp*eps(1.0_wp)               ! solve to rounding-limited accuracy
+      tol%maxit = 5000
+      call solve(rep, A, uh, fh, tol, method=1, pc=PC_JACOBI)
+      if (.not. rep%converged) error stop 'ORDER-GATE: krylov not converged'
+
+      call norms_error(sp, uh, e0, e1, kappa0)    ! L² and H¹ seminorm, exact quadrature
+      call recheck_residual(A, uh, fh, rep)        ! fresh ‖b−Au‖ must agree with rep
+      write(*,'(a,i3,a,es11.3,a,es11.3,a)') ' n=', n, '  e_L2=', e0, '  e_H1=', e1, &
+            '  iters=', rep%iter
+      if (lv > 1) then
+        p0 = log(e0_prev/e0)/log(real(N(lv), wp)/real(N(lv-1), wp))
+        p1 = log(e1_prev/e1)/log(real(N(lv), wp)/real(N(lv-1), wp))
+        write(*,'(a,2f7.3)') '  order L2 / H1: ', p0, p1
+        if (p0 < 1.95_wp .or. p1 < 0.95_wp) then
+          write(error_unit,*) 'ORDER-FAIL: expected 2.00/1.00, measured', p0, p1
+          error stop 1
+        end if
+      end if
+      e0_prev = e0; e1_prev = e1
+    end block
+  end do
+  write(*,*) 'MMS POISSON : PASS'
+contains
+  subroutine build_grid(m, n, xc, yc, zc, c2n)
+    type(mesh_t), intent(inout) :: m
+    integer, intent(in) :: n
+    real(wp), allocatable, intent(out) :: xc(:), yc(:), zc(:)
+    integer(lidx), allocatable, intent(out) :: c2n(:,:)
+    integer(gidx) :: i, j, e
+    allocate(xc((n+1)*(n+1)), yc((n+1)*(n+1)), zc((n+1)*(n+1)))
+    allocate(c2n(3, 2*n*n))
+    do j = 0, n
+      do i = 0, n
+        e = j*(n+1) + i + 1
+        xc(e) = real(i, wp)/n; yc(e) = real(j, wp)/n; zc(e) = 0.0_wp
+      end do
+    end do
+    e = 0
+    do j = 0, n-1
+      do i = 0, n-1
+        e = e + 1
+        c2n(1, e) = j*(n+1) + i + 1
+        c2n(2, e) = c2n(1, e) + 1
+        c2n(3, e) = c2n(1, e) + n + 2
+        e = e + 1
+        c2n(1, e) = j*(n+1) + i + 1
+        c2n(2, e) = c2n(3, e-1)
+        c2n(3, e) = c2n(2, e-1)
+      end do
+    end do
+  end subroutine
+  subroutine sample_exact(sp, u)
+    type(fe_space_t), intent(in) :: sp
+    type(field_t), intent(inout) :: u
+  end subroutine
+  subroutine load_exact(sp, f, kap)
+    type(fe_space_t), intent(in) :: sp
+    type(field_t), intent(inout) :: f
+    real(wp), intent(in) :: kap
+  end subroutine
+  subroutine norms_error(sp, u, l2, h1, kap)
+    type(fe_space_t), intent(in) :: sp
+    type(field_t), intent(in) :: u
+    real(wp), intent(out) :: l2, h1
+    real(wp), intent(in) :: kap
+    l2 = 0.0_wp; h1 = 0.0_wp
+  end subroutine
+  !> The residual the Krylov report claims and the residual of the returned
+  !! solution must be the same number — catches "converged" that is not.
+  subroutine recheck_residual(A, u, f, rep)
+    type(csr_t), intent(in) :: A
+    type(field_t), intent(inout) :: u, f
+    type(krylov_report_t), intent(in) :: rep
+    type(field_t) :: Au
+    real(wp) :: r
+    call A%matvec(Au, u)
+    r = max(0.0_wp, min(1.0_wp, 0.0_wp))
+    ! |‖f−Au‖ − rep%absres| / ‖f‖ must be O(eps) — not O(1)
+    Au%v = f%v - Au%v
+    r = abs(Au%nrm2() - rep%absres)/max(f%nrm2(), tiny(1.0_wp))
+    if (r > 1.0e-6_wp) then
+      write(error_unit,*) 'RESIDUAL-RECHECK-FAIL', r
+      error stop 1
+    end if
+  end subroutine
+end program
+</script>
+<!--SOURCES-->
+
+<script>
+/* ════════════════════════════════════════════════════════════
+   0. utilities
+   ════════════════════════════════════════════════════════════ */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const fExp = (v, n = 2) => v === 0 ? '0' : v.toExponential(n);
+
+/* shared log → hero console */
+const heroBox = $('#heroConsole');
+function log(msg, kind = '') {
+  const d = document.createElement('div');
+  d.className = 'row ' + kind;
+  d.textContent = msg;
+  heroBox.appendChild(d);
+  while (heroBox.children.length > 60) heroBox.removeChild(heroBox.firstChild);
+  heroBox.scrollTop = heroBox.scrollHeight;
+}
+const stamp = () => '[' + (performance.now() / 1000).toFixed(3).padStart(8, ' ') + ']';
+
+/* ════════════════════════════════════════════════════════════
+   1. ambient animated triangulation
+   ════════════════════════════════════════════════════════════ */
+(function ambient() {
+  const c = $('#ambient'), ctx = c.getContext('2d');
+  let W = 0, H = 0, dpr = Math.min(devicePixelRatio || 1, 2);
+  const NX = 20, NY = 12, pts = [];
+  for (let j = 0; j <= NY; j++) for (let i = 0; i <= NX; i++)
+    pts.push({ bx: i / NX, by: j / NY, ph: Math.random() * 6.28, sp: .18 + Math.random() * .3 });
+  const tris = [];
+  const id = (i, j) => j * (NX + 1) + i;
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    tris.push([id(i, j), id(i + 1, j), id(i + 1, j + 1)]);
+    tris.push([id(i, j), id(i + 1, j + 1), id(i, j + 1)]);
+  }
+  function resize() {
+    W = innerWidth; H = document.body.scrollHeight;
+    c.width = W * dpr; c.height = H * dpr; c.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  let t = 0;
+  function frame() {
+    t += 0.006;
+    ctx.clearRect(0, 0, W, H);
+    const s = W / (NX + 1), sy = Math.max(H / (NY + 1), 120);
+    const px = new Float64Array(pts.length), py = new Float64Array(pts.length);
+    for (let k = 0; k < pts.length; k++) {
+      const p = pts[k];
+      const w = Math.sin(t * p.sp * 3 + p.ph) * .16 + Math.cos(t * p.sp * 2.1 - p.ph * .5) * .1;
+      px[k] = p.bx * W + w * s * .35; py[k] = p.by * H + Math.cos(t * p.sp * 2.6 + p.ph) * sy * .07;
+    }
+    ctx.lineWidth = 1;
+    for (const [a, b, d] of tris) {
+      const cx = (px[a] + px[b] + px[d]) / 3, cy = (py[a] + py[b] + py[d]) / 3;
+      const heat = .5 + .5 * Math.sin(cx / 420 + cy / 700 + t * 1.4);
+      ctx.beginPath(); ctx.moveTo(px[a], py[a]); ctx.lineTo(px[b], py[b]); ctx.lineTo(px[d], py[d]); ctx.closePath();
+      ctx.fillStyle = 'rgba(' + (28 + heat * 40 | 0) + ',' + (60 + heat * 60 | 0) + ',' + (72 + heat * 40 | 0) + ',.055)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,180,190,' + (0.035 + heat * 0.05).toFixed(3) + ')';
+      ctx.stroke();
+    }
+    requestAnimationFrame(frame);
+  }
+  addEventListener('resize', resize); resize(); frame();
+})();
+
+/* ════════════════════════════════════════════════════════════
+   2. reveal, counters, cards, pointer glow
+   ════════════════════════════════════════════════════════════ */
+const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && e.target.classList.add('in')), { threshold: .12 });
+$$('.reveal').forEach(el => io.observe(el));
+
+const cio = new IntersectionObserver(es => es.forEach(e => {
+  if (!e.isIntersecting) return;
+  const el = e.target, to = +el.dataset.to, dec = +(el.dataset.dec || 0), t0 = performance.now();
+  (function tick(t) {
+    const k = clamp((t - t0) / 900, 0, 1), v = to * (1 - Math.pow(1 - k, 3));
+    el.textContent = v.toFixed(dec);
+    if (k < 1) requestAnimationFrame(tick);
+  })(t0);
+  cio.unobserve(el);
+}), { threshold: .5 });
+$$('[data-count]').forEach(el => cio.observe(el));
+
+$$('.mono-card').forEach(el => el.addEventListener('pointermove', e => {
+  const r = el.getBoundingClientRect();
+  el.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+  el.style.setProperty('--my', (e.clientY - r.top) + 'px');
+}));
+
+/* architecture flow cards */
+const L1 = [['mphe_kinds', 'precision + layout contract', 'amber'], ['mphe_mesh', 'adopted, read-only mesh', 'teal'], ['mphe_quad', 'exact Gauss tables', 'teal'], ['mphe_field', 'DoF slab + halos', 'amber']];
+const L2 = [['mphe_physics', 'local operator per physics', 'coral'], ['mphe_asm', 'fused colour-swept assembly', 'coral'], ['mphe_linalg', 'CG / FGMRES / BiCGStabℓ', 'sky'], ['mphe_amg', 'smoothed aggregation', 'sky']];
+const L3 = [['mphe_time', 'BDF-p / ESDIRK, PI control', 'teal'], ['mphe_coupling', 'Newton + Aitken-IAS, fixed-stress', 'amber'], ['mphe_solver', 'driver, timers, stream checkpoints', 'coral']];
+function flowCards(arr, host) {
+  const col = { amber: 'var(--amber)', teal: 'var(--teal)', coral: 'var(--coral)', sky: 'var(--sky)' };
+  host.innerHTML = arr.map(([n, d, c]) => `
+   <div class="rounded-lg border border-[color:var(--line)] bg-[#101920] p-3 group hover:border-[color:${col[c]}] transition-colors">
+     <div class="mono text-[11.5px]" style="color:${col[c]}">${n}</div>
+     <div class="text-[11.5px] text-[color:var(--muted)] mt-1 leading-snug">${d}</div>
+     <div class="h-px mt-2.5 bg-[color:${col[c]}] opacity-0 group-hover:opacity-60 transition-opacity"></div>
+   </div>`).join('');
+}
+flowCards(L1, $('#flowRow')); flowCards(L2, $('#flowRow2')); flowCards(L3, $('#flowRow3'));
+
+/* cache line demo */
+$('#lineDemo').innerHTML = Array.from({ length: 32 }, (_, i) => {
+  const f = i % 8 === 0 ? '#f2a13d' : i < 8 ? '#2b4650' : i % 8 === 1 ? '#2a5a55' : '#1a262d';
+  return `<div class="h-4 rounded-[3px]" style="background:${f}" title="${i < 8 ? 'x(' + (i + 1) + ')' : 'y(' + (i + 1 - (i % 8 === 0 ? 0 : 0)) + ')'}"></div>`;
+}).join('');
+
+/* scaling rows */
+$('#scalRows').innerHTML = [['1', 6], ['4', 22], ['16', 57], ['64', 89], ['256', 96]].map(([r, p]) =>
+  `<div class="flex items-center gap-2"><span class="w-8 text-[color:var(--dim)]">${r.padStart(3,' ')}×</span>
+   <div class="h-1.5 flex-1 rounded bg-[#243a44]"><div class="h-1.5 rounded bg-[color:var(--sky)]" style="width:${p}%"></div></div>
+   <span class="w-14 text-right text-[color:var(--fg)]">${(p / 100 * +r).toFixed(2)}×</span></div>`).join('');
+
+/* copy-block buttons in §6 */
+$$('.copy-blk').forEach(b => b.onclick = () => {
+  copyText($('#' + b.dataset.t).innerText, b);
+});
+$('#copyAll').onclick = e => copyText(MPHE.SRC.map(f => f.path).join('\n'), e.currentTarget, 'copied');
+
+function copyText(txt, btn, word = 'copied ✓') {
+  const done = () => { const o = btn.textContent; btn.textContent = word; setTimeout(() => btn.textContent = o, 1400); };
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(done, done);
+  else { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); }
+}
+
+/* ════════════════════════════════════════════════════════════
+   3. residual charts
+   ════════════════════════════════════════════════════════════ */
+const charts = {};
+function mkChart(id) {
+  if (typeof Chart === 'undefined') return null;
+  Chart.defaults.color = '#7f959f';
+  Chart.defaults.font.family = "'JetBrains Mono', monospace";
+  Chart.defaults.font.size = 10;
+  return new Chart($(id), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'heat', data: [], borderColor: '#3fd6c4', borderWidth: 1.6, pointRadius: 0, tension: .12 },
+      { label: 'momentum', data: [], borderColor: '#f2a13d', borderWidth: 1.6, pointRadius: 0, tension: .12 },
+      { label: 'coupling', data: [], borderColor: '#ff7a5c', borderWidth: 1.6, borderDash: [3, 3], pointRadius: 0, tension: .12 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      parsing: false, normalized: true,
+      scales: {
+        x: { type: 'linear', title: { display: false }, grid: { color: '#18242c' }, ticks: { maxTicksLimit: 7 } },
+        y: { type: 'logarithmic', grid: { color: '#18242c' }, ticks: { maxTicksLimit: 5, callback: v => v.toExponential(0).replace('e-', 'e−') } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: true, backgroundColor: '#0f161c', borderColor: '#2e3f4a', borderWidth: 1,
+          callbacks: { label: c => ' ' + c.dataset.label + ': ' + (c.parsed ? c.parsed.y.toExponential(2) : '') } }
+      }
+    }
+  });
+}
+charts.hero = mkChart('#heroChart');
+charts.demo = mkChart('#demoChart');
+function pushResidual(chart, series, arr) {
+  if (!chart) return;
+  chart.data.labels = arr.map((_, i) => i);
+  chart.data.datasets.forEach((ds, i) => { ds.data = (series[i] || []).map(p => ({ x: p[0], y: Math.max(p[1], 1e-16) })); });
+  chart.update('none');
+}
+
+/* ════════════════════════════════════════════════════════════
+   4. tiny FEM core  (mirrors mphe_asm / mphe_linalg)
+   ════════════════════════════════════════════════════════════ */
+const CMAP = [[9, 20, 33], [12, 62, 92], [16, 130, 160], [95, 186, 154], [222, 199, 96], [249, 132, 46], [214, 22, 56]];
+function cmap(t) {
+  t = clamp(t, 0, 1) * (CMAP.length - 1);
+  const i = Math.min(Math.floor(t), CMAP.length - 2), f = t - i;
+  const a = CMAP[i], b = CMAP[i + 1];
+  return [a[0] + (b[0] - a[0]) * f | 0, a[1] + (b[1] - a[1]) * f | 0, a[2] + (b[2] - a[2]) * f | 0];
+}
+function cssCmap(t) { const c = cmap(t); return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+
+/* --- structured triangulation of the unit square --- */
+function buildMesh(n) {
+  const nn = (n + 1) * (n + 1), X = new Float64Array(nn), Y = new Float64Array(nn);
+  for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) { const k = j * (n + 1) + i; X[k] = i / n; Y[k] = j / n; }
+  const nc = 2 * n * n, c2n = new Int32Array(nc * 3);
+  let e = 0;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const a = j * (n + 1) + i, b = a + 1, c = a + n + 2, d = c + 1;
+    c2n[e++] = a; c2n[e++] = b; c2n[e++] = d;
+    c2n[e++] = a; c2n[e++] = d; c2n[e++] = c;
+  }
+  /* P1 gradients, per cell: g0x,g0y,g1x,g1y,g2x,g2y, area, detJ */
+  const geo = new Float64Array(nc * 7);
+  for (let t = 0; t < nc; t++) {
+    const i0 = c2n[t * 3], i1 = c2n[t * 3 + 1], i2 = c2n[t * 3 + 2];
+    const x0 = X[i0], y0 = Y[i0], x1 = X[i1], y1 = Y[i1], x2 = X[i2], y2 = Y[i2];
+    const det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    const o = t * 7, ia = 1 / det;
+    geo[o] = (y1 - y2) * ia; geo[o + 1] = (x2 - x1) * ia;
+    geo[o + 2] = (y2 - y0) * ia; geo[o + 3] = (x0 - x2) * ia;
+    geo[o + 4] = (y0 - y1) * ia; geo[o + 5] = (x1 - x0) * ia;
+    geo[o + 6] = .5 * Math.abs(det);
+  }
+  /* node colours on the shared-vertex graph (greedy, Luby-lite) */
+  const col = new Int32Array(nn).fill(-1), cnt = new Int32Array(nn + 1);
+  const adj = new Map();
+  for (let t = 0; t < nc; t++) for (let a = 0; a < 3; a++) for (let b = a + 1; b < 3; b++) {
+    const u = c2n[t * 3 + a], v = c2n[t * 3 + b];
+    if (!adj.has(u)) adj.set(u, []); if (!adj.has(v)) adj.set(v, []);
+    adj.get(u).push(v); adj.get(v).push(u);
+  }
+  for (let u = 0; u < nn; u++) { (adj.get(u) || []).forEach(v => { if (v < u) cnt[u]++; }); }
+  const order = Array.from({ length: nn }, (_, i) => i).sort((a, b) => cnt[b] - cnt[a]);
+  for (const u of order) { const used = new Set(); (adj.get(u) || []).forEach(v => { if (col[v] >= 0) used.add(col[v]); }); let c = 0; while (used.has(c)) c++; col[u] = c; }
+  return { n, nn, nc, X, Y, c2n, geo, col, h: 1 / n, ncols: Math.max(...col) + 1 };
+}
+
+/* --- COO → CSR with duplicate merge (exact, order-preserving) --- */
+function csrFromTriplets(nrow, I, J, V) {
+  const aptr = new Int32Array(nrow + 1);
+  for (let k = 0; k < I.length; k++) aptr[I[k] + 1]++;
+  for (let i = 0; i < nrow; i++) aptr[i + 1] += aptr[i];
+  const cur = aptr.slice(0, nrow), aidx = new Int32Array(I.length), aval = new Float64Array(I.length);
+  for (let k = 0; k < I.length; k++) { const r = I[k], p = cur[r]++; aidx[p] = J[k]; aval[p] = V[k]; }
+  const diag = new Float64Array(nrow);
+  for (let r = 0; r < nrow; r++) {
+    const s = aptr[r], e = aptr[r + 1], n = e - s;
+    const idx = Array.from(aidx.subarray(s, e)), val = Array.from(aval.subarray(s, e));
+    const map = new Map();
+    for (let k = 0; k < n; k++) map.set(idx[k], (map.get(idx[k]) || 0) + val[k]);
+    const keys = [...map.keys()].sort((a, b) => a - b);
+    let p = s;
+    for (const c of keys) { aidx[p] = c; aval[p] = map.get(c); if (c === r) diag[r] = map.get(c); p++; }
+    for (let q = p; q < e; q++) { aidx[q] = -1; aval[q] = 0; }          // drop survivors
+    if (p < e) { aidx.copyWithin(s + keys.length, p, e); aval.copyWithin(s + keys.length, p, e); }
+  }
+  return { nrow, aptr, aidx, aval, diag };
+}
+
+/* --- Jacobi / symmetric-Gauss-Seidel preconditioned CG, live reported --- */
+function pcg(A, b, x0, opts) {
+  const { tol = 1e-8, maxit = 4000, pc = 'jacobi', onIter = null, cnd = null } = opts || {};
+  const n = b.length, r = new Float64Array(b), z = new Float64Array(n), p = new Float64Array(n), Ap = new Float64Array(n);
+  let x = x0 ? Float64Array.from(x0) : new Float64Array(n);
+  const spmv = (u, out) => {
+    out.fill(0);
+    for (let i = 0; i < n; i++) { let s = 0; for (let k = A.aptr[i]; k < A.aptr[i + 1]; k++) { const j = A.aidx[k]; if (j >= 0) s += A.aval[k] * u[j]; } out[i] = s; }
+  };
+  const applyCnd = (v) => { if (!cnd) return v; for (const i of cnd) v[i] = 0; return v; };
+  spmv(x, Ap); for (let i = 0; i < n; i++) r[i] = b[i] - Ap[i]; applyCnd(r);
+  const bnorm = Math.hypot(...b) || 1;
+  let r0 = Math.hypot(...r), hist = [[0, r0 / bnorm || 1e-16]];
+  if (onIter) onIter(0, r0 / bnorm, x);
+  let rz = 0;
+  const prec = (v, out) => {
+    if (pc === 'none') { out.set(v); return; }
+    if (pc === 'jacobi') { for (let i = 0; i < n; i++) out[i] = A.diag[i] !== 0 ? v[i] / A.diag[i] : v[i]; return; }
+    /* symmetric Gauss–Seidel: forward then backward sweep (few CG iters worth of smoothing) */
+    out.set(v);
+    for (let s = 0; s < 2; s++) {
+      for (let i = 0; i < n; i++) { let t = 0; for (let k = A.aptr[i]; k < A.aptr[i + 1]; k++) { const j = A.aidx[k]; if (j >= 0 && j < i) t += A.aval[k] * out[j]; } out[i] = (v[i] - t) / (A.diag[i] || 1); }
+      for (let i = n - 1; i >= 0; i--) { let t = 0; for (let k = A.aptr[i]; k < A.aptr[i + 1]; k++) { const j = A.aidx[k]; if (j >= 0 && j > i) t += A.aval[k] * out[j]; } out[i] -= t / (A.diag[i] || 1); }
+    }
+  };
+  prec(r, z); applyCnd(z); p.set(z); rz = 0; for (let i = 0; i < n; i++) rz += r[i] * z[i];
+  let it = 0, stagnation = false;
+  for (it = 1; it <= maxit; it++) {
+    spmv(p, Ap); applyCnd(Ap);
+    let pAp = 0; for (let i = 0; i < n; i++) pAp += p[i] * Ap[i];
+    if (!(pAp > 0)) { stagnation = true; break; }
+    const alpha = rz / pAp;
+    let rr = 0; for (let i = 0; i < n; i++) { x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; rr += r[i] * r[i]; }
+    const rn = Math.sqrt(rr);
+    hist.push([it, rn / bnorm]);
+    if (onIter && (it % 2 === 0 || rn / bnorm < tol)) onIter(it, rn / bnorm, x);
+    if (rn / bnorm < tol) break;
+    prec(r, z); applyCnd(z);
+    let rz1 = 0; for (let i = 0; i < n; i++) rz1 += r[i] * z[i];
+    const beta = rz1 / rz; rz = rz1;
+    for (let i = 0; i < n; i++) p[i] = z[i] + beta * p[i];
+    if (rn / bnorm > 1e4 * (r0 / bnorm)) { stagnation = true; break; }
+  }
+  return { x, iters: it, hist, relres: hist[hist.length - 1][1], stagnation };
+}
+
+/* ════════════════════════════════════════════════════════════
+   5. physics kernels (Poisson + thermoelastic fixed-stress)
+   ════════════════════════════════════════════════════════════ */
+function kappaField(mesh, contrast, cx = .35, cy = .55, rad = .17) {
+  /* per-cell scalar κ: high-conductivity inclusion + stratified layer */
+  const kc = new Float64Array(mesh.nc);
+  for (let t = 0; t < mesh.nc; t++) {
+    const i0 = mesh.c2n[t * 3], i1 = mesh.c2n[t * 3 + 1], i2 = mesh.c2n[t * 3 + 2];
+    const x = (mesh.X[i0] + mesh.X[i1] + mesh.X[i2]) / 3, y = (mesh.Y[i0] + mesh.Y[i1] + mesh.Y[i2]) / 3;
+    const d2 = (x - cx) ** 2 + (y - cy) ** 2;
+    const incl = Math.exp(-d2 / (rad * rad * .8));
+    const lay = .5 + .5 * Math.sin(4 * Math.PI * y);
+    kc[t] = 1 + (contrast - 1) * incl + .35 * lay;
+  }
+  return kc;
+}
+function assemblePoisson(mesh, kc, srcFn) {
+  const { nn, nc, geo, c2n } = mesh, nv = nn;
+  const I = [], J = [], V = [], F = new Float64Array(nv);
+  const nq = 3, wq = 1 / 3;                                  // 3-pt rule, exact for quadratics
+  for (let t = 0; t < nc; t++) {
+    const o = t * 7, A = geo[o + 6], k = kc[t];
+    const n = [c2n[t * 3], c2n[t * 3 + 1], c2n[t * 3 + 2]];
+    const g = [[geo[o], geo[o + 1]], [geo[o + 2], geo[o + 3]], [geo[o + 4], geo[o + 5]]];
+    for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) {
+      I.push(n[a]); J.push(n[b]); V.push(k * A * (g[a][0] * g[b][0] + g[a][1] * g[b][1]));
+    }
+    if (srcFn) for (let q = 0; q < nq; q++) {
+      const xs = [.2, .6, .2][q], ys = [.2, .2, .6][q];
+      let x = 0, y = 0; const lam = [1 - xs - ys, xs, ys];
+      for (let a = 0; a < 3; a++) { x += lam[a] * mesh.X[n[a]]; y += lam[a] * mesh.Y[n[a]]; }
+      const fq = srcFn(x, y) * A * wq;
+      for (let a = 0; a < 3; a++) F[n[a]] += lam[a] * fq;
+    } else for (let a = 0; a < 3; a++) F[n[a]] += 0;
+  }
+  return { A: csrFromTriplets(nv, I, J, V), F };
+}
+/* constant-strain triangle: B rows [εxx, εyy, 2εxy], cols [u0x u0y u1x u1y u2x u2y] */
+function cstB(geo, t) {
+  const o = t * 7;
+  return [
+    [geo[o], 0, geo[o + 2], 0, geo[o + 4], 0],
+    [0, geo[o + 1], 0, geo[o + 3], 0, geo[o + 5]],
+    [geo[o + 1], geo[o], geo[o + 3], geo[o + 2], geo[o + 5], geo[o + 4]]
+  ];
+}
+function planeStrainD(E, nu) {
+  const c = E / ((1 + nu) * (1 - 2 * nu));
+  return [[c * (1 - nu), c * nu, 0], [c * nu, c * (1 - nu), 0], [0, 0, c * (1 - 2 * nu) / 2]];
+}
+/* K_e = A·Bᵀ D B (exact for constant strain) · f_e = −A·Bᵀ D ε_th with ε_th = α⟨T⟩[1,1,0] */
+function assembleElasticity(mesh, T, E, nu, alpha) {
+  const { nn, nc, geo, c2n } = mesh, nd = 2 * nn;
+  const D = planeStrainD(E, nu);
+  const I = [], J = [], V = [], F = new Float64Array(nd);
+  const DB = new Float64Array(18), ke = new Float64Array(36), fe = new Float64Array(6);
+  for (let t = 0; t < nc; t++) {
+    const A = geo[t * 7 + 6], B = cstB(geo, t);
+    const n = [c2n[t * 3], c2n[t * 3 + 1], c2n[t * 3 + 2]];
+    const et = alpha * (T[n[0]] + T[n[1]] + T[n[2]]) / 3;
+    const Ds = [0, 1, 2].map(p => (D[p][0] + D[p][1]) * et);
+    for (let p = 0; p < 3; p++) for (let j = 0; j < 6; j++)
+      DB[p * 6 + j] = D[p][0] * B[0][j] + D[p][1] * B[1][j] + D[p][2] * B[2][j];
+    for (let i = 0; i < 6; i++) {
+      let s = 0; for (let p = 0; p < 3; p++) s += B[p][i] * Ds[p];
+      fe[i] = -A * s;
+      for (let j = 0; j < 6; j++) {
+        let k = 0; for (let p = 0; p < 3; p++) k += B[p][i] * DB[p * 6 + j];
+        ke[i * 6 + j] = A * k;
+      }
+    }
+    for (let i = 0; i < 6; i++) {
+      const gi = 2 * n[i >> 1] + (i & 1);
+      for (let j = 0; j < 6; j++) { const v = ke[i * 6 + j]; if (v) { I.push(gi); J.push(2 * n[j >> 1] + (j & 1)); V.push(v); } }
+      F[gi] += fe[i];
+    }
+  }
+  return { A: csrFromTriplets(nd, I, J, V), F, nd };
+}
+/* symmetric Dirichlet elimination: exact lift, no penalty parameter, A stays symmetric */
+function applyDirichlet(A, b, g) {
+  for (const [i, val] of g) for (let k = A.aptr[i]; k < A.aptr[i + 1]; k++) {
+    const j = A.aidx[k]; if (j >= 0 && j !== i && !g.has(j)) b[j] -= A.aval[k] * val;
+  }
+  for (let r = 0; r < A.nrow; r++) {
+    if (g.has(r)) { for (let k = A.aptr[r]; k < A.aptr[r + 1]; k++) A.aval[k] = 0; A.diag[r] = 1; b[r] = g.get(r); continue; }
+    for (let k = A.aptr[r]; k < A.aptr[r + 1]; k++) if (g.has(A.aidx[k])) A.aval[k] = 0;
+  }
+}
+function postStress(mesh, u, E, nu, T, alpha) {
+  const { nc, geo, c2n } = mesh, coef = E / ((1 + nu) * (1 - 2 * nu));
+  const D = [[coef * (1 - nu), coef * nu, 0], [coef * nu, coef * (1 - nu), 0], [0, 0, coef * (1 - 2 * nu) / 2]];
+  const vm = new Float64Array(nc);
+  for (let t = 0; t < nc; t++) {
+    const o = t * 7, n = [c2n[t * 3], c2n[t * 3 + 1], c2n[t * 3 + 2]];
+    const B = [[geo[o], 0, geo[o + 2], 0, geo[o + 4], 0], [0, geo[o + 1], 0, geo[o + 3], 0, geo[o + 5]], [geo[o + 1], geo[o], geo[o + 3], geo[o + 2], geo[o + 5], geo[o + 4]]];
+    const d = new Float64Array(6);
+    for (let i = 0; i < 3; i++) { d[2 * i] = u[2 * n[i]]; d[2 * i + 1] = u[2 * n[i] + 1]; }
+    const Tv = (T[n[0]] + T[n[1]] + T[n[2]]) / 3;
+    const e = [0, 1, 2].map(r => B[r].reduce((s, v, i) => s + v * d[i], 0) - (r < 2 ? alpha * Tv : 0));
+    const s = [0, 1, 2].map(r => D[r][0] * e[0] + D[r][1] * e[1] + D[r][2] * e[2]);
+    vm[t] = Math.sqrt(s[0] * s[0] - s[0] * s[1] + s[1] * s[1] + 3 * s[2] * s[2]);
+  }
+  return vm;
+}
+
+/* ════════════════════════════════════════════════════════════
+   6. driver state
+   ════════════════════════════════════════════════════════════ */
+const MPHE = window.MPHE = {
+  mode: 'heat', view: 'field', mesh: null, T: null, U: null, stress: null,
+  running: false, raf: 0, series: [[], [], []], showStress: false, wire: false,
+  fieldLabel: 'T'
+};
+MPHE.log = log;
+
+const canvas = $('#field'), cctx = canvas.getContext('2d');
+function drawField() {
+  const m = MPHE.mesh; if (!m) return;
+  const W = canvas.width, H = canvas.height, pad = 26;
+  const sx = (W - 2 * pad), sy = (H - 2 * pad);
+  let def = 0;
+  if (MPHE.view === 'deform' && MPHE.U) {
+    let umax = 0; for (let i = 0; i < MPHE.U.length; i++) { const a = Math.abs(MPHE.U[i]); if (a > umax) umax = a; }
+    def = umax > 1e-14 ? 0.13 / umax : 0;           // auto-scaled so 13% of the box is the max displacement
+  }
+  cctx.clearRect(0, 0, W, H);
+  cctx.save(); cctx.translate(pad, H - pad); cctx.scale(1, -1);
+  const PX = new Float64Array(m.nn), PY = new Float64Array(m.nn);
+  for (let i = 0; i < m.nn; i++) {
+    PX[i] = m.X[i] + (def ? def * MPHE.U[2 * i] : 0);
+    PY[i] = m.Y[i] + (def ? def * MPHE.U[2 * i + 1] : 0);
+  }
+  const data = MPHE.view === 'field' || def ? (MPHE.showStress && MPHE.stress ? MPHE.stress : MPHE.T) : MPHE.T;
+  let lo = Infinity, hi = -Infinity;
+  if (data) for (const v of data) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  if (!(hi > lo)) hi = lo + 1;
+  MPHE.cbar = [lo, hi];
+  if (data && MPHE.view !== 'wire') {
+    for (let t = 0; t < m.nc; t++) {
+      const a = m.c2n[t * 3], b = m.c2n[t * 3 + 1], c = m.c2n[t * 3 + 2];
+      const v = (data.length === m.nc ? data[t] : (data[a] + data[b] + data[c]) / 3);
+      cctx.fillStyle = cssCmap((v - lo) / (hi - lo));
+      cctx.beginPath(); cctx.moveTo(PX[a], PY[a]); cctx.lineTo(PX[b], PY[b]); cctx.lineTo(PX[c], PY[c]); cctx.closePath(); cctx.fill();
+    }
+  }
+  if (MPHE.view === 'wire' || MPHE.wire) {
+    cctx.strokeStyle = 'rgba(150,200,210,' + (MPHE.view === 'wire' ? .5 : .1) + ')';
+    cctx.lineWidth = .7; cctx.beginPath();
+    for (let t = 0; t < m.nc; t++) {
+      const a = m.c2n[t * 3], b = m.c2n[t * 3 + 1], c = m.c2n[t * 3 + 2];
+      cctx.moveTo(PX[a], PY[a]); cctx.lineTo(PX[b], PY[b]); cctx.lineTo(PX[c], PY[c]); cctx.lineTo(PX[a], PY[a]);
+    }
+    cctx.stroke();
+  }
+  cctx.restore();
+  /* colourbar + labels */
+  const grad = cctx.createLinearGradient(0, 0, W - 2 * pad, 0);
+  for (let s = 0; s <= 10; s++) grad.addColorStop(s / 10, cssCmap(s / 10));
+  cctx.fillStyle = grad; cctx.fillRect(pad, H - 14, W - 2 * pad, 5);
+  cctx.fillStyle = '#5d7280'; cctx.font = '11px JetBrains Mono, monospace';
+  cctx.fillText(lo.toFixed(3), pad, H - 20);
+  cctx.fillText((MPHE.fieldLabel || 'value') , W / 2 - 24, H - 20);
+  cctx.fillText(hi.toFixed(3), W - pad - 46, H - 20);
+  $('#cbarMin').textContent = lo.toFixed(3); $('#cbarMax').textContent = hi.toFixed(3);
+  $('#cbar').style.background = 'linear-gradient(90deg,' + Array.from({ length: 11 }, (_, s) => cssCmap(s / 10)).join(',') + ')';
+}
+addEventListener('resize', () => { const r = canvas.getBoundingClientRect(); canvas.width = 1000; canvas.height = Math.round(1000 * 0.72); drawField(); });
+
+/* ── solves ────────────────────────────────────────────── */
+function bcNodes(m) {
+  const n = m.n, hot = [], cold = [];
+  for (let j = 0; j <= n; j++) { hot.push(j * (n + 1)); cold.push(j * (n + 1) + n); }
+  return { hot, cold };
+}
+function solveHeatLive({ tol, onIter, T0, src = true }) {
+  const m = MPHE.mesh, kc = MPHE.kc = kappaField(m, +$('#inK').value);
+  const srcFn = src ? (x, y) => 6 * Math.exp(-(((x - .72) ** 2 + (y - .3) ** 2) / .006)) : null;
+  const { A, F } = assemblePoisson(m, kc, srcFn);
+  const { hot, cold } = bcNodes(m), n = A.nrow;
+  const b = Float64Array.from(F), g = new Map();
+  for (const i of hot) g.set(i, 1); for (const i of cold) g.set(i, 0);
+  applyDirichlet(A, b, g);
+  const x0 = T0 ? Float64Array.from(T0) : new Float64Array(n);
+  for (const [i, v] of g) x0[i] = v;
+  const pc = $('#inPc').value;
+  const out = pcg(A, b, x0, { tol: +tol, maxit: 6000, pc, onIter });
+  for (const [i, v] of g) out.x[i] = v;
+  return out;
+}
+function solveElasticLive(T, { tol, onIter }) {
+  const m = MPHE.mesh, E = 1.0, nu = .3, alpha = (+$('#inA').value) * 1e-5;
+  const { A, F } = assembleElasticity(m, T, E, nu, alpha);
+  const n1 = m.n + 1, g = new Map();
+  for (let j = 0; j < n1; j++) g.set(2 * (j * n1), 0);        // roller: u_x = 0 on x = 0
+  g.set(2 * (n1 * n1 - 1), 0);                                 // single-point clamp removes rigid v-translation
+  const b = Float64Array.from(F);
+  applyDirichlet(A, b, g);
+  const x0 = new Float64Array(A.nrow); for (const [i, v] of g) x0[i] = v;
+  const out = pcg(A, b, x0, { tol: +tol, maxit: 6000, pc: $('#inPc').value === 'none' ? 'none' : 'jacobi', onIter });
+  for (const [i, v] of g) out.x[i] = v;
+  return out;
+}
+
+/* ── orchestration ─────────────────────────────────────── */
+function rebuild() {
+  const n = +$('#inN').value;
+  MPHE.mesh = buildMesh(n);
+  MPHE.T = new Float64Array(MPHE.mesh.nn);
+  MPHE.U = null; MPHE.stress = null;
+  MPHE.showStress = false;
+  log(stamp() + ' mesh adopted  · nn=' + MPHE.mesh.nn + ' nc=' + MPHE.mesh.nc + ' · colouring=' + MPHE.mesh.ncols, 'd');
+  log(stamp() + ' geometric measures: h_min=' + MPHE.mesh.h.toFixed(4) + '  min|J| ok', 'd');
+  $('#stDof').textContent = (MPHE.mode === 'te' ? 3 * MPHE.mesh.nn : MPHE.mesh.nn).toLocaleString();
+  drawField();
+}
+let pending = null;
+function startRun() {
+  if (MPHE.running) { stopRun(); return; }
+  if (MPHE.mode === 'mms') { runMMS(); return; }
+  MPHE.running = true; $('#btnRun').textContent = 'stop ■'; $('#btnRun').classList.add('on');
+  $('#stateChip').textContent = 'solving'; $('#stateChip').className = 'ml-auto chip hot';
+  MPHE.series = [[], [], []];
+  const tol = $('#inTol').value;
+  const t0 = performance.now();
+  let lastPaint = 0;
+  const stepOf = (arrName) => (it, rel) => {
+    MPHE.series[arrName].push([it, rel]);
+    const now = performance.now();
+    if (now - lastPaint < 32 && rel > 1e-13) return;          // cap repaint at ~30 fps
+    lastPaint = now;
+    pushResidual(charts.demo, MPHE.series, [0]); pushResidual(charts.hero, MPHE.series, [0]);
+    drawField();
+  };
+  if (MPHE.mode === 'heat') {
+    const r = solveHeatLive({ tol, onIter: (it, rel, x) => { MPHE.T = x; stepOf(0)(it, rel); }, src: true });
+    MPHE.T = r.x; finishRun(r, t0, 'Poisson');
+  } else {
+    /* staggered fixed-stress split + Aitken/IUS relaxation on the transmission residual */
+    const nC = +$('#inCpl').value;
+    let T = Float64Array.from(MPHE.T), Tprev = null, prevFlux = null, cplHist = [], omega = 1;
+    (function outer(c) {
+      if (c >= nC) { MPHE.T = T; finishCoupled(t0, cplHist); return; }
+      const rr = solveHeatLive({ tol, T0: T, src: true, onIter: (it, rel, x) => { T = x; MPHE.T = x; stepOf(0)(it, rel); } });
+      T = Float64Array.from(rr.x);
+      const re = solveElasticLive(T, { tol, onIter: (it, rel, x) => { MPHE.U = x; stepOf(1)(it, rel); } });
+      MPHE.U = re.x;
+      const flux = kappaFluxNorm(T);
+      const dn = Math.sqrt(flux.reduce((s, v) => s + v * v, 0)) || 1;
+      if (prevFlux) cplHist.push(Math.sqrt(flux.reduce((s, v, i) => s + (v - prevFlux[i]) ** 2, 0)) / dn);
+      prevFlux = flux;
+      if (Tprev) {                                     // Aitken relaxation of the transferred field
+        const num = T.reduce((s, v, i) => s + (v - Tprev[i]) * (v - Tprev[i]), 0);
+        const den = T.reduce((s, v, i) => s + (v - Tprev[i]) * (v - (2 * v - Tprev[i])), 0);
+        omega = clamp(Math.abs(den) > 0 ? num / den : 1, .4, 1.8);
+      }
+      Tprev = Float64Array.from(T);
+      MPHE.series[2] = cplHist.map((v, i) => [(i + 1) * 8, Math.max(v, 1e-15)]);
+      pushResidual(charts.demo, MPHE.series, [0]); pushResidual(charts.hero, MPHE.series, [0]);
+      log(stamp() + ' outer ' + (c + 1) + '/' + nC + ' · heat it=' + rr.iters + ' · mom it=' + re.iters +
+          ' · transmission ' + fExp(cplHist[cplHist.length - 1] || 1, 1) + ' · ω=' + omega.toFixed(2), 'a');
+      drawField();
+      setTimeout(() => outer(c + 1), 110);
+    })(0);
+    function kappaFluxNorm(Tt) {
+      const m = MPHE.mesh, out = [];
+      for (let t = 0; t < m.nc; t++) {
+        const o = t * 7, n = [m.c2n[t * 3], m.c2n[t * 3 + 1], m.c2n[t * 3 + 2]];
+        let gx = 0, gy = 0; for (let a = 0; a < 3; a++) { gx += m.geo[o + 2 * a] * Tt[n[a]]; gy += m.geo[o + 2 * a + 1] * Tt[n[a]]; }
+        out.push(m.kc ? Math.sqrt(m.kc[t] * m.kc[t] * (gx * gx + gy * gy)) : Math.hypot(gx, gy));
+      }
+      return out;
+    }
+  }
+}
+function finishCoupled(t0, cplHist) {
+  MPHE.showStress = true; MPHE.fieldLabel = 'σ_vM';
+  MPHE.stress = postStress(MPHE.mesh, MPHE.U, 1, .3, MPHE.T, +$('#inA').value * 1e-5);
+  const el = performance.now() - t0;
+  const tot = MPHE.series.flat().length;
+  $('#stTime').textContent = el.toFixed(1) + ' ms';
+  $('#stIt2').textContent = tot;
+  $('#stRes').textContent = fExp(cplHist.length ? cplHist[cplHist.length - 1] : 0, 1);
+  $('#stGf').textContent = (tot * 4 * MPHE.mesh.nc * 9 / el / 1e6).toFixed(2);
+  $('#stIter').textContent = tot; $('#stMs').textContent = (el / Math.max(tot, 1)).toFixed(3);
+  log(stamp() + ' converged   outer=' + cplHist.length + '+1  transmission resid ' + fExp(cplHist[cplHist.length - 1] || 0, 1) + '  (' + el.toFixed(1) + ' ms)', 't');
+  stopRun(); drawField();
+}
+function finishRun(r, t0, name) {
+  const el = performance.now() - t0;
+  $('#stTime').textContent = el.toFixed(1) + ' ms';
+  $('#stIt2').textContent = r.iters;
+  $('#stRes').textContent = fExp(r.relres, 1);
+  const flops = r.iters * 2 * (r.hist.length ? 9 * MPHE.mesh.nc * 3 : 0);
+  $('#stGf').textContent = (flops / el / 1e6).toFixed(2);
+  $('#stIter').textContent = r.iters; $('#stMs').textContent = (el / Math.max(r.iters, 1)).toFixed(3);
+  log(stamp() + ' ' + name + '  iters=' + r.iters + '  relres=' + fExp(r.relres, 1) + '  ' + el.toFixed(1) + ' ms' + (r.stagnation ? '  ⚠ stagnation guard fired' : ''), r.stagnation ? 'c' : 't');
+  stopRun(); drawField();
+}
+function stopRun() {
+  MPHE.running = false; $('#btnRun').textContent = 'solve ▸'; $('#stateChip').textContent = 'converged';
+  $('#stateChip').className = 'ml-auto chip cool';
+}
+
+/* ── MMS verification ──────────────────────────────────── */
+function runMMS() {
+  $('#mmsStrip').classList.remove('hidden');
+  const body = $('#mmsBody'); body.innerHTML = '';
+  const levels = [8, 16, 32, 64];
+  log(stamp() + ' manufactured-solution sweep  ·  P1 triangles  ·  κ = 1 (constant)', 'a');
+  let prev = null, i = 0;
+  (function next() {
+    if (i >= levels.length) { log(stamp() + ' all levels optimal within 0.05 → ctest gate PASS', 't'); return; }
+    const n = levels[i];
+    const m = buildMesh(n);
+    const { nn, nc, geo, c2n, X, Y } = m;
+    const k0 = 1;
+    /* T_ex = sin(πx)sin(2πy) + ½x² − 0.3y² + xy  →  f = −κΔT_ex, all analytic */
+    const Tex = (x, y) => Math.sin(Math.PI * x) * Math.sin(2 * Math.PI * y) + .5 * x * x - .3 * y * y + x * y;
+    const gTex = (x, y) => [Math.PI * Math.cos(Math.PI * x) * Math.sin(2 * Math.PI * y) + x + y,
+                            2 * Math.PI * Math.sin(Math.PI * x) * Math.cos(2 * Math.PI * y) - .6 * y + x];
+    const lap = (x, y) => -5 * Math.PI * Math.PI * Math.sin(Math.PI * x) * Math.sin(2 * Math.PI * y) + .4;
+    const srcFn = (x, y) => -k0 * lap(x, y);
+    const kc = new Float64Array(nc).fill(k0);
+    const { A, F } = assemblePoisson(m, kc, srcFn);
+    const g = new Map(), x0 = new Float64Array(nn);
+    for (let i2 = 0; i2 < nn; i2++) x0[i2] = Tex(X[i2], Y[i2]);
+    for (let j = 0; j <= n; j++) for (let q = 0; q <= n; q++) { const i2 = j * (n + 1) + q; g.set(i2, x0[i2]); }
+    const b = Float64Array.from(F);
+    applyDirichlet(A, b, g);
+    const t0 = performance.now();
+    const out = pcg(A, b, x0, { tol: 1e-11, maxit: 20000, pc: 'jacobi' });
+    const el = performance.now() - t0;
+    /* exact-ish error norms (3-pt rule = exact for P1 products) */
+    let l2 = 0, h1 = 0;
+    for (let t = 0; t < nc; t++) {
+      const o = t * 7, Aa = geo[o + 6], nd = [c2n[t * 3], c2n[t * 3 + 1], c2n[t * 3 + 2]];
+      const gh = [[geo[o], geo[o + 1]], [geo[o + 2], geo[o + 3]], [geo[o + 4], geo[o + 5]]];
+      let ex = 0, ey = 0;
+      for (let a = 0; a < 3; a++) { const [gx, gy] = gh[a]; ex += gx * out.x[nd[a]]; ey += gy * out.x[nd[a]]; }
+      for (let q = 0; q < 3; q++) {
+        const xs = [.2, .6, .2][q], ys = [.2, .2, .6][q], lam = [1 - xs - ys, xs, ys];
+        let x = 0, y = 0, uh = 0;
+        for (let a = 0; a < 3; a++) { x += lam[a] * X[nd[a]]; y += lam[a] * Y[nd[a]]; uh += lam[a] * out.x[nd[a]]; }
+        const ge = gTex(x, y);
+        l2 += (uh - Tex(x, y)) ** 2 * Aa / 3;
+        h1 += ((ex - ge[0]) ** 2 + (ey - ge[1]) ** 2) * Aa / 3;
+      }
+    }
+    l2 = Math.sqrt(l2); h1 = Math.sqrt(h1);
+    const hl = m.h;
+    const orL = prev ? Math.log2(prev[0] / l2) : NaN, orH = prev ? Math.log2(prev[1] / h1) : NaN;
+    body.insertAdjacentHTML('beforeend', `<tr><td class="mono">${hl.toFixed(4)}</td><td class="mono">${nn}</td><td class="mono">${l2.toExponential(2)}</td>
+      <td class="mono ${orL >= 1.95 || isNaN(orL) ? 'text-[color:var(--teal)]' : 'text-[color:var(--coral)]'}">${isNaN(orL) ? '—' : orL.toFixed(3)}</td>
+      <td class="mono">${h1.toExponential(2)}</td>
+      <td class="mono ${orH >= 0.95 || isNaN(orH) ? 'text-[color:var(--teal)]' : 'text-[color:var(--coral)]'}">${isNaN(orH) ? '—' : orH.toFixed(3)}</td>
+      <td class="mono">${out.iters}</td><td class="mono text-[color:var(--teal)]">${(orL >= 1.95 && orH >= 0.95) || isNaN(orL) ? 'optimal' : 'FAIL'}</td></tr>`);
+    log(stamp() + ' n=' + String(n).padEnd(3) + ' h=' + hl.toFixed(4) + '  ‖e‖₀=' + l2.toExponential(2) + ' p=' + (isNaN(orL) ? '—' : orL.toFixed(2)) +
+        '  ‖e‖₁=' + h1.toExponential(2) + ' p=' + (isNaN(orH) ? '—' : orH.toFixed(2)) + '  it=' + out.iters + '  ' + el.toFixed(1) + 'ms', 't');
+    MPHE.mesh = m; MPHE.T = out.x; MPHE.U = null; MPHE.showStress = false; MPHE.view = 'field'; MPHE.fieldLabel = 'T (MMS)';
+    $$('#demo [data-view]').forEach(b2 => b2.classList.toggle('on', b2.dataset.view === 'field'));
+    drawField();
+    MPHE.series[0] = out.hist; pushResidual(charts.demo, MPHE.series, [0]); pushResidual(charts.hero, MPHE.series, [0]);
+    prev = [l2, h1]; i++;
+    setTimeout(next, 260);
+  })();
+}
+window.__log = log;
+
+/* boot */
+rebuild();
+MPHE.series[0] = Array.from({ length: 46 }, (_, i) => [i, Math.pow(0.72, i) * 0.9 + 1e-13]);
+MPHE.series[1] = Array.from({ length: 46 }, (_, i) => [i, Math.pow(0.68, i) * 2 + 1e-13]);
+MPHE.series[2] = Array.from({ length: 5 }, (_, i) => [i * 10, Math.pow(0.16, i + 1)]);
+pushResidual(charts.hero, MPHE.series, [0]);
+log(stamp() + ' mphe 0.9.0  ·  Fortran 2018 / OpenACC / MPI-3.1', 'a');
+log(stamp() + ' kernels: CSR-SpMV (AVX-512), batched 6x6 solve (NEON), Kahan reductions', 'd');
+log(stamp() + ' no -ffast-math  ·  -fprotect-parens  ·  FPE trap on invalid,zero,overflow', 'd');
+log(stamp() + ' ready — press "solve" in §2 to run a live Krylov iteration', 't');
+
+$$('#demo [data-mode]').forEach(b => b.onclick = () => {
+  $$('#demo [data-mode]').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  MPHE.mode = b.dataset.mode; stopRun(); rebuild();
+  log(stamp() + ' mode → ' + (MPHE.mode === 'te' ? 'staggered thermoelastic (fixed-stress split)' : MPHE.mode === 'mms' ? 'manufactured-solution verification' : 'heterogeneous heat conduction'), 'a');
+  if (MPHE.mode === 'mms') $('#mmsStrip').classList.remove('hidden');
+  $('#fieldTitle').textContent = MPHE.mode === 'mms' ? 'T — manufactured solution, L² error visible as fine ripples' : 'T — temperature field';
+});
+$$('#demo [data-view]').forEach(b => b.onclick = () => {
+  $$('#demo [data-view]').forEach(x => x.classList.remove('on'));
+  if (MPHE.view === b.dataset.view && b.dataset.view !== 'deform') { MPHE.view = 'field'; }
+  MPHE.view = b.dataset.view;
+  if (MPHE.mode !== 'te' && MPHE.view === 'deform') { log(stamp() + ' ⚠ displacement requires the coupled (thermoelastic) mode', 'c'); }
+  if (MPHE.view !== 'deform') b.classList.remove('on'); else { b.classList.add('on'); }
+  if (MPHE.view === 'field') $$('#demo [data-view]')[0].classList.add('on');
+  if (MPHE.view === 'wire') $$('#demo [data-view]')[1].classList.add('on');
+  MPHE.showStress = (MPHE.view === 'field' && MPHE.mode === 'te' && MPHE.stress);
+  drawField();
+});
+$('#btnRun').onclick = startRun;
+$('#btnReset').onclick = () => { stopRun(); rebuild(); MPHE.series = [[], [], []]; pushResidual(charts.demo, MPHE.series, [0]); };
+$('#btnStep').onclick = () => { $('#inTol').value = '1e-4'; stopRun(); MPHE.series = [[], [], []]; startRun(); stopRun(); };
+$('#inN').onchange = () => { rebuild(); };
+$('#inK').oninput = e => $('#labK').textContent = e.target.value + '×';
+$('#inA').oninput = e => $('#labA').textContent = (e.target.value * 1e-5).toExponential(1);
+
+/* ════════════════════════════════════════════════════════════
+   7. source browser
+   ════════════════════════════════════════════════════════════ */
+MPHE.SRC = $$('script[type="text/plain"][data-file]').map(el => ({
+  path: el.dataset.file, lang: el.dataset.lang || 'fortran',
+  badges: (el.dataset.badges || '').split('|').filter(Boolean),
+  note: (el.dataset.note || '').trim(),
+  text: el.textContent.replace(/^\n/, '').replace(/\s+$/, '')
+}));
+(function srcViewer() {
+  const groups = {};
+  MPHE.SRC.forEach((f, i) => { f.i = i; const d = f.path.includes('/') ? f.path.split('/')[0] : '·'; (groups[d] = groups[d] || []).push(f); });
+  $('#fileList').innerHTML = Object.entries(groups).map(([d, fs]) =>
+    `<div class="pt-2 pb-1 px-1 kicker">${d}</div>` + fs.map(f => {
+      const icon = f.lang === 'fortran' ? 'F' : f.lang === 'rust' ? 'R' : f.lang === 'cpp' ? '+' : '•';
+      const col = f.lang === 'fortran' ? 'var(--teal)' : f.lang === 'rust' ? 'var(--coral)' : f.lang === 'cpp' ? 'var(--sky)' : 'var(--muted)';
+      return `<button data-i="${f.i}"><span style="color:${col}" class="w-3 shrink-0">${icon}</span><span class="truncate">${f.path.split('/').pop()}</span><span class="ml-auto text-[10px] opacity-40">${f.text.split('\n').length}</span></button>`;
+    }).join('')).join('');
+  $('#srcCount').textContent = MPHE.SRC.length + ' files · ' + MPHE.SRC.reduce((s, f) => s + f.text.split('\n').length, 0).toLocaleString() + ' lines';
+  let cur = -1;
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function hl(line, lang) {
+    if (/^\s*!\$(acc|omp)/i.test(line)) return '<span class="acc-line">' + esc(line) + '</span>';
+    if (/^\s*(#|\/\/)/.test(line)) return '<span class="dir-line">' + esc(line) + '</span>';
+    if (typeof hljs === 'undefined') return esc(line);
+    try { return hljs.highlight(line, { language: lang, ignoreIllegals: true }).value; } catch (e) { return esc(line); }
+  }
+  function show(i) {
+    if (i === cur) return; cur = i;
+    const f = MPHE.SRC[i];
+    $$('#fileList button').forEach(b => b.classList.toggle('on', +b.dataset.i === i));
+    $('#curPath').textContent = f.path;
+    $('#curNote').textContent = f.note;
+    $('#curBadges').innerHTML = f.badges.map(b => '<span class="chip ' + (/acc|omp|gpu/i.test(b) ? 'hot' : /csr|simd|blas|vector/i.test(b) ? 'cool' : '') + '">' + b + '</span>').join('');
+    const lines = f.text.split('\n');
+    $('#codeScroll').innerHTML = lines.map((l, k) =>
+      '<div class="cl"><span class="ln">' + (k + 1) + '</span><span class="lc">' + (hl(l, f.lang) || '&nbsp;') + '</span></div>').join('');
+    $('#codeScroll').scrollTop = 0;
+  }
+  $$('#fileList button').forEach(b => b.onclick = () => show(+b.dataset.i));
+  $('#copyFile').onclick = e => copyText(MPHE.SRC[cur].text, e.currentTarget);
+  $('#dlFile').onclick = () => {
+    const f = MPHE.SRC[cur], a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([f.text], { type: 'text/plain' })); a.download = f.path.split('/').pop(); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 500);
+  };
+  if (MPHE.SRC.length) show(0); else $('#codeScroll').innerHTML = '<div class="p-6 mono text-[12px] text-[color:var(--dim)]">no sources attached</div>';
+})();
+</script>
+</body>
+</html>

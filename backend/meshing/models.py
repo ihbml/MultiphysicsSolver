@@ -10,10 +10,43 @@ Implements high-performance, vectorized Structure of Arrays (SoA) dataclasses:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from enum import IntEnum
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import numpy as np
 
 from backend.geometry.models import BoundingBox
+
+
+@dataclass
+class FarfieldPadding:
+    """Relative farfield padding multipliers based on characteristic length L_ref."""
+
+    upstream: float = 5.0     # 5L upstream along -X
+    downstream: float = 10.0  # 10L downstream along +X
+    lateral_y: float = 5.0    # 5L lateral along +/-Y
+    lateral_z: float = 5.0    # 5L lateral along +/-Z
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FarfieldPadding":
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+
+class CellType(IntEnum):
+    """VTK-compatible explicit cell types for unstructured meshes."""
+
+    TRIANGLE = 5       # VTK_TRIANGLE (2D)
+    POLYGON = 7        # VTK_POLYGON (2D)
+    QUAD = 9           # VTK_QUAD (2D coplanar)
+    TETRA = 10         # VTK_TETRA (3D)
+    HEXAHEDRON = 12    # VTK_HEXAHEDRON (3D)
+    WEDGE = 13         # VTK_WEDGE / Prism (3D)
+    PYRAMID = 14       # VTK_PYRAMID (3D)
+    POLYHEDRON = 42    # VTK_POLYHEDRON (3D general)
 
 
 @dataclass
@@ -51,6 +84,17 @@ class CurvatureSizingConfig:
     h_min: float = 0.005
     h_max: float = 0.1
     growth_rate: float = 1.2
+    h0: float = 0.050
+    grading: float = 0.350
+    eps_curv: float = 1e-6
+    max_gap_search: Optional[float] = None
+    ray_march_steps: int = 8
+    theta_opp_threshold: float = -0.500
+    fd_delta: float = 1e-4
+
+    def __post_init__(self) -> None:
+        if self.growth_rate != 1.2 and self.grading == 0.350:
+            self.grading = self.growth_rate - 1.0 if self.growth_rate > 1.0 else self.growth_rate
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -58,6 +102,21 @@ class CurvatureSizingConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CurvatureSizingConfig":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+    def to_sizing_parameters(self) -> "SizingParameters":
+        return SizingParameters(
+            h_min=self.h_min,
+            h_max=self.h_max,
+            h0=self.h0,
+            alpha=self.alpha,
+            beta=self.beta,
+            eps_curv=self.eps_curv,
+            grading=self.grading,
+            max_gap_search=self.max_gap_search,
+            ray_march_steps=self.ray_march_steps,
+            theta_opp_threshold=self.theta_opp_threshold,
+            fd_delta=self.fd_delta,
+        )
 
 
 @dataclass
@@ -80,6 +139,15 @@ class QualityConfig:
 class MeshingConfig:
     """Declarative unified configuration schema for native mesher and frontend."""
 
+    # WP4 Domain Mode and Farfield Extensions
+    domain_mode: Literal["external_fluid", "internal_fluid", "solid_only", "cht_coupled"] = "external_fluid"
+    farfield_padding: Optional[FarfieldPadding] = None
+    farfield_bbox: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None
+    small_cell_ratio: float = 0.20
+    wsrd_target_alpha: float = 0.50
+    gci_refinement_ratio: float = 1.41421356
+
+    # Existing meshing subsystem configurations
     sizing: CurvatureSizingConfig = field(default_factory=CurvatureSizingConfig)
     inflation: Optional[InflationConfig] = None
     quality: QualityConfig = field(default_factory=QualityConfig)
@@ -104,7 +172,44 @@ class MeshingConfig:
         )
         quality_data = data.get("quality", {})
         quality = QualityConfig.from_dict(quality_data) if isinstance(quality_data, dict) else quality_data
+
+        farfield_padding_data = data.get("farfield_padding")
+        if isinstance(farfield_padding_data, dict):
+            farfield_padding = FarfieldPadding.from_dict(farfield_padding_data)
+        elif isinstance(farfield_padding_data, FarfieldPadding):
+            farfield_padding = farfield_padding_data
+        else:
+            farfield_padding = None
+
+        farfield_bbox_raw = data.get("farfield_bbox")
+        if farfield_bbox_raw is not None:
+            if hasattr(farfield_bbox_raw, "min_pt") and hasattr(farfield_bbox_raw, "max_pt"):
+                farfield_bbox = (
+                    tuple(float(x) for x in farfield_bbox_raw.min_pt),
+                    tuple(float(x) for x in farfield_bbox_raw.max_pt),
+                )
+            elif len(farfield_bbox_raw) == 2:
+                farfield_bbox = (
+                    tuple(float(x) for x in farfield_bbox_raw[0]),
+                    tuple(float(x) for x in farfield_bbox_raw[1]),
+                )
+            elif len(farfield_bbox_raw) == 6:
+                farfield_bbox = (
+                    tuple(float(x) for x in farfield_bbox_raw[:3]),
+                    tuple(float(x) for x in farfield_bbox_raw[3:]),
+                )
+            else:
+                farfield_bbox = None
+        else:
+            farfield_bbox = None
+
         return cls(
+            domain_mode=data.get("domain_mode", "external_fluid"),
+            farfield_padding=farfield_padding,
+            farfield_bbox=farfield_bbox,
+            small_cell_ratio=float(data.get("small_cell_ratio", 0.20)),
+            wsrd_target_alpha=float(data.get("wsrd_target_alpha", 0.50)),
+            gci_refinement_ratio=float(data.get("gci_refinement_ratio", 1.41421356)),
             sizing=sizing if sizing is not None else CurvatureSizingConfig(),
             inflation=inflation,
             quality=quality if quality is not None else QualityConfig(),
@@ -114,6 +219,7 @@ class MeshingConfig:
             cyclic_angle_deg=float(data.get("cyclic_angle_deg", 0.0)),
             distmesh_iters=int(data.get("distmesh_iters", 45)),
         )
+
 
 
 @dataclass
@@ -155,7 +261,12 @@ class SizingParameters:
     fd_delta: float = 1e-4
     """Finite difference perturbation step for second derivatives (m)."""
 
+    growth_rate: Optional[float] = None
+    """Optional growth rate alias for grading (e.g. 1.2 -> 0.20)."""
+
     def __post_init__(self) -> None:
+        if self.growth_rate is not None:
+            self.grading = float(self.growth_rate - 1.0 if self.growth_rate > 1.0 else self.growth_rate)
         if self.h_min <= 0.0:
             raise ValueError(f"h_min must be positive, got {self.h_min}")
         if self.h_max < self.h_min:
@@ -168,6 +279,29 @@ class SizingParameters:
             raise ValueError(f"grading must be positive, got {self.grading}")
         if self.max_gap_search is None:
             self.max_gap_search = self.h_max / self.beta
+
+    def to_curvature_sizing_config(self) -> CurvatureSizingConfig:
+        return CurvatureSizingConfig(
+            alpha=self.alpha,
+            beta=self.beta,
+            h_min=self.h_min,
+            h_max=self.h_max,
+            growth_rate=1.0 + self.grading,
+            h0=self.h0,
+            grading=self.grading,
+            eps_curv=self.eps_curv,
+            max_gap_search=self.max_gap_search,
+            ray_march_steps=self.ray_march_steps,
+            theta_opp_threshold=self.theta_opp_threshold,
+            fd_delta=self.fd_delta,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SizingParameters":
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 @dataclass
@@ -217,6 +351,9 @@ class UnstructuredMesh:
     cyclic_pairs: List[Tuple[int, int]] = field(default_factory=list) # pairs of cyclic boundary face indices (Feature 22)
     error_map: Dict[str, np.ndarray] = field(default_factory=dict) # non_ortho, skewness, aspect_ratio, mask
     metadata: Dict[str, Any] = field(default_factory=dict)
+    faces: Optional[List[np.ndarray]] = None # List of face vertex arrays (ordered according to right-hand rule)
+    cell_types: Optional[np.ndarray] = None # shape (N_c,), int32: VTK CellType per cell
+    topological_dim: int = 3 # 2 for planar meshes, 3 for volumetric meshes
 
     def __post_init__(self) -> None:
         self.points = np.asarray(self.points, dtype=np.float64)
@@ -232,6 +369,10 @@ class UnstructuredMesh:
             self.cell_regions = np.asarray(self.cell_regions, dtype=np.int32)
         else:
             self.cell_regions = np.zeros(len(self.cell_volumes), dtype=np.int32)
+        if self.cell_types is not None:
+            self.cell_types = np.asarray(self.cell_types, dtype=np.int32)
+        if self.faces is not None:
+            self.faces = [np.asarray(f, dtype=np.int64) for f in self.faces]
 
     @property
     def num_regions(self) -> int:
@@ -265,7 +406,19 @@ class UnstructuredMesh:
         """Compute spatial bounding box enclosing all mesh points."""
         return BoundingBox.from_points(self.points)
 
-    def validate(self, tol_closure: float = 1e-11, tol_decomp: float = 1e-14) -> bool:
+    def to_openfoam_polymesh(self, case_dir: Union[str, Path], write_binary: bool = False) -> Path:
+        """Export mesh to OpenFOAM constant/polyMesh directory."""
+        from backend.meshing.polymesh_io import export_openfoam_polymesh
+        return export_openfoam_polymesh(self, case_dir=case_dir, write_binary=write_binary)
+
+    def validate(
+        self,
+        tol_closure: float = 1e-11,
+        tol_decomp: float = 1e-14,
+        tol_rel: float = 1e-11,
+        tol_proj: float = 1e-12,
+        tol_relax: float = 1e-10,
+    ) -> bool:
         """Audit physical and topological invariants. Raises ValueError on violation."""
         if np.any(self.cell_volumes <= 0.0):
             bad_idx = np.where(self.cell_volumes <= 0.0)[0]
@@ -273,15 +426,94 @@ class UnstructuredMesh:
                 f"Mesh has {len(bad_idx)} cells with non-positive volume! Min: {np.min(self.cell_volumes)}"
             )
 
-        # Verify over-relaxed decomposition identity: delta_f + k_f == S_f on internal faces
-        # (or all faces if the mesh has no internal faces, e.g. single-cell test meshes)
         internal = self.neighbour >= 0
-        faces_to_check = internal if np.any(internal) else np.ones(self.num_faces, dtype=bool)
-        if len(self.face_areas) > 0 and len(self.delta_f) > 0 and len(self.k_f) > 0:
+        n_int = int(np.sum(internal))
+        n_faces = self.num_faces
+
+        # 1. Contiguous block ordering: all internal faces must precede boundary faces
+        if n_faces > 0:
+            if not np.all(self.neighbour[:n_int] >= 0) or not np.all(self.neighbour[n_int:] == -1):
+                raise ValueError("Contiguous block ordering violated: all internal faces must precede boundary faces")
+
+        # 1b. Boundary patch coverage validation
+        if self.boundaries:
+            n_bnd = self.num_boundary_faces
+            coverage = np.zeros(n_bnd, dtype=bool)
+            total_patch_faces = 0
+
+            for pname, (start_f, count_f) in self.boundaries.items():
+                if count_f < 0:
+                    raise ValueError(f"Boundary patch '{pname}' has negative count {count_f}")
+                if start_f < n_int or start_f + count_f > n_faces:
+                    raise ValueError(
+                        f"Boundary patch '{pname}' range [{start_f}, {start_f + count_f}) "
+                        f"lies outside boundary range [{n_int}, {n_faces})"
+                    )
+                rel_start = start_f - n_int
+                rel_end = rel_start + count_f
+                if np.any(coverage[rel_start:rel_end]):
+                    raise ValueError(
+                        f"Boundary patch '{pname}' overlaps with another patch in range [{start_f}, {start_f + count_f})"
+                    )
+                coverage[rel_start:rel_end] = True
+                total_patch_faces += count_f
+
+            if total_patch_faces != n_bnd:
+                raise ValueError(
+                    f"Boundary patches cover {total_patch_faces} faces, expected {n_bnd} faces"
+                )
+
+        # 2. Strict upper-triangular ordering on internal faces: owner < neighbour
+        if n_int > 0:
+            if np.any(self.owner[internal] >= self.neighbour[internal]):
+                bad = np.where(self.owner[internal] >= self.neighbour[internal])[0]
+                raise ValueError(
+                    f"Topological invariant violated: owner must be strictly less than neighbour on all internal faces ({len(bad)} violations)"
+                )
+
+        # 3. Vectorized scale-invariant Gauss divergence closure theorem
+        if n_faces > 0 and self.num_cells > 0:
+            cell_surface_area = np.zeros(self.num_cells, dtype=np.float64)
+            face_area_mag = np.linalg.norm(self.face_areas, axis=1)
+            np.add.at(cell_surface_area, self.owner, face_area_mag)
+            np.add.at(cell_surface_area, self.neighbour[internal], face_area_mag[internal])
+
+            closure = np.zeros_like(self.cell_centres)
+            np.add.at(closure, self.owner, self.face_areas)
+            np.subtract.at(closure, self.neighbour[internal], self.face_areas[internal])
+
+            closure_norm = np.linalg.norm(closure, axis=1)
+            rel_closure = np.where(cell_surface_area > 1e-30, closure_norm / cell_surface_area, closure_norm)
+            max_rel_closure = float(np.max(rel_closure))
+
+            effective_tol = tol_closure if tol_closure != 1e-11 else tol_rel
+            if max_rel_closure > effective_tol:
+                raise ValueError(
+                    f"Closed-cell Gauss divergence theorem violated: max error = {max_rel_closure:.2e} > {effective_tol:.2e}"
+                )
+
+        # 4. Non-orthogonal decomposition identity: delta_f + k_f == S_f
+        if n_int > 0:
+            faces_to_check = internal
+        else:
+            # If mesh has only boundary faces, check if k_f is explicitly non-zero
+            faces_to_check = (
+                np.any(np.abs(self.k_f) > 1e-12, axis=1)
+                if len(self.k_f) > 0
+                else np.array([], dtype=bool)
+            )
+
+        if (
+            np.any(faces_to_check)
+            and len(self.face_areas) > 0
+            and len(self.delta_f) > 0
+            and len(self.k_f) > 0
+        ):
             decomp_diff = float(
                 np.max(
                     np.linalg.norm(
-                        (self.delta_f[faces_to_check] + self.k_f[faces_to_check]) - self.face_areas[faces_to_check],
+                        (self.delta_f[faces_to_check] + self.k_f[faces_to_check])
+                        - self.face_areas[faces_to_check],
                         axis=1,
                     )
                 )
@@ -291,31 +523,49 @@ class UnstructuredMesh:
                     f"Non-orthogonal decomposition identity failed: max diff = {decomp_diff:.2e} > {tol_decomp:.2e}"
                 )
 
-        # Verify closed-cell Gauss divergence: sum sigma_cf * S_f == 0
-        closure = np.zeros_like(self.cell_centres)
-        for f in range(self.num_faces):
-            o = self.owner[f]
-            closure[o] += self.face_areas[f]
-            nb = self.neighbour[f]
-            if nb >= 0:
-                closure[nb] -= self.face_areas[f]
-        max_closure = float(np.max(np.linalg.norm(closure, axis=1)))
-        if max_closure > tol_closure:
-            raise ValueError(
-                f"Closed-cell Gauss divergence theorem violated: max error = {max_closure:.2e} > {tol_closure:.2e}"
-            )
+        # 5. True projection identity tests (collinearity and over-relaxation on internal faces)
+        if n_int > 0:
+            delta_int = self.delta_f[internal]
+            d_f = self.cell_centres[self.neighbour[internal]] - self.cell_centres[self.owner[internal]]
+            delta_norm = np.linalg.norm(delta_int, axis=1)
+            d_norm = np.linalg.norm(d_f, axis=1)
+            denom = delta_norm * d_norm
+            valid_collin = denom > 1e-30
+            if np.any(valid_collin):
+                cross_prod = np.cross(delta_int[valid_collin], d_f[valid_collin])
+                cross_mag = np.linalg.norm(cross_prod, axis=1)
+                collin_err = cross_mag / denom[valid_collin]
+                max_collin_err = float(np.max(collin_err))
+                if max_collin_err > tol_proj:
+                    raise ValueError(
+                        f"Projection collinearity violated: max error = {max_collin_err:.2e} > {tol_proj:.2e}"
+                    )
+
+            # Over-relaxation identity: delta_f . S_f == ||S_f||^2 for theta_f < 89 deg
+            S_int = self.face_areas[internal]
+            S_norm_sq = np.sum(S_int * S_int, axis=1)
+            cos_theta = np.sum(S_int * d_f, axis=1) / (np.linalg.norm(S_int, axis=1) * d_norm + 1e-30)
+            cos_theta = np.clip(cos_theta, -1.0, 1.0)
+            theta_deg = np.degrees(np.arccos(cos_theta))
+            relax_mask = (theta_deg < 89.0) & (S_norm_sq > 1e-30)
+            if np.any(relax_mask):
+                dot_delta_S = np.sum(delta_int[relax_mask] * S_int[relax_mask], axis=1)
+                rel_relax_err = np.abs(dot_delta_S - S_norm_sq[relax_mask]) / S_norm_sq[relax_mask]
+                max_relax_err = float(np.max(rel_relax_err))
+                if max_relax_err > tol_relax:
+                    raise ValueError(
+                        f"Over-relaxation identity delta_f . S_f == ||S_f||^2 violated: max error = {max_relax_err:.2e} > {tol_relax:.2e}"
+                    )
 
         return True
 
     def compute_quality_report(self) -> MeshQualityReport:
         """Evaluate and return a structured quality audit report."""
         closure = np.zeros_like(self.cell_centres)
-        for f in range(self.num_faces):
-            o = self.owner[f]
-            closure[o] += self.face_areas[f]
-            nb = self.neighbour[f]
-            if nb >= 0:
-                closure[nb] -= self.face_areas[f]
+        if self.num_faces > 0 and self.num_cells > 0:
+            internal = self.neighbour >= 0
+            np.add.at(closure, self.owner, self.face_areas)
+            np.subtract.at(closure, self.neighbour[internal], self.face_areas[internal])
         max_closure = float(np.max(np.linalg.norm(closure, axis=1))) if len(closure) > 0 else 0.0
 
         non_ortho = self.error_map.get(
