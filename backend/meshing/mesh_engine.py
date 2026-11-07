@@ -15,6 +15,7 @@ from __future__ import annotations
 import ctypes
 import gzip
 import logging
+import os
 from pathlib import Path
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -63,9 +64,11 @@ class MeshEngine:
         self,
         use_native: bool = True,
         config: Optional[MeshingConfig] = None,
+        strict_native: bool = False,
     ) -> None:
         self.use_native = use_native
         self.config = config
+        self.strict_native = strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
         self._native_dll = get_native_dll() if use_native else None
 
     @property
@@ -119,21 +122,19 @@ class MeshEngine:
         faces = sm.faces
 
         # Backward Compatibility Shield:
-        # When config is None, or config.domain_mode == "solid_only", or neither
-        # farfield_padding nor farfield_bbox is supplied, mesh_cad_file must preserve
-        # solid body interior meshing so that all existing tests in
-        # tests/test_cad_meshing_validation.py and tests/test_mesh_engine.py pass without regression!
-        is_solid_only = (
-            config is None
-            or active_cfg.domain_mode == "solid_only"
-            or (active_cfg.farfield_padding is None and active_cfg.farfield_bbox is None)
-        )
+        # When both config is None and self.config is None, or active_cfg.domain_mode == "solid_only",
+        # mesh_cad_file preserves solid body interior meshing so that existing tests pass without regression.
+        is_solid_only = (config is None and self.config is None) or (active_cfg.domain_mode == "solid_only")
 
-        if not is_solid_only and active_cfg.domain_mode == "external_fluid":
-            return self._mesh_external_fluid(sm, scale=scale, h0=h0, active_cfg=active_cfg)
-
-        if active_cfg.domain_mode == "cht_coupled":
-            return self._mesh_cht_coupled(sm, scale=scale, h0=h0, active_cfg=active_cfg)
+        if not is_solid_only:
+            clean_mesh = SurfaceMesh(
+                vertices=verts,
+                faces=faces.copy(),
+                normals=sm.normals.copy() if sm.normals is not None else None,
+                patches=dict(sm.patches) if sm.patches else {},
+            )
+            effective_h0 = float(h0)
+            return self.mesh_hexcore(clean_mesh, scale=1.0, h0=effective_h0, config=active_cfg)
 
         # 2. Case A: Check if geometry is a rectangular cuboid / box via rigorous normal-axis auditing
         R = self._detect_oriented_box_axes(verts, faces)
@@ -207,13 +208,15 @@ class MeshEngine:
             normals=surface.normals.copy() if surface.normals is not None else None,
             patches=dict(surface.patches) if surface.patches else {},
         )
+        effective_domain_mode = active_cfg.domain_mode if active_cfg.domain_mode else domain_mode
+        is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
         if self.use_native and self.has_native_core and len(scaled_surf.faces) > 0:
             try:
                 native_mesh = generate_hexcore_native(
                     surf_points=scaled_surf.vertices,
                     surf_faces=scaled_surf.faces,
                     h0=h0,
-                    domain_mode=domain_mode,
+                    domain_mode=effective_domain_mode,
                     farfield_bbox=farfield_bbox,
                     config=active_cfg,
                 )
@@ -221,9 +224,13 @@ class MeshEngine:
                     native_mesh, _ = rcm_reorder(native_mesh)
                 return native_mesh
             except Exception as exc:
+                if is_strict:
+                    raise RuntimeError(f"Strict native mode enabled and generate_hexcore_native failed: {exc}") from exc
                 logger.warning(f"Native hexcore failed, falling back to Python: {exc}")
+        elif is_strict:
+            raise RuntimeError("Strict native mode enabled but native mesher core is unavailable or surface is empty.")
 
-        if domain_mode == "cht_coupled":
+        if effective_domain_mode == "cht_coupled":
             return self._mesh_cht_coupled(surface, scale=scale, h0=h0, active_cfg=active_cfg)
         return self._mesh_external_fluid(surface, scale=scale, h0=h0, active_cfg=active_cfg)
 
@@ -356,7 +363,7 @@ class MeshEngine:
                     ], dtype=np.int64)
                     all_cells.append(c)
 
-        mesh = compute_difvm_topology(all_pts, all_cells)
+        mesh = compute_difvm_topology(all_pts, all_cells, config=active_cfg)
         if active_cfg.rcm_reorder:
             mesh, _ = rcm_reorder(mesh)
         return mesh
@@ -444,6 +451,7 @@ class MeshEngine:
 
         ff_min, ff_max = self._compute_farfield_bounds(bmin, bmax, active_cfg)
 
+        is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
         if self.use_native and self.has_native_core and len(scaled_surf.faces) > 0:
             try:
                 ff_bbox = (
@@ -463,7 +471,11 @@ class MeshEngine:
                     native_mesh, _ = rcm_reorder(native_mesh)
                 return native_mesh
             except Exception as exc:
+                if is_strict:
+                    raise RuntimeError(f"Strict native mode enabled and native hexcore mesher failed: {exc}") from exc
                 logger.warning(f"Native hexcore mesher failed, falling back to Python: {exc}")
+        elif is_strict:
+            raise RuntimeError("Strict native mode enabled but native mesher core is unavailable or surface is empty.")
 
         ff_span = ff_max - ff_min
 
@@ -573,7 +585,7 @@ class MeshEngine:
 
         active_boundary_patches = {k: v for k, v in boundary_patches.items() if len(v) > 0}
 
-        mesh = compute_difvm_topology(all_nodes, active_cells, boundary_patches=active_boundary_patches)
+        mesh = compute_difvm_topology(all_nodes, active_cells, boundary_patches=active_boundary_patches, config=active_cfg)
         if active_cfg.rcm_reorder:
             mesh, _ = rcm_reorder(mesh)
         return mesh
@@ -684,7 +696,7 @@ class MeshEngine:
 
         active_patches = {k: v for k, v in boundary_patches.items() if len(v) > 0}
 
-        mesh = compute_difvm_topology(all_nodes, cells, regions=regions, boundary_patches=active_patches)
+        mesh = compute_difvm_topology(all_nodes, cells, regions=regions, boundary_patches=active_patches, config=active_cfg)
         if active_cfg.rcm_reorder:
             mesh, _ = rcm_reorder(mesh)
         return mesh
@@ -894,7 +906,7 @@ class MeshEngine:
             regions_list.append(reg_id)
         regions_arr = np.array(regions_list, dtype=np.int32)
 
-        mesh = compute_difvm_topology(all_nodes, active_cells, regions=regions_arr)
+        mesh = compute_difvm_topology(all_nodes, active_cells, regions=regions_arr, config=active_cfg)
         if active_cfg.rcm_reorder:
             mesh, _ = rcm_reorder(mesh)
         return mesh
@@ -984,7 +996,7 @@ class MeshEngine:
                 ], dtype=np.int64)
                 active_cells.append(c_nodes)
 
-        mesh = compute_difvm_topology(all_nodes, active_cells)
+        mesh = compute_difvm_topology(all_nodes, active_cells, config=active_cfg)
         if active_cfg.rcm_reorder:
             mesh, _ = rcm_reorder(mesh)
         return mesh
@@ -1036,7 +1048,7 @@ class MeshEngine:
                     ], dtype=np.int64)
                     all_cells.append(c)
 
-        mesh = compute_difvm_topology(all_nodes, all_cells)
+        mesh = compute_difvm_topology(all_nodes, all_cells, config=active_cfg)
         if active_cfg.rcm_reorder:
             mesh, _ = rcm_reorder(mesh)
         return mesh

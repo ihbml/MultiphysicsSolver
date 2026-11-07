@@ -89,17 +89,116 @@ struct OctreeNode {
   double v_bg = 0.0;
 };
 
-// Temporary Face representation during Mosaic assembly
-struct MosaicFace {
-  std::vector<int64_t> nodes;
-  int64_t owner = -1;
-  int64_t neighbour = -1;
-  Vec3 normal_owner;
-  Vec3 centre;
-  std::string patch_name;
-  bool is_farfield = false;
-  bool is_cut_face = false;
-};
+// Area-weighted normal and centroid via center-point fan
+std::pair<Vec3, Vec3> computePolygonNormalAndCentroid(
+    const std::vector<int64_t>& face_nodes,
+    const std::vector<Vec3>& points
+) {
+  size_t n = face_nodes.size();
+  if (n < 3) {
+    return {Vec3(0, 0, 0), Vec3(0, 0, 0)};
+  }
+
+  Vec3 c_face(0, 0, 0);
+  for (int64_t idx : face_nodes) c_face += points[idx];
+  c_face /= static_cast<double>(n);
+
+  Vec3 normal_sum(0, 0, 0);
+  Vec3 centroid_sum(0, 0, 0);
+  double total_area = 0.0;
+
+  for (size_t i = 0; i < n; ++i) {
+    const Vec3& pi = points[face_nodes[i]];
+    const Vec3& pj = points[face_nodes[(i + 1) % n]];
+    Vec3 cross_p = cross(pi - c_face, pj - c_face);
+    double area_tri = cross_p.norm() * 0.5;
+    normal_sum += cross_p * 0.5;
+    Vec3 tri_c = (c_face + pi + pj) / 3.0;
+    centroid_sum += tri_c * area_tri;
+    total_area += area_tri;
+  }
+
+  Vec3 centroid;
+  if (total_area > 1e-15) {
+    centroid = centroid_sum / total_area;
+  } else {
+    centroid = c_face;
+  }
+
+  return {normal_sum, centroid};
+}
+
+// Area-weighted normal and centroid when one node is replaced
+std::pair<Vec3, Vec3> computePolygonNormalAndCentroidReplaced(
+    const std::vector<int64_t>& face_nodes,
+    const std::vector<Vec3>& points,
+    int64_t replaced_node,
+    const Vec3& replaced_pos
+) {
+  size_t n = face_nodes.size();
+  if (n < 3) {
+    return {Vec3(0, 0, 0), Vec3(0, 0, 0)};
+  }
+
+  auto get_pt = [&](size_t idx) -> Vec3 {
+    int64_t nid = face_nodes[idx];
+    return (nid == replaced_node) ? replaced_pos : points[nid];
+  };
+
+  Vec3 c_face(0, 0, 0);
+  for (size_t i = 0; i < n; ++i) c_face += get_pt(i);
+  c_face /= static_cast<double>(n);
+
+  Vec3 normal_sum(0, 0, 0);
+  Vec3 centroid_sum(0, 0, 0);
+  double total_area = 0.0;
+
+  for (size_t i = 0; i < n; ++i) {
+    Vec3 pi = get_pt(i);
+    Vec3 pj = get_pt((i + 1) % n);
+    Vec3 cross_p = cross(pi - c_face, pj - c_face);
+    double area_tri = cross_p.norm() * 0.5;
+    normal_sum += cross_p * 0.5;
+    Vec3 tri_c = (c_face + pi + pj) / 3.0;
+    centroid_sum += tri_c * area_tri;
+    total_area += area_tri;
+  }
+
+  Vec3 centroid;
+  if (total_area > 1e-15) {
+    centroid = centroid_sum / total_area;
+  } else {
+    centroid = c_face;
+  }
+
+  return {normal_sum, centroid};
+}
+
+// Folded / inverted face detection
+bool isFaceFolded(
+    const std::vector<int64_t>& face_nodes,
+    const std::vector<Vec3>& points,
+    const Vec3& normal_sum
+) {
+  size_t n = face_nodes.size();
+  if (n < 3) return false;
+  double norm_mag = normal_sum.norm();
+  if (norm_mag <= 1e-15) return false;
+
+  Vec3 c_face(0, 0, 0);
+  for (int64_t idx : face_nodes) c_face += points[idx];
+  c_face /= static_cast<double>(n);
+
+  for (size_t i = 0; i < n; ++i) {
+    const Vec3& pi = points[face_nodes[i]];
+    const Vec3& pj = points[face_nodes[(i + 1) % n]];
+    Vec3 cross_p = cross(pi - c_face, pj - c_face);
+    if (cross_p.norm() > 1e-15) {
+      if (dot(cross_p, normal_sum) <= 0.0) return true;
+    }
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -136,8 +235,23 @@ int32_t OctreeHexcore::generate(
   // Determine Domain Bounding Box
   Vec3 dom_min, dom_max;
   if (farfield_bbox) {
-    dom_min = Vec3(farfield_bbox[0], farfield_bbox[2], farfield_bbox[4]);
-    dom_max = Vec3(farfield_bbox[1], farfield_bbox[3], farfield_bbox[5]);
+    if (farfield_bbox[3] > farfield_bbox[0] &&
+        farfield_bbox[4] > farfield_bbox[1] &&
+        farfield_bbox[5] > farfield_bbox[2]) {
+      // Standard [xmin, ymin, zmin, xmax, ymax, zmax]
+      dom_min = Vec3(farfield_bbox[0], farfield_bbox[1], farfield_bbox[2]);
+      dom_max = Vec3(farfield_bbox[3], farfield_bbox[4], farfield_bbox[5]);
+    } else if (farfield_bbox[1] > farfield_bbox[0] &&
+               farfield_bbox[3] > farfield_bbox[2] &&
+               farfield_bbox[5] > farfield_bbox[4]) {
+      // Interleaved [xmin, xmax, ymin, ymax, zmin, zmax]
+      dom_min = Vec3(farfield_bbox[0], farfield_bbox[2], farfield_bbox[4]);
+      dom_max = Vec3(farfield_bbox[1], farfield_bbox[3], farfield_bbox[5]);
+    } else {
+      // Default to standard [xmin, ymin, zmin, xmax, ymax, zmax]
+      dom_min = Vec3(farfield_bbox[0], farfield_bbox[1], farfield_bbox[2]);
+      dom_max = Vec3(farfield_bbox[3], farfield_bbox[4], farfield_bbox[5]);
+    }
   } else if (options.domain_mode == 0) {
     // external_fluid default: 5L upstream, 10L downstream, 5L lateral
     Vec3 span = s_max - s_min;
@@ -210,11 +324,11 @@ int32_t OctreeHexcore::generate(
 
   // Helper lambda to subdivide an octree node into 8 children
   auto subdivide_node = [&](int32_t node_idx) {
-    OctreeNode& parent = nodes[node_idx];
-    parent.is_leaf = false;
-    Vec3 mid = parent.center;
-    Vec3 pmin = parent.bmin;
-    Vec3 pmax = parent.bmax;
+    nodes[node_idx].is_leaf = false;
+    int32_t parent_level = nodes[node_idx].level;
+    Vec3 mid = nodes[node_idx].center;
+    Vec3 pmin = nodes[node_idx].bmin;
+    Vec3 pmax = nodes[node_idx].bmax;
 
     std::array<std::pair<Vec3, Vec3>, 8> octants = {{
         {{pmin.x, pmin.y, pmin.z}, {mid.x, mid.y, mid.z}},
@@ -233,7 +347,7 @@ int32_t OctreeHexcore::generate(
       child.bmax = octants[c].second;
       child.center = (child.bmin + child.bmax) * 0.5;
       child.size = child.bmax - child.bmin;
-      child.level = parent.level + 1;
+      child.level = parent_level + 1;
       child.parent = node_idx;
       child.is_leaf = true;
       child.v_bg = child.size.x * child.size.y * child.size.z;
@@ -248,18 +362,26 @@ int32_t OctreeHexcore::generate(
   int32_t max_depth = std::clamp(options.max_depth, 0, 4);
   for (int pass = 0; pass < max_depth; ++pass) {
     size_t current_count = nodes.size();
+    std::vector<int32_t> leaf_indices;
+    std::vector<double> leaf_centers;
     for (size_t i = 0; i < current_count; ++i) {
       if (!nodes[i].is_leaf) continue;
       if (nodes[i].level >= max_depth) continue;
-
-      double diag = nodes[i].size.norm();
-      double phi = 0.0;
-      Vec3 grad;
-      sdf.evaluate(&nodes[i].center.x, 1, &phi, &grad.x);
-
-      // Narrow-band surface criterion
-      if (std::abs(phi) <= 0.65 * diag) {
-        subdivide_node(static_cast<int32_t>(i));
+      leaf_indices.push_back(static_cast<int32_t>(i));
+      leaf_centers.push_back(nodes[i].center.x);
+      leaf_centers.push_back(nodes[i].center.y);
+      leaf_centers.push_back(nodes[i].center.z);
+    }
+    size_t n_eval = leaf_indices.size();
+    if (n_eval > 0) {
+      std::vector<double> phis(n_eval);
+      sdf.evaluate(leaf_centers.data(), static_cast<int64_t>(n_eval), phis.data(), nullptr);
+      for (size_t k = 0; k < n_eval; ++k) {
+        int32_t idx = leaf_indices[k];
+        double diag = nodes[idx].size.norm();
+        if (std::abs(phis[k]) <= 0.65 * diag) {
+          subdivide_node(idx);
+        }
       }
     }
   }
@@ -426,12 +548,9 @@ int32_t OctreeHexcore::generate(
       mf.is_farfield = is_farfield_face;
       mf.is_cut_face = is_cut;
 
-      const Vec3& p0 = node_coords[quad_nodes[0]];
-      const Vec3& p1 = node_coords[quad_nodes[1]];
-      const Vec3& p2 = node_coords[quad_nodes[2]];
-      const Vec3& p3 = node_coords[quad_nodes[3]];
-      mf.normal_owner = (cross(p1 - p0, p2 - p0) + cross(p2 - p0, p3 - p0)) * 0.5;
-      mf.centre = (p0 + p1 + p2 + p3) * 0.25;
+      auto [norm, cent] = computePolygonNormalAndCentroid(quad_nodes, node_coords);
+      mf.normal_owner = norm;
+      mf.centre = cent;
 
       int64_t f_idx = static_cast<int64_t>(mosaic_faces.size());
       mosaic_faces.push_back(mf);
@@ -466,9 +585,9 @@ int32_t OctreeHexcore::generate(
       if (dir == 0) {  // -X
         n_dir = Vec3(-1, 0, 0);
         q0 = Vec3(cell_a.bmin.x, cell_a.bmin.y, cell_a.bmin.z);
-        q1 = Vec3(cell_a.bmin.x, cell_a.bmax.y, cell_a.bmin.z);
+        q1 = Vec3(cell_a.bmin.x, cell_a.bmin.y, cell_a.bmax.z);
         q2 = Vec3(cell_a.bmin.x, cell_a.bmax.y, cell_a.bmax.z);
-        q3 = Vec3(cell_a.bmin.x, cell_a.bmin.y, cell_a.bmax.z);
+        q3 = Vec3(cell_a.bmin.x, cell_a.bmax.y, cell_a.bmin.z);
         plane_val = cell_a.bmin.x;
         if (std::abs(plane_val - dom_min.x) < eps_probe) {
           is_farfield = true;
@@ -477,9 +596,9 @@ int32_t OctreeHexcore::generate(
       } else if (dir == 1) {  // +X
         n_dir = Vec3(1, 0, 0);
         q0 = Vec3(cell_a.bmax.x, cell_a.bmin.y, cell_a.bmin.z);
-        q1 = Vec3(cell_a.bmax.x, cell_a.bmin.y, cell_a.bmax.z);
+        q1 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmin.z);
         q2 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmax.z);
-        q3 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmin.z);
+        q3 = Vec3(cell_a.bmax.x, cell_a.bmin.y, cell_a.bmax.z);
         plane_val = cell_a.bmax.x;
         if (std::abs(plane_val - dom_max.x) < eps_probe) {
           is_farfield = true;
@@ -605,6 +724,25 @@ int32_t OctreeHexcore::generate(
 
   // 8. Cut-Cell Snapping along grad(phi) with Strict AMIPS Guard and V_i > 0
   if (options.snap_cut_cells) {
+    for (auto& mf : mosaic_faces) {
+      auto [norm, cent] = computePolygonNormalAndCentroid(mf.nodes, node_coords);
+      mf.normal_owner = norm;
+      mf.centre = cent;
+    }
+
+    // Precompute cell approximation centers from face centres for outward normal orientation and sub-pyramids
+    std::vector<Vec3> cell_approx_center(n_active_cells, Vec3(0, 0, 0));
+    for (int64_t c = 0; c < n_active_cells; ++c) {
+      Vec3 c_approx(0, 0, 0);
+      int64_t count = 0;
+      for (int64_t f_idx : cell_to_faces[c]) {
+        c_approx += mosaic_faces[f_idx].centre;
+        count++;
+      }
+      cell_approx_center[c] = (count > 0) ? (c_approx / static_cast<double>(count))
+                                          : nodes[active_leaves[c]].center;
+    }
+
     std::unordered_set<int64_t> wall_vertices;
     for (const auto& mf : mosaic_faces) {
       if (mf.neighbour == -1 && !mf.is_farfield) {
@@ -615,6 +753,7 @@ int32_t OctreeHexcore::generate(
     }
 
     std::unordered_map<int64_t, std::vector<int64_t>> node_to_cells;
+    std::unordered_map<int64_t, std::vector<int64_t>> node_to_faces;
     for (size_t f = 0; f < mosaic_faces.size(); ++f) {
       const auto& mf = mosaic_faces[f];
       for (int64_t v : mf.nodes) {
@@ -622,17 +761,46 @@ int32_t OctreeHexcore::generate(
         if (mf.neighbour >= 0) {
           node_to_cells[v].push_back(mf.neighbour);
         }
+        node_to_faces[v].push_back(static_cast<int64_t>(f));
       }
     }
+    for (auto& kv : node_to_cells) {
+      std::sort(kv.second.begin(), kv.second.end());
+      kv.second.erase(std::unique(kv.second.begin(), kv.second.end()), kv.second.end());
+    }
+    for (auto& kv : node_to_faces) {
+      std::sort(kv.second.begin(), kv.second.end());
+      kv.second.erase(std::unique(kv.second.begin(), kv.second.end()), kv.second.end());
+    }
 
-    double snap_tol = options.snap_tol_factor * options.h0;
-    for (int64_t v : wall_vertices) {
+    std::vector<int64_t> wall_verts(wall_vertices.begin(), wall_vertices.end());
+    size_t n_wall = wall_verts.size();
+    std::vector<double> wall_pts(n_wall * 3);
+    for (size_t i = 0; i < n_wall; ++i) {
+      const Vec3& p = node_coords[wall_verts[i]];
+      wall_pts[3 * i + 0] = p.x;
+      wall_pts[3 * i + 1] = p.y;
+      wall_pts[3 * i + 2] = p.z;
+    }
+    std::vector<double> phis(n_wall);
+    std::vector<double> grads(n_wall * 3);
+    if (n_wall > 0) {
+      sdf.evaluate(wall_pts.data(), static_cast<int64_t>(n_wall), phis.data(), grads.data());
+    }
+
+    std::vector<Vec3> snapped_pos(n_wall);
+    std::vector<bool> was_snapped(n_wall, false);
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64)
+#endif
+    for (int64_t i = 0; i < static_cast<int64_t>(n_wall); ++i) {
+      int64_t v = wall_verts[i];
       Vec3 pos = node_coords[v];
-      double phi = 0.0;
-      Vec3 grad;
-      sdf.evaluate(&pos.x, 1, &phi, &grad.x);
+      double phi = phis[i];
+      Vec3 grad(grads[3 * i + 0], grads[3 * i + 1], grads[3 * i + 2]);
 
-      if (std::abs(phi) <= snap_tol && grad.norm2() > 1e-12) {
+      if (grad.norm2() > 1e-12) {
         Vec3 target = pos - (phi / grad.norm2()) * grad;
         Vec3 disp = target - pos;
 
@@ -641,12 +809,75 @@ int32_t OctreeHexcore::generate(
           Vec3 test_pos = pos + lambda * disp;
           bool valid = true;
 
-          for (int64_t cell_idx : node_to_cells[v]) {
-            const OctreeNode& onode = nodes[active_leaves[cell_idx]];
-            double tet_energy = computeTetAMIPS(test_pos, onode.bmin, onode.bmax, onode.center);
-            if (tet_energy > options.amips_max) {
-              valid = false;
-              break;
+          // Check 1: AMIPS on positively oriented corner tetrahedron for every cell sharing v
+          auto it_cells = node_to_cells.find(v);
+          if (it_cells != node_to_cells.end()) {
+            for (int64_t cell_idx : it_cells->second) {
+              const OctreeNode& onode = nodes[active_leaves[cell_idx]];
+              int cx = (pos.x >= onode.center.x) ? 1 : 0;
+              int cy = (pos.y >= onode.center.y) ? 1 : 0;
+              int cz = (pos.z >= onode.center.z) ? 1 : 0;
+
+              Vec3 v_corner(cx == 0 ? onode.bmin.x : onode.bmax.x,
+                            cy == 0 ? onode.bmin.y : onode.bmax.y,
+                            cz == 0 ? onode.bmin.z : onode.bmax.z);
+
+              // If v is not a geometric corner of this octree box, AMIPS corner tet is checked
+              // by fine cells where v is a true corner, while pyramid volume guards this cell.
+              if (std::abs(pos.x - v_corner.x) > 1e-4 * onode.size.x ||
+                  std::abs(pos.y - v_corner.y) > 1e-4 * onode.size.y ||
+                  std::abs(pos.z - v_corner.z) > 1e-4 * onode.size.z) {
+                continue;
+              }
+
+              Vec3 vx = v_corner + Vec3((1 - 2 * cx) * onode.size.x, 0, 0);
+              Vec3 vy = v_corner + Vec3(0, (1 - 2 * cy) * onode.size.y, 0);
+              Vec3 vz = v_corner + Vec3(0, 0, (1 - 2 * cz) * onode.size.z);
+
+              int s = (1 - 2 * cx) * (1 - 2 * cy) * (1 - 2 * cz);
+              Vec3 v1 = (s > 0) ? vx : vy;
+              Vec3 v2 = (s > 0) ? vy : vx;
+              Vec3 v3 = vz;
+
+              double tet_energy = computeTetAMIPS(test_pos, v1, v2, v3);
+              if (tet_energy > options.amips_max) {
+                valid = false;
+                break;
+              }
+            }
+          }
+
+          // Check 2: Sub-pyramid positive volume verification: V_pyr > 1e-15 * V_bg
+          if (valid) {
+            auto it_faces = node_to_faces.find(v);
+            if (it_faces != node_to_faces.end()) {
+              for (int64_t f_idx : it_faces->second) {
+                const auto& mf = mosaic_faces[f_idx];
+                auto [sf_new, cf_new] = computePolygonNormalAndCentroidReplaced(
+                    mf.nodes, node_coords, v, test_pos);
+
+                int64_t o = mf.owner;
+                if (o >= 0) {
+                  const OctreeNode& onode = nodes[active_leaves[o]];
+                  Vec3 ref_c = cell_approx_center[o];
+                  double pyr_vol = dot(cf_new - ref_c, sf_new) / 3.0;
+                  if (pyr_vol <= 1e-15 * onode.v_bg) {
+                    valid = false;
+                    break;
+                  }
+                }
+
+                int64_t nb = mf.neighbour;
+                if (nb >= 0) {
+                  const OctreeNode& onode = nodes[active_leaves[nb]];
+                  Vec3 ref_c = cell_approx_center[nb];
+                  double pyr_vol = dot(cf_new - ref_c, -sf_new) / 3.0;
+                  if (pyr_vol <= 1e-15 * onode.v_bg) {
+                    valid = false;
+                    break;
+                  }
+                }
+              }
             }
           }
 
@@ -657,58 +888,83 @@ int32_t OctreeHexcore::generate(
         }
 
         if (best_lambda > 0.0) {
-          node_coords[v] = pos + best_lambda * disp;
+          snapped_pos[i] = pos + best_lambda * disp;
+          was_snapped[i] = true;
         }
+      }
+    }
+
+    for (size_t i = 0; i < n_wall; ++i) {
+      if (was_snapped[i]) {
+        node_coords[wall_verts[i]] = snapped_pos[i];
       }
     }
   }
 
   // 9. Recompute Face Normals and Areas after Snapping
   for (auto& mf : mosaic_faces) {
-    const Vec3& p0 = node_coords[mf.nodes[0]];
-    const Vec3& p1 = node_coords[mf.nodes[1]];
-    const Vec3& p2 = node_coords[mf.nodes[2]];
-    const Vec3& p3 = node_coords[mf.nodes[3]];
-    mf.normal_owner = (cross(p1 - p0, p2 - p0) + cross(p2 - p0, p3 - p0)) * 0.5;
-    mf.centre = (p0 + p1 + p2 + p3) * 0.25;
-
-    Vec3 c_owner = nodes[active_leaves[mf.owner]].center;
-    if (dot(mf.normal_owner, mf.centre - c_owner) < 0.0) {
-      mf.normal_owner = -mf.normal_owner;
-      std::reverse(mf.nodes.begin(), mf.nodes.end());
-    }
+    auto [normal, centre] = computePolygonNormalAndCentroid(mf.nodes, node_coords);
+    mf.normal_owner = normal;
+    mf.centre = centre;
   }
 
-  // 10. Compute Cell Volumes via Gauss Divergence Theorem
+  std::vector<Vec3> cell_approx_center(n_active_cells, Vec3(0, 0, 0));
+  for (int64_t c = 0; c < n_active_cells; ++c) {
+    Vec3 c_approx(0, 0, 0);
+    int64_t count = 0;
+    for (int64_t f_idx : cell_to_faces[c]) {
+      c_approx += mosaic_faces[f_idx].centre;
+      count++;
+    }
+    cell_approx_center[c] = (count > 0) ? (c_approx / static_cast<double>(count))
+                                        : nodes[active_leaves[c]].center;
+  }
+
+  for (auto& mf : mosaic_faces) {
+    mf.is_folded = isFaceFolded(mf.nodes, node_coords, mf.normal_owner);
+  }
+
+  // 10. Compute Cell Volumes & Centroids via reference-point pyramid decomposition
   std::vector<double> cell_vols(n_active_cells, 0.0);
   std::vector<Vec3> cell_cents(n_active_cells, Vec3(0, 0, 0));
 
-  for (size_t f = 0; f < mosaic_faces.size(); ++f) {
-    const auto& mf = mosaic_faces[f];
-    int64_t o = mf.owner;
-    int64_t nb = mf.neighbour;
-
-    double v_o = dot(mf.centre, mf.normal_owner) / 3.0;
-    cell_vols[o] += v_o;
-    cell_cents[o] += mf.centre * (dot(mf.centre, mf.normal_owner));
-
-    if (nb >= 0) {
-      double v_nb = -dot(mf.centre, mf.normal_owner) / 3.0;
-      cell_vols[nb] += v_nb;
-      cell_cents[nb] -= mf.centre * (dot(mf.centre, mf.normal_owner));
-    }
-  }
-
   for (int64_t c = 0; c < n_active_cells; ++c) {
-    if (cell_vols[c] > 1e-15) {
-      cell_cents[c] /= (cell_vols[c] * 3.0);
+    Vec3 c_approx = cell_approx_center[c];
+
+    double vol_sum = 0.0;
+    Vec3 cent_sum(0, 0, 0);
+
+    for (int64_t f_idx : cell_to_faces[c]) {
+      const auto& mf = mosaic_faces[f_idx];
+      double sign = (mf.owner == c) ? 1.0 : -1.0;
+      Vec3 sf_out = mf.normal_owner * sign;
+      double pyr_vol = dot(mf.centre - c_approx, sf_out) / 3.0;
+      vol_sum += pyr_vol;
+      Vec3 pyr_c = mf.centre * 0.75 + c_approx * 0.25;
+      cent_sum += pyr_c * pyr_vol;
+    }
+
+    cell_vols[c] = vol_sum;
+    if (vol_sum > 1e-15) {
+      cell_cents[c] = cent_sum / vol_sum;
     } else {
-      cell_cents[c] = nodes[active_leaves[c]].center;
+      cell_cents[c] = c_approx;
       cell_vols[c] = nodes[active_leaves[c]].v_bg;
     }
   }
 
   // 11. Small-Cell Topological Merging (V_cut < 0.20 V_bg) along grad(phi)
+  std::vector<std::vector<int64_t>> cell_verts(n_active_cells);
+  for (int64_t c = 0; c < n_active_cells; ++c) {
+    for (int64_t f_idx : cell_to_faces[c]) {
+      for (int64_t v : mosaic_faces[f_idx].nodes) {
+        cell_verts[c].push_back(v);
+      }
+    }
+    std::sort(cell_verts[c].begin(), cell_verts[c].end());
+    cell_verts[c].erase(std::unique(cell_verts[c].begin(), cell_verts[c].end()), cell_verts[c].end());
+  }
+
   if (options.merge_small_cells) {
     for (int64_t c = 0; c < n_active_cells; ++c) {
       double v_bg = nodes[active_leaves[c]].v_bg;
@@ -738,6 +994,11 @@ int32_t OctreeHexcore::generate(
           cell_cents[best_nb] = (cell_cents[best_nb] * orig_nb_vol + cell_cents[c] * cell_vols[c]) /
                                 (cell_vols[best_nb] + 1e-30);
           cell_types[best_nb] = CellType::POLYHEDRON;
+
+          // Union vertices of cell c into best_nb
+          cell_verts[best_nb].insert(cell_verts[best_nb].end(), cell_verts[c].begin(), cell_verts[c].end());
+          std::sort(cell_verts[best_nb].begin(), cell_verts[best_nb].end());
+          cell_verts[best_nb].erase(std::unique(cell_verts[best_nb].begin(), cell_verts[best_nb].end()), cell_verts[best_nb].end());
 
           for (int64_t f_idx : cell_to_faces[c]) {
             auto& mf = mosaic_faces[f_idx];
@@ -770,8 +1031,8 @@ int32_t OctreeHexcore::generate(
     }
   }
 
-  // 12. Separate Internal Faces and Boundary Faces
-  std::vector<MosaicFace> final_internal_faces;
+  // 12. Separate Internal Faces and Boundary Faces with Deduplication
+  std::map<std::pair<int64_t, int64_t>, std::vector<MosaicFace>> internal_face_groups;
   std::vector<MosaicFace> final_boundary_faces;
 
   for (auto& mf : mosaic_faces) {
@@ -781,6 +1042,9 @@ int32_t OctreeHexcore::generate(
     int64_t new_nb = (mf.neighbour >= 0) ? old_to_new_cell[mf.neighbour] : -1;
 
     if (new_o >= 0 && new_nb >= 0) {
+      if (new_o == new_nb) {
+        continue;
+      }
       if (new_o > new_nb) {
         std::swap(new_o, new_nb);
         mf.normal_owner = -mf.normal_owner;
@@ -788,7 +1052,7 @@ int32_t OctreeHexcore::generate(
       }
       mf.owner = new_o;
       mf.neighbour = new_nb;
-      final_internal_faces.push_back(mf);
+      internal_face_groups[{new_o, new_nb}].push_back(mf);
     } else if (new_o >= 0 && new_nb < 0) {
       mf.owner = new_o;
       mf.neighbour = -1;
@@ -799,6 +1063,91 @@ int32_t OctreeHexcore::generate(
       mf.normal_owner = -mf.normal_owner;
       std::reverse(mf.nodes.begin(), mf.nodes.end());
       final_boundary_faces.push_back(mf);
+    }
+  }
+
+  std::vector<MosaicFace> final_internal_faces;
+  for (auto& [pair, group] : internal_face_groups) {
+    if (group.size() == 1) {
+      final_internal_faces.push_back(group[0]);
+    } else {
+      MosaicFace merged;
+      merged.owner = pair.first;
+      merged.neighbour = pair.second;
+      merged.patch_name = "internal";
+      merged.is_farfield = false;
+      merged.is_cut_face = false;
+      merged.is_folded = false;
+
+      Vec3 sum_normal(0, 0, 0);
+      Vec3 sum_centre(0, 0, 0);
+      double sum_area = 0.0;
+
+      std::map<std::pair<int64_t, int64_t>, int> edge_counts;
+      for (const auto& f : group) {
+        sum_normal += f.normal_owner;
+        double a = f.normal_owner.norm();
+        sum_centre += f.centre * a;
+        sum_area += a;
+        if (f.is_folded) merged.is_folded = true;
+
+        size_t nv = f.nodes.size();
+        for (size_t i = 0; i < nv; ++i) {
+          int64_t u = f.nodes[i];
+          int64_t v = f.nodes[(i + 1) % nv];
+          edge_counts[{u, v}]++;
+        }
+      }
+
+      merged.normal_owner = sum_normal;
+      if (sum_area > 1e-15) {
+        merged.centre = sum_centre / sum_area;
+      } else {
+        merged.centre = group[0].centre;
+      }
+
+      std::vector<std::pair<int64_t, int64_t>> perimeter_edges;
+      for (const auto& [edge, count] : edge_counts) {
+        int64_t u = edge.first;
+        int64_t v = edge.second;
+        auto it_rev = edge_counts.find({v, u});
+        int rev_count = (it_rev != edge_counts.end()) ? it_rev->second : 0;
+        if (count > rev_count) {
+          for (int k = 0; k < count - rev_count; ++k) {
+            perimeter_edges.push_back({u, v});
+          }
+        }
+      }
+
+      std::vector<int64_t> cycle;
+      if (!perimeter_edges.empty()) {
+        std::unordered_map<int64_t, int64_t> next_node;
+        for (const auto& e : perimeter_edges) {
+          next_node[e.first] = e.second;
+        }
+        int64_t start = perimeter_edges[0].first;
+        int64_t curr = start;
+        std::unordered_set<int64_t> visited;
+        while (visited.insert(curr).second) {
+          cycle.push_back(curr);
+          auto it = next_node.find(curr);
+          if (it == next_node.end()) break;
+          curr = it->second;
+          if (curr == start) break;
+        }
+      }
+
+      if (cycle.size() >= 3) {
+        merged.nodes = cycle;
+      } else {
+        std::set<int64_t> all_n;
+        for (const auto& f : group) {
+          for (int64_t v : f.nodes) all_n.insert(v);
+        }
+        merged.nodes.assign(all_n.begin(), all_n.end());
+      }
+
+      final_internal_faces.push_back(merged);
     }
   }
 
@@ -972,15 +1321,39 @@ int32_t OctreeHexcore::generate(
   }
   mesh.face_offsets[total_faces] = static_cast<int64_t>(mesh.face_nodes.size());
 
+  // Minimum face beta_upwind per cell -> omega_cell
+  std::vector<double> min_beta_per_cell(final_n_cells, 1.0);
+  for (int64_t f = 0; f < total_faces; ++f) {
+    int64_t o = mesh.owner[f];
+    int64_t nb = mesh.neighbour[f];
+    if (o >= 0 && o < final_n_cells) {
+      min_beta_per_cell[o] = std::min(min_beta_per_cell[o], mesh.beta_upwind[f]);
+    }
+    if (nb >= 0 && nb < final_n_cells) {
+      min_beta_per_cell[nb] = std::min(min_beta_per_cell[nb], mesh.beta_upwind[f]);
+    }
+  }
+  for (int64_t c = 0; c < final_n_cells; ++c) {
+    mesh.omega_cell[c] = std::max(0.1, min_beta_per_cell[c]);
+  }
+
   // CSR Cell Nodes
   std::vector<std::vector<int64_t>> cell_nodes_temp(final_n_cells);
+  for (int64_t old_c = 0; old_c < n_active_cells; ++old_c) {
+    int64_t new_c = old_to_new_cell[old_c];
+    if (new_c >= 0) {
+      cell_nodes_temp[new_c].insert(cell_nodes_temp[new_c].end(),
+                                    cell_verts[old_c].begin(),
+                                    cell_verts[old_c].end());
+    }
+  }
   for (int64_t f = 0; f < total_faces; ++f) {
     int64_t o = mesh.owner[f];
     for (int64_t v : all_faces[f].nodes) {
       cell_nodes_temp[o].push_back(v);
     }
     int64_t nb = mesh.neighbour[f];
-    if (nb >= 0) {
+    if (nb >= 0 && nb < final_n_cells) {
       for (int64_t v : all_faces[f].nodes) {
         cell_nodes_temp[nb].push_back(v);
       }

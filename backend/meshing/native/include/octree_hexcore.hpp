@@ -11,6 +11,18 @@
 
 namespace cfd {
 
+struct MosaicFace {
+  std::vector<int64_t> nodes;
+  int64_t owner{-1};
+  int64_t neighbour{-1};
+  Vec3 normal_owner{0, 0, 0};
+  Vec3 centre{0, 0, 0};
+  std::string patch_name{"internal"};
+  bool is_farfield{false};
+  bool is_cut_face{false};
+  bool is_folded{false};
+};
+
 struct OctreeOptions {
   double h0 = 0.05;
   double h_min = 0.005;

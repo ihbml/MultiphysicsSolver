@@ -735,6 +735,23 @@ void DistMeshEngine::generate2DPolygon(
         Vec2 new_pos = all_pts[i] + forces[i] * options.delta_t;
         if (pointInPoly(new_pos)) {
           all_pts[i] = new_pos;
+        } else {
+          // R5.2: Persson & Strang (2004) orthogonal projection back onto nearest boundary segment
+          double min_d2 = 1e30;
+          Vec2 best_proj = all_pts[i];
+          for (size_t j = 0, k = p_nodes.size() - 1; j < p_nodes.size(); k = j++) {
+            Vec2 ab = p_nodes[j] - p_nodes[k];
+            Vec2 ap = new_pos - p_nodes[k];
+            double ab2 = ab.norm2();
+            double t = (ab2 > 1e-15) ? std::clamp((ap.x * ab.x + ap.y * ab.y) / ab2, 0.0, 1.0) : 0.0;
+            Vec2 proj = p_nodes[k] + ab * t;
+            double d2 = (new_pos - proj).norm2();
+            if (d2 < min_d2) {
+              min_d2 = d2;
+              best_proj = proj;
+            }
+          }
+          all_pts[i] = best_proj;
         }
       }
     }

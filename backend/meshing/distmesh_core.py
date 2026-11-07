@@ -731,7 +731,7 @@ def distmesh_2d(
     # Filter points outside domain: keep if phi < -0.05 * h
     d = fd(p)
     h_vals = fh(p)
-    p = p[d < 0.05 * h_vals]
+    p = p[d < -0.05 * h_vals]
 
     if len(p) == 0:
         return np.empty((0, 2), dtype=np.float64), np.empty((0, 3), dtype=np.int64)
@@ -824,15 +824,17 @@ def distmesh_2d(
         p += delta_t * total_force
 
         # Project boundary nodes back onto zero level set (phi = 0)
-        d_nodes = fd(p)
-        outside = d_nodes > 0.0
-        if n_fix > 0:
-            outside[:n_fix] = False
-        if np.any(outside):
-            # Numerical gradient of fd
+        for _ in range(3):
+            d_nodes = fd(p)
+            outside = d_nodes > 0.0
+            if n_fix > 0:
+                outside[:n_fix] = False
+            if not np.any(outside):
+                break
             eps = 1e-5 * h0
-            grad_x = (fd(p[outside] + [eps, 0.0]) - fd(p[outside] - [eps, 0.0])) / (2.0 * eps)
-            grad_y = (fd(p[outside] + [0.0, eps]) - fd(p[outside] - [0.0, eps])) / (2.0 * eps)
+            p_out = p[outside]
+            grad_x = (fd(p_out + [eps, 0.0]) - fd(p_out - [eps, 0.0])) / (2.0 * eps)
+            grad_y = (fd(p_out + [0.0, eps]) - fd(p_out - [0.0, eps])) / (2.0 * eps)
             grad = np.column_stack([grad_x, grad_y])
             grad_norm2 = np.sum(grad ** 2, axis=1, keepdims=True) + 1e-15
             p[outside] -= (d_nodes[outside, None] * grad) / grad_norm2

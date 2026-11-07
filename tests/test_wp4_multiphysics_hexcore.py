@@ -479,29 +479,26 @@ class TestMosaicPolyHexcore:
         assert CellType.POLYHEDRON.value == 42
 
     def test_mosaic_relative_gauss_closure(self):
-        """Verify that a Mosaic polyhedral transition cell satisfies relative Gauss closure < 1e-11."""
-        # Coarse cell: cube [-1, 1]^3 with Z+ face replaced by 4 sub-quads
-        # 5 standard faces: X-, X+, Y-, Y+, Z- (area = 4.0 each)
-        # 4 sub-faces on Z+: area = 1.0 each, normal = +Z
-        faces_normals = [
-            np.array([-4.0, 0.0, 0.0]),  # X-
-            np.array([4.0, 0.0, 0.0]),   # X+
-            np.array([0.0, -4.0, 0.0]),  # Y-
-            np.array([0.0, 4.0, 0.0]),   # Y+
-            np.array([0.0, 0.0, -4.0]),  # Z-
-            # 4 sub-faces on Z+
-            np.array([0.0, 0.0, 1.0]),
-            np.array([0.0, 0.0, 1.0]),
-            np.array([0.0, 0.0, 1.0]),
-            np.array([0.0, 0.0, 1.0]),
-        ]
+        """Verify that genuine native hexcore mesh satisfies relative Gauss closure < 1e-11 across all cells."""
+        from backend.meshing.difvm_topology import generate_hexcore_native
+        from tests.test_asme_vv import create_geodesic_icosphere
 
-        sum_s = np.sum(faces_normals, axis=0)
-        sum_mag_s = np.sum([np.linalg.norm(s) for s in faces_normals])
+        surf_pts, surf_faces = create_geodesic_icosphere(subdivisions=2)
+        mesh = generate_hexcore_native(surf_pts, surf_faces, h0=0.5, domain_mode="solid_only")
 
-        rel_gauss_closure = np.linalg.norm(sum_s) / sum_mag_s
-        assert rel_gauss_closure < 1e-14
-        assert rel_gauss_closure < 1e-11
+        assert mesh.num_cells > 0
+        assert mesh.num_faces > 0
+
+        closure = np.zeros_like(mesh.cell_centres)
+        internal = mesh.neighbour >= 0
+        np.add.at(closure, mesh.owner, mesh.face_areas)
+        np.subtract.at(closure, mesh.neighbour[internal], mesh.face_areas[internal])
+
+        closure_norms = np.linalg.norm(closure, axis=1)
+        rel_closure = closure_norms / (mesh.cell_volumes ** (2.0 / 3.0))
+
+        max_rel_closure = float(np.max(rel_closure))
+        assert max_rel_closure < 1e-11, f"Relative Gauss closure violation: {max_rel_closure} >= 1e-11"
 
 
 # ==============================================================================
@@ -593,6 +590,109 @@ class TestCutCellSnappingAndMerging:
         assert wsrd_res["neighbor_weights"][3] == 0.0
         # neighbor_alphas[0] = 0.25 < 0.50 -> weight > 0
         assert wsrd_res["neighbor_weights"][0] > 0.0
+
+    def test_cut_cell_sphere_wall_snapping_native(self):
+        """Verify cut-cell wall nodes snap towards level-set with strictly positive cell volumes (R1)."""
+        from tests.test_asme_vv import create_geodesic_icosphere
+        from backend.meshing.difvm_topology import generate_hexcore_native
+
+        surf_pts, surf_faces = create_geodesic_icosphere(subdivisions=4)
+        mesh = generate_hexcore_native(
+            surf_points=surf_pts,
+            surf_faces=surf_faces,
+            h0=0.5,
+            domain_mode="solid_only",
+        )
+        assert mesh.num_cells > 0
+        assert "wall" in mesh.boundaries
+        start_f, num_f = mesh.boundaries["wall"]
+        wall_node_indices = set()
+        for f_idx in range(start_f, start_f + num_f):
+            for v in mesh.faces[f_idx]:
+                wall_node_indices.add(v)
+        wall_nodes = mesh.points[list(wall_node_indices)]
+        assert len(wall_nodes) > 0
+        radii = np.linalg.norm(wall_nodes, axis=1)
+        phi_vals = np.abs(radii - 1.0)
+        assert np.median(phi_vals) < 1e-3
+        assert np.all(mesh.cell_volumes > 0.0)
+        assert np.min(mesh.cell_volumes) > 0.0
+
+    def test_translation_invariant_centroids_and_volumes(self):
+        """Verify translation-invariant centroids and volumes for base and shifted cubes (R2)."""
+        from tests.conftest import create_unit_cube_arrays
+        from backend.meshing.difvm_topology import generate_hexcore_native
+
+        pts0, faces0 = create_unit_cube_arrays()  # [0, 1]^3
+        mesh0 = generate_hexcore_native(pts0, faces0, h0=1.0, domain_mode="solid_only")
+        c0 = np.average(mesh0.cell_centres, axis=0, weights=mesh0.cell_volumes)
+        v0 = float(np.sum(mesh0.cell_volumes))
+
+        pts10 = pts0 + 10.0  # [10, 11]^3
+        mesh10 = generate_hexcore_native(pts10, faces0, h0=1.0, domain_mode="solid_only")
+        c10 = np.average(mesh10.cell_centres, axis=0, weights=mesh10.cell_volumes)
+        v10 = float(np.sum(mesh10.cell_volumes))
+
+        assert np.allclose(c0, [0.5, 0.5, 0.5], atol=1e-5)
+        assert np.allclose(c10, [10.5, 10.5, 10.5], atol=1e-5)
+        assert np.isclose(v0, 1.0, atol=1e-5)
+        assert np.isclose(v10, 1.0, atol=1e-5)
+
+    def test_agglomeration_polyhedron_and_omega_cell(self):
+        """Verify agglomerated cells tagged as POLYHEDRON (42) and omega_cell populated (R3.1-2)."""
+        from tests.test_asme_vv import create_geodesic_icosphere
+        from backend.meshing.difvm_topology import generate_hexcore_native
+
+        surf_pts, surf_faces = create_geodesic_icosphere(subdivisions=2)
+        mesh = generate_hexcore_native(surf_pts, surf_faces, h0=0.5, domain_mode="solid_only")
+
+        # 1. Omega cell calculation in [0.1, 1.0]
+        assert "omega_cell" in mesh.error_map
+        omega = mesh.error_map["omega_cell"]
+        assert len(omega) == mesh.num_cells
+        assert np.all(omega >= 0.1)
+        assert np.all(omega <= 1.0)
+
+        # 2. Agglomerated cell type 42 (CellType.POLYHEDRON)
+        poly_count = int(np.sum(mesh.cell_types == 42))
+        assert poly_count > 0
+
+        # 3. Deduplicated internal faces satisfy owner < neighbour
+        internal_faces = mesh.neighbour >= 0
+        assert np.all(mesh.owner[internal_faces] < mesh.neighbour[internal_faces])
+
+    def test_distmesh_boundary_pushout_projection(self):
+        """Verify 2D DistMesh orthogonal boundary push-out projection on non-convex domain (R5.2)."""
+        from backend.meshing.mesh_engine import MeshEngine
+
+        engine = MeshEngine(use_native=True)
+        # L-shaped domain with interior cutout (x > 1 and y > 1)
+        poly = np.array([
+            [0.0, 0.0],
+            [2.0, 0.0],
+            [2.0, 1.0],
+            [1.0, 1.0],
+            [1.0, 2.0],
+            [0.0, 2.0],
+        ])
+        config = MeshingConfig()
+        config.sizing.h_min = 0.1
+        config.sizing.h_max = 0.2
+        config.sizing.h0 = 0.15
+        config.distmesh_iters = 30
+
+        mesh = engine.mesh_2d_polygon(poly, config=config)
+        assert mesh.num_cells > 0
+        assert mesh.num_points > 0
+
+        # Verify no nodes drifted into the exterior cutout quadrant (x > 1.001 and y > 1.001)
+        in_cutout = (mesh.points[:, 0] > 1.001) & (mesh.points[:, 1] > 1.001)
+        assert np.sum(in_cutout) == 0
+        # Verify all nodes remain bounded by the overall bounding box [0, 2] x [0, 2]
+        assert np.all(mesh.points[:, 0] >= -1e-6)
+        assert np.all(mesh.points[:, 0] <= 2.0 + 1e-6)
+        assert np.all(mesh.points[:, 1] >= -1e-6)
+        assert np.all(mesh.points[:, 1] <= 2.0 + 1e-6)
 
 
 # ==============================================================================

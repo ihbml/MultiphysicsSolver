@@ -71,26 +71,24 @@ class BoundaryLayerGenerator:
         if n_base == 0 or len(wall_faces) == 0 or n_layers <= 0:
             raise ValueError("Cannot inflate layers with empty wall points, faces, or zero layers.")
 
-        if nominal_normal is None:
-            # Estimate nominal normal from first face
-            f0 = np.asarray(wall_faces[0], dtype=np.int64)
-            if len(f0) >= 3:
-                p0, p1, p2 = pts[f0[0]], pts[f0[1]], pts[f0[2]]
-                fn = np.cross(p1 - p0, p2 - p0)
-                norm_fn = np.linalg.norm(fn)
-                nominal_normal = fn / norm_fn if norm_fn > 1e-12 else np.array([0, 0, 1.0])
-            else:
-                nominal_normal = np.array([0, 0, 1.0])
-        else:
+        # Determine if caller supplied an explicit nominal normal
+        has_explicit_nominal = nominal_normal is not None
+        if has_explicit_nominal:
             nominal_normal = np.asarray(nominal_normal, dtype=np.float64)
             norm_val = np.linalg.norm(nominal_normal)
             if norm_val > 1e-12:
                 nominal_normal = nominal_normal / norm_val
+            else:
+                has_explicit_nominal = False
+                nominal_normal = np.array([0, 0, 1.0])
+        else:
+            nominal_normal = np.array([0, 0, 1.0])
 
         # 1. Compute vertex normals and corner dihedral turning angles
         vert_normals = np.zeros((n_base, 3), dtype=np.float64)
         corner_max_angles = np.zeros(n_base, dtype=np.float64)
         face_normals = []
+        oriented_wall_faces = []
         vert_face_map = [[] for _ in range(n_base)]
 
         for f_idx, f in enumerate(wall_faces):
@@ -101,14 +99,16 @@ class BoundaryLayerGenerator:
                 norm_fn = np.linalg.norm(fn)
                 if norm_fn > 1e-12:
                     fn = fn / norm_fn
-                    if np.dot(fn, nominal_normal) < 0.0:
+                    if has_explicit_nominal and np.dot(fn, nominal_normal) < 0.0:
                         fn = -fn
+                        f_arr = f_arr[::-1]
                 else:
                     fn = nominal_normal.copy()
             else:
                 fn = nominal_normal.copy()
 
             face_normals.append(fn)
+            oriented_wall_faces.append(f_arr)
             for v in f_arr:
                 vert_normals[v] += fn
                 vert_face_map[v].append(fn)
@@ -169,8 +169,7 @@ class BoundaryLayerGenerator:
             off_bot = k * n_base
             off_top = (k + 1) * n_base
 
-            for f in wall_faces:
-                f_arr = np.asarray(f, dtype=np.int64)
+            for f_arr in oriented_wall_faces:
                 if len(f_arr) == 4:
                     # Extrude quad into 8-node hex
                     # Bottom quad: off_bot + [0, 1, 2, 3]

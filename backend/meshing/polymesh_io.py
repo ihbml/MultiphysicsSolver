@@ -56,6 +56,7 @@ def export_openfoam_polymesh(
     mesh: UnstructuredMesh,
     case_dir: Union[str, Path],
     write_binary: bool = False,
+    patch_types: Optional[Dict[str, str]] = None,
 ) -> Path:
     """Export an in-memory UnstructuredMesh to standard OpenFOAM constant/polyMesh.
 
@@ -136,7 +137,9 @@ def export_openfoam_polymesh(
         f.write("// ************************************************************************* //\n")
 
     # 5. Export boundary dictionary
-    patch_types_meta = mesh.metadata.get("patch_types", {})
+    patch_types_meta = dict(mesh.metadata.get("patch_types", {}))
+    if patch_types is not None:
+        patch_types_meta.update(patch_types)
     boundaries = mesh.boundaries
     if not boundaries and (n_faces - n_internal) > 0:
         boundaries = {"wall": (n_internal, n_faces - n_internal)}
@@ -147,17 +150,20 @@ def export_openfoam_polymesh(
         f.write(f"{len(boundaries)}\n(\n")
         for patch_name, (start_f, count_f) in boundaries.items():
             # Infer standard OpenFOAM patch type
+            p_lower = patch_name.lower()
             if patch_name in patch_types_meta:
                 ptype = patch_types_meta[patch_name]
-            elif "empty" in patch_name.lower() or patch_name == "frontAndBack":
+            elif p_lower in ("top", "sides", "bottom"):
+                ptype = patch_types_meta.get("farfield", "symmetry")
+            elif "empty" in p_lower or patch_name == "frontAndBack":
                 ptype = "empty"
-            elif "symmetry" in patch_name.lower() or "sym" in patch_name.lower():
+            elif "symmetry" in p_lower or "sym" in p_lower:
                 ptype = "symmetry"
-            elif "cyclic" in patch_name.lower():
+            elif "cyclic" in p_lower:
                 ptype = "cyclic"
-            elif "mapped" in patch_name.lower() or "coupled" in patch_name.lower():
+            elif "mapped" in p_lower or "coupled" in p_lower:
                 ptype = "mappedWall"
-            elif "inlet" in patch_name.lower() or "outlet" in patch_name.lower() or "patch" in patch_name.lower():
+            elif "inlet" in p_lower or "outlet" in p_lower or "patch" in p_lower:
                 ptype = "patch"
             else:
                 ptype = "wall"

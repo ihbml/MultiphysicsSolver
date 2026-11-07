@@ -112,7 +112,9 @@ def compute_grid_representative_size(mesh: UnstructuredMesh) -> float:
     avg_vol = float(np.mean(mesh.cell_volumes))
     if avg_vol <= 0.0:
         raise ValueError(f"Mesh has non-positive mean cell volume: {avg_vol}")
-    return float(avg_vol ** (1.0 / 3.0))
+    topo = getattr(mesh, "topological_dim", 3)
+    dim = max(1, int(topo)) if topo is not None else 3
+    return float(avg_vol ** (1.0 / dim))
 
 
 def compute_asme_vv20_gci(
@@ -144,18 +146,19 @@ def compute_asme_vv20_gci(
     eps_21 = phi_2 - phi_1
 
     # Apparent order of convergence p (Celik et al. 2008, Eq. 10)
-    # For uniform refinement ratio r: q(p) = 0
-    ratio = abs(eps_32 / (eps_21 + 1e-30))
-    if ratio < 1e-15:
+    # Guard against oscillatory convergence (eps_32 * eps_21 <= 0) or zero step
+    if eps_32 * eps_21 <= 0.0 or abs(eps_21) < 1e-30:
         p = 1.0
     else:
-        p = float(abs(np.log(ratio)) / np.log(r))
-
-    # Clamp apparent order to physical range [0.5, 4.0] for stability if divergent
-    p_eff = max(0.5, min(p, 6.0))
+        ratio = abs(eps_32 / eps_21)
+        if ratio < 1e-15:
+            p = 0.5
+        else:
+            raw_p = float(np.log(ratio) / np.log(r))
+            p = max(0.5, min(raw_p, 10.0))
 
     # Richardson extrapolation (Celik et al. 2008, Eq. 13)
-    r_pow_p = r ** p_eff
+    r_pow_p = r ** p
     denom = r_pow_p - 1.0
     if abs(denom) < 1e-15:
         phi_ext_21 = phi_1

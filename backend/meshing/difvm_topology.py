@@ -477,10 +477,113 @@ def _is_face_folded_py(
     return False
 
 
+def compute_wsrd_weights_array(
+    wsrd_alpha: np.ndarray,
+    small_cell_ratio: float = 0.20,
+    wsrd_target_alpha: float = 0.50,
+) -> np.ndarray:
+    """Compute Berger & Giuliani (2024) dynamic WSRD cell weights according to Eq. (4.2).
+
+    w_i = sin^2(pi/2 * (alpha_i - alpha_small) / (alpha_target - alpha_small))
+    for alpha_small <= alpha_i < alpha_target.
+    w_i = 0 for alpha_i < alpha_small.
+    w_i = 1 for alpha_i >= alpha_target.
+    """
+    alpha = np.asarray(wsrd_alpha, dtype=np.float64)
+    w = np.zeros_like(alpha)
+    a_small = float(small_cell_ratio)
+    a_target = float(wsrd_target_alpha)
+    delta_a = a_target - a_small
+    if delta_a > 1e-12:
+        mid_mask = (alpha >= a_small) & (alpha < a_target)
+        scaled = (alpha[mid_mask] - a_small) / delta_a
+        w[mid_mask] = np.sin(0.5 * np.pi * scaled) ** 2
+        w[alpha >= a_target] = 1.0
+        w[alpha < a_small] = 0.0
+    else:
+        w[alpha >= a_target] = 1.0
+    return w
+
+
+def compute_wsrd_redistribution_map(
+    wsrd_alpha: np.ndarray,
+    owner: np.ndarray,
+    neighbour: np.ndarray,
+    n_cells: int,
+    n_faces: int,
+    small_cell_ratio: float = 0.20,
+    wsrd_target_alpha: float = 0.50,
+) -> Dict[int, Dict[str, Any]]:
+    """Compute neighbor redistribution mapping for cut-cells in [small_cell_ratio, wsrd_target_alpha).
+    
+    Berger & Giuliani (2024): Cut cells donate state/fluxes to larger neighboring fluid cells
+    (preferring regular cells alpha_nb >= wsrd_target_alpha, or weighted by relative volume).
+    Self weight is computed via smooth sin^2 function, and partition of unity sum(w) = 1.0 is preserved.
+    """
+    redist_map = {}
+    a_small = float(small_cell_ratio)
+    a_target = float(wsrd_target_alpha)
+    for c in range(n_cells):
+        a_c = float(wsrd_alpha[c])
+        if a_small <= a_c < a_target:
+            nb_indices = []
+            for f_idx in range(n_faces):
+                if owner[f_idx] == c and neighbour[f_idx] >= 0:
+                    nb_indices.append(int(neighbour[f_idx]))
+                elif neighbour[f_idx] == c:
+                    nb_indices.append(int(owner[f_idx]))
+            if not nb_indices:
+                continue
+
+            # Unique internal neighbors in order of encounter
+            unique_nbs = list(dict.fromkeys(nb_indices))
+
+            # Compute self-weight via Berger & Giuliani (2024) smooth sin^2 formulation
+            if a_target > a_small:
+                scaled = (a_c - a_small) / (a_target - a_small)
+                w_self = float(np.sin(0.5 * np.pi * scaled) ** 2)
+            else:
+                w_self = 0.0
+            w_donate = float(1.0 - w_self)
+
+            # Donor-receiver pairing: donate to larger internal neighbors (alpha_nb > a_c)
+            # preferring regular cells (alpha_nb >= a_target)
+            regular_larger = [nb for nb in unique_nbs if float(wsrd_alpha[nb]) >= a_target]
+            larger_nbs = [nb for nb in unique_nbs if float(wsrd_alpha[nb]) > a_c]
+
+            if regular_larger:
+                receivers = regular_larger
+                v = {nb: max(1e-15, float(wsrd_alpha[nb]) - a_c) for nb in receivers}
+            elif larger_nbs:
+                receivers = larger_nbs
+                v = {nb: max(1e-15, float(wsrd_alpha[nb]) - a_c) for nb in receivers}
+            else:
+                # If no larger neighbor exists, redistribute equally among available internal neighbors
+                receivers = unique_nbs
+                v = {nb: 1.0 for nb in receivers}
+
+            sum_v = sum(v.values())
+            w_nbs = {nb: 0.0 for nb in unique_nbs}
+            if sum_v > 0.0 and len(receivers) > 0:
+                allocated = 0.0
+                for i, r_idx in enumerate(receivers):
+                    if i == len(receivers) - 1:
+                        # Guarantee exact partition of unity to machine precision
+                        weight = float(w_donate - allocated)
+                    else:
+                        weight = float(w_donate * (v[r_idx] / sum_v))
+                        allocated += weight
+                    w_nbs[r_idx] = weight
+
+            redist_map[c] = {"self": w_self, "neighbors": w_nbs}
+    return redist_map
+
+
 def compute_difvm_topology_native(
     points: np.ndarray,
     cells: List[np.ndarray],
     regions: Optional[np.ndarray] = None,
+    config: Optional[MeshingConfig] = None,
 ) -> UnstructuredMesh:
     """Build UnstructuredMesh using native C++20 core (cfd_mesher_native shared library)."""
     dll = get_native_dll()
@@ -696,6 +799,16 @@ def compute_difvm_topology_native(
                 if boundary_count > 0:
                     boundaries["wall"] = (internal_count, boundary_count)
 
+        small_cell_ratio = float(getattr(config, "small_cell_ratio", 0.20)) if config is not None else 0.20
+        wsrd_target_alpha = float(getattr(config, "wsrd_target_alpha", 0.50)) if config is not None else 0.50
+        wsrd_weights = compute_wsrd_weights_array(
+            wsrd_alpha, small_cell_ratio=small_cell_ratio, wsrd_target_alpha=wsrd_target_alpha
+        )
+        wsrd_redist_map = compute_wsrd_redistribution_map(
+            wsrd_alpha, owner, neighbour, actual_n_cells, actual_n_faces,
+            small_cell_ratio=small_cell_ratio, wsrd_target_alpha=wsrd_target_alpha,
+        )
+
         error_map = {
             "non_orthogonality": non_ortho,
             "non_ortho": non_ortho,
@@ -709,6 +822,7 @@ def compute_difvm_topology_native(
             "beta_upwind": beta_upwind,
             "omega_cell": omega_cell,
             "wsrd_alpha": wsrd_alpha,
+            "wsrd_weights": wsrd_weights,
         }
 
         mesh = UnstructuredMesh(
@@ -729,7 +843,11 @@ def compute_difvm_topology_native(
             faces=faces_list,
             cell_types=cell_types,
             topological_dim=topological_dim,
-            metadata={"engine": "native_cpp20"},
+            metadata={
+                "engine": "native_cpp20",
+                "wsrd_weights": wsrd_weights,
+                "wsrd_redistribution": wsrd_redist_map,
+            },
         )
         if regions_arr is not None and len(np.unique(regions_arr)) > 1:
             mesh = extract_cht_twin_faces(mesh)
@@ -775,13 +893,13 @@ def generate_hexcore_native(
             h_max=config.sizing.h_max,
             h0=float(h0),
             grading=config.sizing.growth_rate,
-            alpha_curv=config.sizing.alpha_curv,
-            beta_prox=config.sizing.beta_prox,
+            alpha_curv=getattr(config.sizing, "alpha", getattr(config.sizing, "alpha_curv", 0.2)),
+            beta_prox=getattr(config.sizing, "beta", getattr(config.sizing, "beta_prox", 0.25)),
             num_bl_layers=config.inflation.num_layers if config.inflation else 0,
             bl_first_height=config.inflation.first_layer_height if config.inflation else 0.0,
             bl_growth_rate=config.inflation.growth_rate if config.inflation else 1.2,
-            bl_pinching_enabled=1 if (config.inflation and config.inflation.enable_pinching) else 0,
-            bl_pinching_angle_deg=config.inflation.pinching_angle_deg if config.inflation else 45.0,
+            bl_pinching_enabled=1 if (config.inflation and getattr(config.inflation, "pinching", getattr(config.inflation, "enable_pinching", True))) else 0,
+            bl_pinching_angle_deg=float(getattr(config.inflation, "pinching_threshold_angle", getattr(config.inflation, "pinching_angle_deg", 60.0))) if config.inflation else 45.0,
             enable_rcm=1 if config.rcm_reorder else 0,
             enable_cht=1 if config.cht_multiregion else 0,
             enable_cyclic=1 if config.cyclic_symmetry else 0,
@@ -953,22 +1071,17 @@ def generate_hexcore_native(
                     "region_id": int(patch.region_id),
                 })
 
-        # Compute Berger-Giuliani WSRD weights for cut-cells with 0.20 <= alpha < 0.50
-        wsrd_weights = {}
-        for c in range(actual_n_cells):
-            a_c = float(wsrd_alpha[c])
-            if 0.20 <= a_c < 0.50:
-                nb_indices = []
-                for f_idx in range(actual_n_faces):
-                    if owner[f_idx] == c and neighbour[f_idx] >= 0:
-                        nb_indices.append(int(neighbour[f_idx]))
-                    elif neighbour[f_idx] == c:
-                        nb_indices.append(int(owner[f_idx]))
-                if nb_indices:
-                    n_nb = len(nb_indices)
-                    w_nbs = [float((1.0 / n_nb) * max(0.0, 1.0 - wsrd_alpha[nb] / 0.50)) for nb in nb_indices]
-                    w_self = float(1.0 - sum(w_nbs))
-                    wsrd_weights[c] = {"self": w_self, "neighbors": dict(zip(nb_indices, w_nbs))}
+        # Compute Berger-Giuliani WSRD weights dynamically according to Eq. (4.2)
+        small_cell_ratio = float(getattr(config, "small_cell_ratio", 0.20)) if config is not None else 0.20
+        wsrd_target_alpha = float(getattr(config, "wsrd_target_alpha", 0.50)) if config is not None else 0.50
+
+        wsrd_weights = compute_wsrd_weights_array(
+            wsrd_alpha, small_cell_ratio=small_cell_ratio, wsrd_target_alpha=wsrd_target_alpha
+        )
+        wsrd_redist_map = compute_wsrd_redistribution_map(
+            wsrd_alpha, owner, neighbour, actual_n_cells, actual_n_faces,
+            small_cell_ratio=small_cell_ratio, wsrd_target_alpha=wsrd_target_alpha,
+        )
 
         error_map = {
             "non_orthogonality": non_ortho,
@@ -1004,7 +1117,11 @@ def generate_hexcore_native(
             faces=faces_list,
             cell_types=cell_types,
             topological_dim=topological_dim,
-            metadata={"engine": "native_cpp20_hexcore", "wsrd_weights": wsrd_weights},
+            metadata={
+                "engine": "native_cpp20_hexcore",
+                "wsrd_weights": wsrd_weights,
+                "wsrd_redistribution": wsrd_redist_map,
+            },
         )
         if len(np.unique(cell_regions)) > 1:
             mesh = extract_cht_twin_faces(mesh)
@@ -1022,6 +1139,7 @@ def compute_difvm_topology_python(
     patch_names: Optional[Dict[int, str]] = None,
     cell_types: Optional[np.ndarray] = None,
     topological_dim: Optional[int] = None,
+    config: Optional[MeshingConfig] = None,
 ) -> UnstructuredMesh:
     """Pure-Python / NumPy fallback implementation of DiFVM topology constructor."""
     pts = np.ascontiguousarray(points, dtype=np.float64)
@@ -1376,6 +1494,16 @@ def compute_difvm_topology_python(
     v_denom = v_target if v_target > 1e-60 else 1.0
     wsrd_alpha = np.clip(cell_volumes / (v_denom + 1e-30), 0.0, 1.0)
 
+    small_cell_ratio = float(getattr(config, "small_cell_ratio", 0.20)) if config is not None else 0.20
+    wsrd_target_alpha = float(getattr(config, "wsrd_target_alpha", 0.50)) if config is not None else 0.50
+    wsrd_weights = compute_wsrd_weights_array(
+        wsrd_alpha, small_cell_ratio=small_cell_ratio, wsrd_target_alpha=wsrd_target_alpha
+    )
+    wsrd_redist_map = compute_wsrd_redistribution_map(
+        wsrd_alpha, owner, neighbour, n_cells, n_faces,
+        small_cell_ratio=small_cell_ratio, wsrd_target_alpha=wsrd_target_alpha,
+    )
+
     baffles: List[Dict[str, Any]] = []
 
     error_map = {
@@ -1391,6 +1519,7 @@ def compute_difvm_topology_python(
         "beta_upwind": beta_upwind,
         "omega_cell": omega_cell,
         "wsrd_alpha": wsrd_alpha,
+        "wsrd_weights": wsrd_weights,
     }
 
     mesh = UnstructuredMesh(
@@ -1411,7 +1540,11 @@ def compute_difvm_topology_python(
         faces=final_faces,
         cell_types=cell_types_arr,
         topological_dim=topo_dim,
-        metadata={"engine": "pure_python_fallback"},
+        metadata={
+            "engine": "pure_python_fallback",
+            "wsrd_weights": wsrd_weights,
+            "wsrd_redistribution": wsrd_redist_map,
+        },
     )
     if cell_regions is not None and len(np.unique(cell_regions)) > 1:
         mesh = extract_cht_twin_faces(mesh)
@@ -1723,6 +1856,7 @@ def compute_difvm_topology(
     patch_names: Optional[Dict[int, str]] = None,
     cell_types: Optional[np.ndarray] = None,
     topological_dim: Optional[int] = None,
+    config: Optional[MeshingConfig] = None,
 ) -> UnstructuredMesh:
     """Build UnstructuredMesh in Structure of Arrays (SoA) layout.
 
@@ -1732,7 +1866,7 @@ def compute_difvm_topology(
     mesh = None
     if use_native and get_native_dll() is not None and boundary_patches is None and face_patch_ids is None:
         try:
-            mesh = compute_difvm_topology_native(points, cells, regions=regions)
+            mesh = compute_difvm_topology_native(points, cells, regions=regions, config=config)
             if cell_types is not None:
                 mesh.cell_types = np.asarray(cell_types, dtype=np.int32)
             if topological_dim is not None:
@@ -1758,6 +1892,7 @@ def compute_difvm_topology(
             patch_names=patch_names,
             cell_types=cell_types,
             topological_dim=topological_dim,
+            config=config,
         )
 
     if cyclic_angle_rad > 0.0:

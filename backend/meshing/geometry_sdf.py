@@ -991,17 +991,21 @@ def compute_mesh_winding_number(
     tri_v0: np.ndarray,
     tri_v1: np.ndarray,
     tri_v2: np.ndarray,
-    chunk_size: int = 1024,
+    chunk_size: int = 16,
 ) -> np.ndarray:
     """Computes Generalized Winding Numbers W(x) = (1 / 4pi) sum Omega_t(x)
-    following Oosterom & Strackee (1983) and Jacobson et al. (2013).
+    accelerated via Barnes-Hut far-field dipole approximation (Jacobson et al. 2013).
+
+    For clusters where dist(p, centroid) > 2.0 * node_radius, uses far-field dipole approximation:
+    Omega(p) approx dot(Area_vector, centroid - p) / dist^3.
+    For near clusters, evaluates exact solid angles following Oosterom & Strackee (1983).
 
     Args:
         points: (N, 3) or (3,) query point coordinates.
         tri_v0: (T, 3) first vertex of all triangles.
         tri_v1: (T, 3) second vertex of all triangles.
         tri_v2: (T, 3) third vertex of all triangles.
-        chunk_size: Block size of triangles to evaluate per chunk.
+        chunk_size: Cluster block size for Barnes-Hut far-field aggregation (default: 16).
 
     Returns:
         Winding numbers of shape (N,) or scalar float if 1D input.
@@ -1012,17 +1016,56 @@ def compute_mesh_winding_number(
     n_pts = len(p)
     n_tri = len(tri_v0)
 
+    if n_tri == 0:
+        return 0.0 if is_single else np.zeros(n_pts, dtype=np.float64)
+
     total_solid_angles = np.zeros(n_pts, dtype=np.float64)
 
-    for start_t in range(0, n_tri, chunk_size):
-        end_t = min(start_t + chunk_size, n_tri)
+    # For small surfaces (<= 16 triangles), evaluate exact solid angles directly
+    if n_tri <= 16:
+        effective_chunk = n_tri
+        use_dipole = False
+    else:
+        effective_chunk = max(8, min(chunk_size, 64))
+        use_dipole = True
+
+    for start_t in range(0, n_tri, effective_chunk):
+        end_t = min(start_t + effective_chunk, n_tri)
         a = tri_v0[start_t:end_t]
         b = tri_v1[start_t:end_t]
         c = tri_v2[start_t:end_t]
 
-        ra = a[None, :, :] - p[:, None, :]
-        rb = b[None, :, :] - p[:, None, :]
-        rc = c[None, :, :] - p[:, None, :]
+        # Compute cluster geometry for Barnes-Hut
+        if use_dipole:
+            cluster_pts = np.vstack([a, b, c])
+            c_bmin = np.min(cluster_pts, axis=0)
+            c_bmax = np.max(cluster_pts, axis=0)
+            node_radius = 0.5 * float(np.linalg.norm(c_bmax - c_bmin))
+            node_centroid = 0.5 * (c_bmin + c_bmax)
+            area_vecs = 0.5 * np.cross(b - a, c - a)
+            cluster_area_vec = np.sum(area_vecs, axis=0)
+
+            diff = node_centroid[None, :] - p  # (N, 3)
+            dists = np.linalg.norm(diff, axis=-1)  # (N,)
+
+            far_mask = dists > (2.0 * node_radius)
+            if np.any(far_mask):
+                d_far = dists[far_mask]
+                r3 = d_far ** 3
+                dipole_omega = np.sum(diff[far_mask] * cluster_area_vec[None, :], axis=-1) / (r3 + 1e-30)
+                total_solid_angles[far_mask] += dipole_omega
+
+            near_indices = np.where(~far_mask)[0]
+            if len(near_indices) == 0:
+                continue
+            sub_p = p[near_indices]
+        else:
+            near_indices = np.arange(n_pts)
+            sub_p = p
+
+        ra = a[None, :, :] - sub_p[:, None, :]
+        rb = b[None, :, :] - sub_p[:, None, :]
+        rc = c[None, :, :] - sub_p[:, None, :]
 
         da = np.linalg.norm(ra, axis=-1)
         db = np.linalg.norm(rb, axis=-1)
@@ -1043,7 +1086,7 @@ def compute_mesh_winding_number(
         )
 
         omega = 2.0 * np.arctan2(num, denom)
-        total_solid_angles += np.sum(omega, axis=1)
+        total_solid_angles[near_indices] += np.sum(omega, axis=1)
 
     wn = total_solid_angles / (4.0 * np.pi)
     return wn[0] if is_single else wn

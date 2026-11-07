@@ -1,158 +1,118 @@
-# Project: Industrial In-Memory Multiphysics Mesher Backbone — Phase 2: Work Package 4
+# Project: Industrial In-Memory Multiphysics Mesher Backbone — Audit Remediation & WSL Pipeline
 
 ## Architecture & Data Flow
-Phase 2 implements Work Package 4 (WP4: Echte 3D-Fluidgebiets- & Mehrbereichs-Vernetzung / Multiphysics Domain Meshing & GCI-Hierarchie) of the CFD meshing subsystem across Python and C++20 according to the Zero-Shortcut Policy, focusing on:
-1. **Domain Modes & Farfield Patches (R1)**: Explicit `domain_mode: Literal["external_fluid", "internal_fluid", "solid_only", "cht_coupled"] = "external_fluid"`, configurable `farfield_padding` (5L upstream, 10L downstream, 5L lateral) and `farfield_bbox`, automated boundary patch naming (`inlet`, `outlet`, `bottom`, `top`, `sides`, and surface patches), complete elimination of `len(verts) == 8` and millimeter/resolution clamps.
-2. **3D Mosaic Poly-Hexcore & Octree (R2)**: 2:1-balanced adaptive Cartesian octree in fluid domain ($\phi(\mathbf{x}) > 0$), conformal polyhedral transition interface without hanging nodes (ANSYS Mosaic / PUMA principle: splitting quad face into 4 coplanar sub-faces on unrefined neighbor cells yielding `CellType::POLYHEDRON = 42` in DiFVM face-graph).
-3. **Cut-Cell Snapping, Small-Cell Merging & WSRD (R3)**: AMIPS-guarded surface snapping along $\nabla\phi$, topological agglomeration of small cut-cells ($V_{\text{cut}} < 0.20 V_{\text{bg}}$) into adjacent fluid cells, Berger & Giuliani (2024) WSRD weights $w_{ij} = \frac{1}{N_i - 1}(1 - \alpha_j / \alpha_{\text{target}})$ for $0.20 \le \alpha_i < 0.50$.
-4. **Multiphysics CHT Coupling & GCI Hierarchy (R4)**: Multi-region cell tagging (`cell_regions`), CHT twin-face boundary extraction (`coupledWall_fluid`, `coupledWall_solid`) with opposite normals $\mathbf{S}_{f, \text{solid}} = -\mathbf{S}_{f, \text{fluid}}$, deterministic 3-grid GCI hierarchy ($r \approx 1.3\text{--}1.5$, $\text{GCI} < 1\%$).
-5. **Resource Directives & Zero-Shortcut Guard (R5)**: Strict 16-thread limit (`OMP_NUM_THREADS=16`), RAM-safe execution protocol (moderate unit test mesh sizes $N \le 5{,}000$), all 579 existing regression tests 100% green, and independent 3-agent audit committee for Gate WP4.
+This phase resolves 6 critical mathematical and paper-fidelity audit defects (R1–R6) and 4 static audit issues (R7) across C++ and Python meshing backend, recompiles the native DLL (R11/R13), validates against CAD benchmarks (R8), builds the automated WSL OpenFOAM `checkMesh` and `simpleFoam` acceptance pipeline (R10), and achieves 100% unanimous approval (3:0 APPROVE) by an independent 3-agent audit committee (R12).
 
-### Data Flow
-```
-[CAD STEP / STL / Analytical Geometry / SurfaceMesh]
-                         │
-                         ├──> [MeshSDF Level-Set & Gradient ∇ϕ]
-                         │
-                         ▼
-        [MeshingConfig: Domain Mode & Farfield]
-        ├── external_fluid: Farfield Bounding Box & Inlet/Outlet/Bottom/Top/Sides Patches
-        ├── internal_fluid / solid_only: Domain boundary clipping
-        └── cht_coupled: Multi-region cell tagging & surface extraction
-                         │
-                         ▼
-        [3D 2:1 Balanced Octree Grid Engine (C++20)]
-        ├── Spatial Octree Refinement based on h(x)
-        └── Strict 2:1 balancing in all 26 directions
-                         │
-                         ▼
-   [ANSYS Mosaic / PUMA Polyhedral Transition Interface]
-   ├── Quad face split into 4 coplanar sub-faces on unrefined cell
-   ├── CellType::POLYHEDRON = 42 for transition cells (zero hanging nodes)
-   └── Relative Gauss-closure ||∑ S_f|| / ∑ ||S_f|| < 10^-11
-                         │
-                         ▼
-   [Cut-Cell Snapping, Merging & Berger-Giuliani WSRD]
-   ├── Snapping along ∇ϕ guarded by E_AMIPS < 10^4 (strictly V_i > 0)
-   ├── Small-cell agglomeration (V_cut < 0.20 V_bg) along ∇ϕ
-   └── WSRD weights w_ij = 1/(N_i - 1) * (1 - α_j / α_target) for 0.20 <= α_i < 0.50
-                         │
-                         ▼
-   [Multiphysics CHT & Automated 3-Grid GCI Hierarchy]
-   ├── CHT twin-faces extraction (coupledWall patches with S_f,B = -S_f,A)
-   └── Deterministic coarse/medium/fine 3-grid generation (r in [1.3, 1.5], GCI < 1%)
-                         │
-                         ▼
-         [DiFVMMesh & OpenFOAM Export / Validation]
-```
+### Architecture Highlights
+1. **Octree Hexcore Snapping & Geometry (R1, R2, R3.1-2)**:
+   - Positively oriented corner tetrahedron AMIPS evaluation eliminates collinear tet degeneracy ($\det J = dx \cdot dy \cdot dz > 0$, finite $E_{\text{AMIPS}}$).
+   - Area-weighted triangle fan for polygon face normals & centroids (`mf.centre`, `mf.normal_owner`), detecting inverted sub-triangles (`mf.is_folded`).
+   - Local reference point $c_{\text{approx}}$ and pyramid decomposition for cell volume and centroid integration, strictly translation-invariant: $[0, 1]^3 \to (0.5, 0.5, 0.5)$ and $[10, 11]^3 \to (10.5, 10.5, 10.5)$.
+   - Small-cell agglomeration assigns $cell\_types = POLYHEDRON (42)$, unions vertex sets, merges and deduplicates internal faces sharing $(owner, neighbour)$, and enforces upper-triangular ordering $owner < neighbour$.
+   - Cell weighting $\omega_{\text{cell}}[c] = \max(0.1, \min_{f \in c} \beta_f)$ across adjacent faces.
+2. **Python Meshing Backend & Static Fixes (R3.3, R4, R5, R6, R7)**:
+   - Dynamic Berger & Giuliani (2024) WSRD weights using `config.small_cell_ratio` and `config.wsrd_target_alpha`, stored in `mesh.error_map` and `mesh.metadata`.
+   - Corrected `is_solid_only = (config is None) or (active_cfg.domain_mode == "solid_only")` dispatch branch in `mesh_engine.py:126-130`.
+   - DistMesh point filtering $p = p[d < -0.05 \cdot h]$, 3 Newton boundary projection steps, and orthogonal boundary segment projection in `distmesh.cpp`.
+   - ASME V&V 20 GCI scaling with $1.0 / \max(1, \text{mesh.topological\_dim})$, apparent order $p$ clamped to $[0.5, 10.0]$ with oscillatory convergence guard.
+   - Fast Winding Number Barnes-Hut AABB tree dipole approximation for nodes with $\text{dist} > 2.0 \cdot R_K$, reducing complexity to $O(N \log T)$.
+   - Bounding box check tolerance $10^{-5} \cdot \text{diag}$ in `sdf_engine.cpp:479-484`.
+   - Resolved attribute lookups in `difvm_topology.py:778-784`, `strict_native` parameter and `CFD_STRICT_NATIVE=1` in `mesh_engine.py`, configurable `patch_types` in `polymesh_io.py`, and closed-body outward normals and node ordering in `inflation.py`.
+3. **WSL OpenFOAM Acceptance Pipeline (R8, R10)**:
+   - Automated non-interactive script `scripts/run_wsl_checkmesh.sh` exporting mesh via `export_openfoam_polymesh` and invoking `checkMesh` in WSL.
+   - Verification of face non-orthogonality, skewness, aspect ratios, and zero negative volume faces.
+   - `simpleFoam` comparison against `snappyHexMesh` baseline cases.
+4. **Independent 3-Agent Audit Committee (R12)**:
+   - Agent 1: Paper-Fidelity & Zero-Shortcut Challenger (`teamwork_challenger`).
+   - Agent 2: Code & Software-Architecture Auditor (`teamwork_auditor`).
+   - Agent 3: Mathematics & Numerics Auditor (`teamwork_critic` / `teamwork_auditor`).
+   - 100% unanimous approval (3:0 APPROVE) strictly required.
+
+---
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---|---|---|---|
-| F16 | Domain Modes & Farfield Configuration | `domain_mode: Literal["external_fluid", "internal_fluid", "solid_only", "cht_coupled"] = "external_fluid"`, `FarfieldPadding` (5L upstream, 10L downstream, 5L lateral), `farfield_bbox`. Complete removal of `len(verts) == 8` and `max_res = 100` heuristics. | M4.1 | ORIGINAL_REQUEST R1 |
-| F17 | Automated Farfield & Body Boundary Patches | Auto-naming `inlet` ($x_{\min}$), `outlet` ($x_{\max}$), `bottom` ($z_{\min}$), `top` ($z_{\max}$), `sides` ($y_{\min}, y_{\max}$), plus inheritance of `SurfaceMesh.patches` (or default `wall`). | M4.1 | ORIGINAL_REQUEST R1 |
-| F18 | 3D 2:1 Balanced Octree Grid Engine | Adaptive Cartesian Octree with 2:1 balancing in all 26 directions in fluid domain ($\phi(\mathbf{x}) > 0$). | M4.2 | ORIGINAL_REQUEST R2 |
-| F19 | ANSYS Mosaic / PUMA Polyhedral Transitions | Quad face on unrefined neighbor replaced with 4 coplanar sub-faces; `CellType::POLYHEDRON = 42` in DiFVM; zero hanging nodes; Gauss closure $< 10^{-11}$. | M4.2 | ORIGINAL_REQUEST R2 |
-| F20 | Cut-Cell Snapping & AMIPS Optimization | Surface conformity clipping and node snapping along $\nabla\phi$ under $E_{\text{AMIPS}} < 10^4$; strictly $V_i > 0$. | M4.2 | ORIGINAL_REQUEST R3 |
-| F21 | Small-Cell Merging & Berger-Giuliani WSRD | Topologically agglomerate cut-cells with $V_{\text{cut}} < 0.20 V_{\text{bg}}$ into neighbor along $\nabla\phi$; compute Berger-Giuliani (2024) WSRD weights $w_{ij}$ for $0.20 \le \alpha_i < 0.50$. | M4.2 | ORIGINAL_REQUEST R3 |
-| F22 | Multiphysics CHT Multi-Region Coupling | `cell_regions` integer tagging; conformal twin-faces extraction at fluid-solid interfaces (`coupledWall_fluid`, `coupledWall_solid`) with opposite normals and contiguous ordering. | M4.3 | ORIGINAL_REQUEST R4 |
-| F23 | Automated 3-Grid GCI Hierarchy Generation | Deterministic generation of 3 grid levels (coarse, medium, fine with $r \in [1.3, 1.5]$) preserving boundary patches and topology; automated GCI calculation ($\text{GCI} < 1\%$). | M4.3 | ORIGINAL_REQUEST R4 |
-| F24 | Dual-Track Test Suite `test_wp4_multiphysics_hexcore.py` | Complete test suite covering R1–R4 and CAD benchmarks (`TestCAD.stp`, `BladeFullRev1CFD.stp` with scale=0.001, `snappyMultiRegionHeater`) under 16-thread & RAM-safe protocol. All 579 existing tests pass. | M4.4 | ORIGINAL_REQUEST R5 |
-| F25 | Independent 3-Agent Audit Committee for Gate WP4 | Unanimous 3:0 sign-off by Paper-Fidelity Challenger, Code & Software-Architecture Auditor, and Mathematics & Numerics Auditor. | M4.5 | ORIGINAL_REQUEST Gate WP4 |
+| F26 | R1 Cut-Cell Snapping & AMIPS Metric Fix | Corner tetrahedron construction from corner index $c\_idx \in 0..7$ and 3 adjacent edge neighbors ($\det J = dx \cdot dy \cdot dz > 0$, finite AMIPS); positive sub-pyramid volume check; sphere snapping test in `tests/test_wp4_multiphysics_hexcore.py`. | M1 | ORIGINAL_REQUEST R1 |
+| F27 | R2 Translation-Invariant Centroids, Normals & Cell Volumes | Triangle-fan integration for polygon centroids & normals, `mf.is_folded` flag; local reference point $c_{\text{approx}}$ and pyramid decomposition for cell volume/centroid integration. | M1 | ORIGINAL_REQUEST R2 |
+| F28 | R3.1-2 Small-Cell Agglomeration & Cell Weighting | `cell_types = POLYHEDRON (42)`, vertex union, deduplication of internal faces sharing $(owner, neighbour)$ with $owner < neighbour$; $\omega_{\text{cell}}[c] = \max(0.1, \min_{f \in c} \beta_f)$. | M1 | ORIGINAL_REQUEST R3.1-2 |
+| F29 | R3.3 Dynamic Berger-Giuliani WSRD Weights | Dynamic `config.small_cell_ratio` and `config.wsrd_target_alpha` per Berger & Giuliani (2024) Eq. 4.2 in `mesh_engine.py` and `difvm_topology.py`, writing to `mesh.error_map["wsrd_weights"]` and `mesh.metadata["wsrd_weights"]`. | M2 | ORIGINAL_REQUEST R3.3 |
+| F30 | R4 Solid-Only Domain Mode Dispatch Fix | `is_solid_only = (config is None) or (active_cfg.domain_mode == "solid_only")` in `mesh_engine.py:126-130`, calling `mesh_hexcore` when `domain_mode != "solid_only"`. | M2 | ORIGINAL_REQUEST R4 |
+| F31 | R5 DistMesh Boundary Filtering, Projection & Cell Filtering | `distmesh_core.py:734` filtering $p = p[d < -0.05 \cdot h]$; up to 3 Newton projection steps in `distmesh_core.py:827-839`; orthogonal segment projection in `distmesh.cpp:734-739`; 3D cell filtering vs surface triangles in `distmesh.cpp:239-388`. | M1, M2 | ORIGINAL_REQUEST R5 |
+| F32 | R6 GCI Scaling, SDF BBox Tolerance & Barnes-Hut Winding Number | GCI scaling with $1.0 / \max(1, \text{mesh.topological\_dim})$, $p$ clamped to $[0.5, 10.0]$ with oscillatory guard; outside bbox tolerance $10^{-5} \cdot \text{diag}$ in `sdf_engine.cpp:479-484`; Barnes-Hut dipole approximation for $\text{dist} > 2.0 \cdot R_K$. | M2 | ORIGINAL_REQUEST R6 |
+| F33 | R7 Static Audit Detail Fixes | `difvm_topology.py:778-784` attribute lookups; `MeshEngine` `strict_native` parameter and `CFD_STRICT_NATIVE=1` check; `polymesh_io.py:150-163` configurable `patch_types`; `inflation.py:104` consistent outward normals on closed bodies and node order reversal $f\_arr[::-1]$. | M2 | ORIGINAL_REQUEST R7 |
+| F34 | R8 & R10 Benchmark CAD Testing & WSL Acceptance Pipeline | Meshing benchmark CAD models (`TestCAD.stp`, `BladeFullRev1CFD.stp`, `snappyMultiRegionHeater`, `motorBike`); automated WSL OpenFOAM `checkMesh` and `simpleFoam` comparison pipeline script `scripts/run_wsl_checkmesh.sh`. | M4 | ORIGINAL_REQUEST R8, R10 |
+| F35 | R11 & R13 Native DLL Compilation, Safety & Regression Baseline | Clean CMake compilation of `cfd_mesher_native.dll` with `--parallel 8`; all 615 tests passing sequentially with `OMP_NUM_THREADS=8`. | M3 | ORIGINAL_REQUEST R11, R13 |
+| F36 | R12 Independent 3-Agent Audit Committee Gate & Git Commit | Unanimous 3:0 APPROVE certification by Challenger, Code Auditor, and Math Auditor; git commit of completed fixes and pipeline. | M5 | ORIGINAL_REQUEST R12 |
+
+---
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|---|---|---|---|
-| M4.1 | R1: Domain Modes & Farfield Configuration | Features F16, F17 (`models.py`, `mesh_engine.py`, `difvm_topology.py`) | none | DONE |
-| M4.2 | R2 & R3: 3D Mosaic Poly-Hexcore, Snapping & Merging | Features F18, F19, F20, F21 (`octree_hexcore.hpp/cpp`, `cfd_mesher_native.h/cpp`, `difvm_mesh.cpp`, `mesh_engine.py`) | M4.1 | DONE |
-| M4.3 | R4: Multiphysics CHT & Automated GCI Hierarchy | Features F22, F23 (`mesh_engine.py`, `difvm_topology.py`, `gci.py`) | M4.1, M4.2 | IN_PROGRESS |
-| M4.4 | Dual-Track E2E Test Suite & CAD Benchmarks | Feature F24 (`TEST_INFRA.md`, `TEST_READY.md`, `tests/test_wp4_multiphysics_hexcore.py`) | M4.1, M4.2, M4.3 | DONE (TEST_READY) |
-| M4.5 | Gate WP4 Independent 3-Agent Audit Committee | Feature F25 (Independent 3-Agent Audit Committee: Challenger, Code Auditor, Math Auditor) | M4.4 | PLANNED |
+| M1 | Native C++ Hexcore Math & Geometry Core | Features F26, F27, F28, F31 (native part) (`octree_hexcore.cpp`, `distmesh.cpp`, `tests/test_wp4_multiphysics_hexcore.py`) | none | DONE |
+| M2 | Python Backend, Sizing, GCI, DistMesh & Static Fixes | Features F29, F30, F31 (Python part), F32, F33 (`mesh_engine.py`, `difvm_topology.py`, `distmesh_core.py`, `gci.py`, `polymesh_io.py`, `inflation.py`, `geometry_sdf.py`, `sdf_engine.cpp`) | none | DONE |
+| M3 | Native DLL Recompilation, Strict Native & Regression Testing | Feature F35 (`CMakeLists.txt`, `cfd_mesher_native.dll`, 615 tests sequential run) | M1, M2 | PLANNED (PAUSED per user directive) |
+| M4 | CAD Benchmark Validation & Automated WSL OpenFOAM Pipeline | Feature F34 (`scripts/run_wsl_checkmesh.sh`, CAD benchmark tests) | M3 | PLANNED (PAUSED per user directive) |
+| M5 | Independent 3-Agent Audit Committee Gate Certification & Git Commit | Feature F36 (Challenger, Code Auditor, Math Auditor, git commit) | M4 | PLANNED (PAUSED per user directive) |
+
+> **User Pause Directive (2026-11-07T02:14:54Z)**:
+> Upon completing and verifying Milestone M2 (DistMesh, GCI, SDF-BBox, static audit/API fixes), pause execution and stop cleanly to conserve tokens. Do not advance to subsequent milestones (M3–M5) until directed. Commit all verified changes to git and report final status.
+
+---
 
 ## Interface Contracts
 
-### `backend/meshing/models.py`
-```python
-from dataclasses import dataclass, field
-from typing import Literal, Optional, Tuple, List, Dict, Any
-import numpy as np
-
-@dataclass
-class FarfieldPadding:
-    upstream: float = 5.0     # 5.0 * L_ref along -X (inlet)
-    downstream: float = 10.0  # 10.0 * L_ref along +X (outlet)
-    lateral_y: float = 5.0    # 5.0 * L_ref along +/-Y (sides)
-    lateral_z: float = 5.0    # 5.0 * L_ref along +/-Z (bottom/top)
-
-@dataclass
-class MeshingConfig:
-    domain_mode: Literal["external_fluid", "internal_fluid", "solid_only", "cht_coupled"] = "external_fluid"
-    farfield_padding: Optional[FarfieldPadding] = None
-    farfield_bbox: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None
-    small_cell_ratio: float = 0.20
-    wsrd_target_alpha: float = 0.50
-    gci_refinement_ratio: float = 1.41421356  # sqrt(2) in [1.3, 1.5]
-    # Existing sizing and optimization fields preserved...
-```
-
 ### `backend/meshing/native/include/octree_hexcore.hpp`
 ```cpp
-#pragma once
-#include "difvm_mesh.hpp"
-#include <vector>
-#include <array>
-
-namespace cfd {
-
-struct OctreeNode {
-  std::array<double, 3> min_pt;
-  std::array<double, 3> max_pt;
-  int level{0};
-  bool is_leaf{true};
-  int children[8]{-1, -1, -1, -1, -1, -1, -1, -1};
-  int cell_index{-1};
+// Triangle-fan centroid and normal calculation
+struct MosaicFace {
+  std::vector<int64_t> nodes;
+  int64_t owner{-1};
+  int64_t neighbour{-1};
+  Vec3 normal_owner{0, 0, 0};
+  Vec3 centre{0, 0, 0};
+  std::string patch_name{"internal"};
+  bool is_folded{false};
 };
-
-class OctreeHexcore {
- public:
-  explicit OctreeHexcore(const std::array<double, 3>& min_b,
-                         const std::array<double, 3>& max_b,
-                         double target_h0);
-  void balance_2to1();
-  NativeMeshData generate_mosaic_mesh(void* sdf_ptr, double small_cell_ratio, double wsrd_target);
-};
-
-} // namespace cfd
 ```
 
+### `backend/meshing/mesh_engine.py`
+```cpp
+class MeshEngine:
+  def __init__(self, ..., strict_native: bool = False):
+    ...
+```
+
+---
+
 ## Code Layout & Exclusive File Ownership
-- **Milestone M4.1 Worker owns:**
-  - `backend/meshing/models.py`
-  - `backend/meshing/mesh_engine.py` (domain mode, farfield padding, patch assignment)
-  - `backend/meshing/difvm_topology.py` (patch mapping)
-- **Milestone M4.2 Worker owns:**
-  - `backend/meshing/native/include/octree_hexcore.hpp`
+- **Milestone M1 Worker owns:**
   - `backend/meshing/native/src/octree_hexcore.cpp`
-  - `backend/meshing/native/include/cfd_mesher_native.h`
-  - `backend/meshing/native/src/cfd_mesher_native.cpp`
-  - `backend/meshing/native/src/difvm_mesh.cpp`
-  - `backend/meshing/native/src/distmesh.cpp` (removal of clamps and stub replacement)
+  - `backend/meshing/native/src/distmesh.cpp`
+  - `backend/meshing/native/include/octree_hexcore.hpp`
+  - `tests/test_wp4_multiphysics_hexcore.py` (sphere snapping test)
+- **Milestone M2 Worker owns:**
+  - `backend/meshing/mesh_engine.py`
+  - `backend/meshing/difvm_topology.py`
+  - `backend/meshing/distmesh_core.py`
+  - `backend/meshing/gci.py`
+  - `backend/meshing/polymesh_io.py`
+  - `backend/meshing/inflation.py`
+  - `backend/meshing/geometry_sdf.py`
+  - `backend/meshing/native/src/sdf_engine.cpp`
+- **Milestone M3 Worker owns:**
   - `backend/meshing/native/CMakeLists.txt`
-- **Milestone M4.3 Worker owns:**
-  - `backend/meshing/gci.py` (ASME V&V 20 GCI calculation & hierarchy generator)
-  - `backend/meshing/difvm_topology.py` (CHT twin-face multi-region integration)
-- **Milestone M4.4 Test Writer owns:**
-  - `TEST_INFRA.md`
-  - `TEST_READY.md`
-  - `tests/test_wp4_multiphysics_hexcore.py`
+  - `backend/meshing/cfd_mesher_native.dll`
+- **Milestone M4 Worker owns:**
+  - `scripts/run_wsl_checkmesh.sh`
+  - `tests/test_wsl_openfoam_acceptance.py`
+
+---
 
 ## Mandatory Gate & Audit Rules
-1. **Unanimous 3-Agent Audit Committee**: For Gate WP4, an independent 3-agent committee is convened:
-   - Agent 1: Paper-Fidelity & Zero-Shortcut Challenger (`teamwork_challenger`)
-   - Agent 2: Code & Software-Architecture Auditor (`teamwork_auditor`)
-   - Agent 3: Mathematics & Numerics Auditor (`teamwork_critic`)
-   100% UNANIMOUS approval (3:0 APPROVE) is strictly required to pass Gate WP4.
-2. **Zero-Shortcut Policy**: No dummy stubs, no magic numbers, no heuristics (zero occurrences of `len(verts) == 8` and resolution clamps), no silent fallbacks (`except: pass`).
-3. **16-Thread Limit & RAM Protection**: `OMP_NUM_THREADS <= 16`, moderate mesh sizes in unit tests ($N \le 5{,}000$), immediate buffer cleanup via RAII / `cfd_mesher_free` to protect concurrent Ansys Fluent execution.
-4. **Physical Invariants**: Strict $V_i > 0$, relative Gauss divergence closure $< 10^{-11}$, true projection identity $< 10^{-12}$.
-5. **Regression Baseline**: All 579 existing tests in `tests/` and `backend/geometry/tests/` must remain 100% green.
+1. **Unanimous 3-Agent Audit Committee**: 100% UNANIMOUS approval (3:0 APPROVE) across Challenger, Code Auditor, and Math Auditor.
+2. **Zero-Shortcut Policy**: No magic heuristics, no silent clamps, no bare excepts.
+3. **Operational Concurrency & Memory Safety**: `OMP_NUM_THREADS=8`, CMake `--parallel 8`, sequential pytest, initial test mesh size $\le 30{,}000$ cells.
+4. **Physical Invariants**: Strict $V_i > 0$, relative Gauss closure $< 10^{-11}$, projection collinearity $< 10^{-12}$.
+5. **Regression Baseline**: All 615 existing tests must remain 100% green.

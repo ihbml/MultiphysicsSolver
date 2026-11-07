@@ -16,6 +16,7 @@ namespace cfd {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kInf = std::numeric_limits<double>::infinity();
 
 inline double clamp_val(double v, double min_v, double max_v) {
   return std::max(min_v, std::min(max_v, v));
@@ -84,7 +85,6 @@ int32_t TriangleAABBTree::build_recursive(int32_t start, int32_t count, int32_t 
   int32_t node_idx = static_cast<int32_t>(nodes_.size());
   nodes_.emplace_back();
 
-  constexpr double kInf = std::numeric_limits<double>::infinity();
   Vec3 bmin(kInf, kInf, kInf);
   Vec3 bmax(-kInf, -kInf, -kInf);
   for (int32_t i = 0; i < count; ++i) {
@@ -476,9 +476,13 @@ int32_t MeshSDF::evaluate(const double* points, int64_t n_points,
     double dot_val = dot(diff, np);
     double sign = dot_val >= 0.0 ? 1.0 : -1.0;
 
-    bool outside_bbox = (p.x < tree_.root_bmin().x || p.x > tree_.root_bmax().x ||
-                         p.y < tree_.root_bmin().y || p.y > tree_.root_bmax().y ||
-                         p.z < tree_.root_bmin().z || p.z > tree_.root_bmax().z);
+    Vec3 root_bmin = tree_.root_bmin();
+    Vec3 root_bmax = tree_.root_bmax();
+    double diag = (root_bmax - root_bmin).norm();
+    double bbox_tol = 1e-5 * diag;
+    bool outside_bbox = (p.x < root_bmin.x - bbox_tol || p.x > root_bmax.x + bbox_tol ||
+                         p.y < root_bmin.y - bbox_tol || p.y > root_bmax.y + bbox_tol ||
+                         p.z < root_bmin.z - bbox_tol || p.z > root_bmax.z + bbox_tol);
     if (outside_bbox && sign < 0.0) {
       sign = 1.0;
     }
@@ -500,40 +504,207 @@ int32_t MeshSDF::evaluate(const double* points, int64_t n_points,
   return 0;
 }
 
+namespace {
+
+struct WindingAABBNode {
+  Vec3 bmin;
+  Vec3 bmax;
+  Vec3 centroid;
+  Vec3 area_vec;
+  double radius = 0.0;
+  int32_t left = -1;
+  int32_t right = -1;
+  int32_t tri_start = -1;
+  int32_t tri_count = 0;
+};
+
+class WindingAABBTree {
+ public:
+  WindingAABBTree(const std::vector<Vec3>& verts,
+                  const std::vector<std::array<int32_t, 3>>& faces,
+                  int32_t leaf_size = 16)
+      : verts_(verts), faces_(faces) {
+    int32_t n_tri = static_cast<int32_t>(faces.size());
+    if (n_tri == 0) return;
+
+    tri_indices_.resize(n_tri);
+    tri_centroids_.resize(n_tri);
+    tri_area_vecs_.resize(n_tri);
+
+    for (int32_t i = 0; i < n_tri; ++i) {
+      tri_indices_[i] = i;
+      const auto& tri = faces[i];
+      const Vec3& v0 = verts[tri[0]];
+      const Vec3& v1 = verts[tri[1]];
+      const Vec3& v2 = verts[tri[2]];
+      tri_centroids_[i] = (v0 + v1 + v2) * (1.0 / 3.0);
+      tri_area_vecs_[i] = cross(v1 - v0, v2 - v0) * 0.5;
+    }
+
+    nodes_.reserve(static_cast<size_t>(n_tri * 2));
+    build_node(0, n_tri, leaf_size);
+  }
+
+  double evaluate_winding_number(const Vec3& p) const {
+    if (nodes_.empty()) return 0.0;
+    return evaluate_node(p, 0) / (4.0 * kPi);
+  }
+
+ private:
+  const std::vector<Vec3>& verts_;
+  const std::vector<std::array<int32_t, 3>>& faces_;
+  std::vector<int32_t> tri_indices_;
+  std::vector<Vec3> tri_centroids_;
+  std::vector<Vec3> tri_area_vecs_;
+  std::vector<WindingAABBNode> nodes_;
+
+  int32_t build_node(int32_t start, int32_t count, int32_t leaf_size) {
+    int32_t node_idx = static_cast<int32_t>(nodes_.size());
+    nodes_.emplace_back();
+
+    Vec3 bmin(kInf, kInf, kInf);
+    Vec3 bmax(-kInf, -kInf, -kInf);
+    Vec3 total_area_vec(0, 0, 0);
+    Vec3 weighted_centroid(0, 0, 0);
+    double total_area = 0.0;
+
+    for (int32_t i = 0; i < count; ++i) {
+      int32_t tid = tri_indices_[start + i];
+      const auto& tri = faces_[tid];
+      for (int k = 0; k < 3; ++k) {
+        const Vec3& v = verts_[tri[k]];
+        bmin.x = std::min(bmin.x, v.x);
+        bmin.y = std::min(bmin.y, v.y);
+        bmin.z = std::min(bmin.z, v.z);
+        bmax.x = std::max(bmax.x, v.x);
+        bmax.y = std::max(bmax.y, v.y);
+        bmax.z = std::max(bmax.z, v.z);
+      }
+      const Vec3& av = tri_area_vecs_[tid];
+      total_area_vec = total_area_vec + av;
+      double area = av.norm();
+      total_area += area;
+      weighted_centroid = weighted_centroid + tri_centroids_[tid] * area;
+    }
+
+    nodes_[node_idx].bmin = bmin;
+    nodes_[node_idx].bmax = bmax;
+    nodes_[node_idx].area_vec = total_area_vec;
+    nodes_[node_idx].radius = 0.5 * (bmax - bmin).norm();
+    if (total_area > 1e-15) {
+      nodes_[node_idx].centroid = weighted_centroid * (1.0 / total_area);
+    } else {
+      nodes_[node_idx].centroid = (bmin + bmax) * 0.5;
+    }
+
+    if (count <= leaf_size) {
+      nodes_[node_idx].tri_start = start;
+      nodes_[node_idx].tri_count = count;
+      return node_idx;
+    }
+
+    Vec3 cmin(kInf, kInf, kInf);
+    Vec3 cmax(-kInf, -kInf, -kInf);
+    for (int32_t i = 0; i < count; ++i) {
+      int32_t tid = tri_indices_[start + i];
+      const Vec3& c = tri_centroids_[tid];
+      cmin.x = std::min(cmin.x, c.x);
+      cmin.y = std::min(cmin.y, c.y);
+      cmin.z = std::min(cmin.z, c.z);
+      cmax.x = std::max(cmax.x, c.x);
+      cmax.y = std::max(cmax.y, c.y);
+      cmax.z = std::max(cmax.z, c.z);
+    }
+
+    Vec3 extent = cmax - cmin;
+    int32_t axis = 0;
+    if (extent.y > extent.x && extent.y >= extent.z) axis = 1;
+    else if (extent.z > extent.x && extent.z >= extent.y) axis = 2;
+
+    int32_t mid = start + count / 2;
+    auto comp = [this, axis](int32_t a, int32_t b) {
+      const Vec3& ca = tri_centroids_[a];
+      const Vec3& cb = tri_centroids_[b];
+      if (axis == 0) return ca.x < cb.x;
+      if (axis == 1) return ca.y < cb.y;
+      return ca.z < cb.z;
+    };
+
+    std::nth_element(tri_indices_.begin() + start,
+                     tri_indices_.begin() + mid,
+                     tri_indices_.begin() + start + count, comp);
+
+    int32_t left_child = build_node(start, count / 2, leaf_size);
+    int32_t right_child = build_node(mid, count - count / 2, leaf_size);
+
+    nodes_[node_idx].left = left_child;
+    nodes_[node_idx].right = right_child;
+    return node_idx;
+  }
+
+  double evaluate_node(const Vec3& p, int32_t node_idx) const {
+    const auto& node = nodes_[node_idx];
+    Vec3 diff = node.centroid - p;
+    double dist = diff.norm();
+
+    // Barnes-Hut far-field dipole approximation for nodes where dist > 2.0 * node_radius
+    if (node.tri_count == 0 && dist > 2.0 * node.radius) {
+      double r3 = dist * dist * dist;
+      return r3 > 1e-30 ? dot(node.area_vec, diff) / r3 : 0.0;
+    }
+
+    if (node.tri_count > 0) {
+      // Leaf node: exact solid angles
+      double total_omega = 0.0;
+      for (int32_t i = 0; i < node.tri_count; ++i) {
+        int32_t tid = tri_indices_[node.tri_start + i];
+        const auto& tri = faces_[tid];
+        Vec3 ra = verts_[tri[0]] - p;
+        Vec3 rb = verts_[tri[1]] - p;
+        Vec3 rc = verts_[tri[2]] - p;
+
+        double da = ra.norm();
+        double db = rb.norm();
+        double dc = rc.norm();
+
+        Vec3 rb_cross_rc = cross(rb, rc);
+        double num = dot(ra, rb_cross_rc);
+
+        double denom = da * db * dc + dot(ra, rb) * dc + dot(ra, rc) * db + dot(rb, rc) * da;
+        double omega = 2.0 * std::atan2(num, denom);
+        total_omega += omega;
+      }
+      return total_omega;
+    }
+
+    double sum = 0.0;
+    if (node.left >= 0) sum += evaluate_node(p, node.left);
+    if (node.right >= 0) sum += evaluate_node(p, node.right);
+    return sum;
+  }
+};
+
+}  // namespace
+
 int32_t MeshSDF::winding_number(const double* points, int64_t n_points,
                                 double* out_wn) const {
   if (!points || !out_wn || n_points <= 0) return -1;
 
   const auto& verts = tree_.vertices();
   const auto& faces = tree_.faces();
-  size_t n_faces = faces.size();
+  if (faces.empty()) {
+    std::fill(out_wn, out_wn + n_points, 0.0);
+    return 0;
+  }
+
+  WindingAABBTree wn_tree(verts, faces, /*leaf_size=*/16);
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic, 64)
 #endif
   for (int64_t i = 0; i < n_points; ++i) {
     Vec3 p(points[3 * i], points[3 * i + 1], points[3 * i + 2]);
-    double total_omega = 0.0;
-
-    for (size_t f = 0; f < n_faces; ++f) {
-      const auto& tri = faces[f];
-      Vec3 ra = verts[tri[0]] - p;
-      Vec3 rb = verts[tri[1]] - p;
-      Vec3 rc = verts[tri[2]] - p;
-
-      double da = ra.norm();
-      double db = rb.norm();
-      double dc = rc.norm();
-
-      Vec3 rb_cross_rc = cross(rb, rc);
-      double num = dot(ra, rb_cross_rc);
-
-      double denom = da * db * dc + dot(ra, rb) * dc + dot(ra, rc) * db + dot(rb, rc) * da;
-      double omega = 2.0 * std::atan2(num, denom);
-      total_omega += omega;
-    }
-
-    out_wn[i] = total_omega / (4.0 * kPi);
+    out_wn[i] = wn_tree.evaluate_winding_number(p);
   }
 
   return 0;
