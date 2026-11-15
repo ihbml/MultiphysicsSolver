@@ -29,6 +29,21 @@ logger = logging.getLogger(__name__)
 # Search paths for native shared library
 _NATIVE_DLL: Optional[ctypes.CDLL] = None
 _DLL_LOAD_ATTEMPTED: bool = False
+_NATIVE_LOAD_ERROR: Optional[str] = None
+
+
+def get_native_load_error() -> Optional[str]:
+    """Return the last error message encountered during native library loading, if any."""
+    global _NATIVE_LOAD_ERROR
+    return _NATIVE_LOAD_ERROR
+
+
+def _reset_native_dll_cache() -> None:
+    """Reset cached DLL and load state (primarily for testing error paths)."""
+    global _NATIVE_DLL, _DLL_LOAD_ATTEMPTED, _NATIVE_LOAD_ERROR
+    _NATIVE_DLL = None
+    _DLL_LOAD_ATTEMPTED = False
+    _NATIVE_LOAD_ERROR = None
 
 
 class MeshingConfigC(ctypes.Structure):
@@ -68,6 +83,14 @@ def _find_native_library() -> Optional[Path]:
     Returns:
         Path to the shared library if found, else None.
     """
+    custom_env_path = os.environ.get("CFD_NATIVE_LIB_PATH")
+    if custom_env_path:
+        cand = Path(custom_env_path)
+        if cand.is_file():
+            return cand
+        logger.error(f"CFD_NATIVE_LIB_PATH specified but file does not exist: {custom_env_path}")
+        return None
+
     pkg_dir = Path(__file__).resolve().parent
     build_dir = pkg_dir / "native" / "build"
 
@@ -97,15 +120,49 @@ def _find_native_library() -> Optional[Path]:
     return None
 
 
-def get_native_dll() -> Optional[ctypes.CDLL]:
-    """Load and return the native cfd_mesher_native shared library if available."""
-    global _NATIVE_DLL, _DLL_LOAD_ATTEMPTED
+def get_native_dll(strict_native: bool = False) -> Optional[ctypes.CDLL]:
+    """Load and return the native cfd_mesher_native shared library if available.
+
+    Parameters
+    ----------
+    strict_native : bool, default=False
+        If True or if environment variable CFD_STRICT_NATIVE=1 is set,
+        fail fast and raise a RuntimeError with detailed diagnostics if the
+        native library cannot be found or loaded.
+
+    Returns
+    -------
+    Optional[ctypes.CDLL]
+        Loaded ctypes CDLL instance, or None if unavailable in non-strict mode.
+
+    Raises
+    ------
+    RuntimeError
+        If strict_native is enabled and the library fails to load or cannot be found.
+    """
+    global _NATIVE_DLL, _DLL_LOAD_ATTEMPTED, _NATIVE_LOAD_ERROR
+    is_strict = strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
+
     if _DLL_LOAD_ATTEMPTED:
-        return _NATIVE_DLL
+        if _NATIVE_DLL is not None:
+            return _NATIVE_DLL
+        if is_strict:
+            raise RuntimeError(
+                f"Strict native mode enabled but native mesher library cfd_mesher_native is unavailable. "
+                f"Previous load failure: {_NATIVE_LOAD_ERROR}"
+            )
+        return None
 
     _DLL_LOAD_ATTEMPTED = True
     dll_path = _find_native_library()
     if dll_path is None:
+        _NATIVE_LOAD_ERROR = (
+            "Native shared library file (cfd_mesher_native) could not be located in search paths. "
+            "Ensure the library is built with CMake (backend/meshing/native/build)."
+        )
+        logger.error(f"Failed to find native mesher library: {_NATIVE_LOAD_ERROR}")
+        if is_strict:
+            raise RuntimeError(f"Strict native mode enabled but native library not found: {_NATIVE_LOAD_ERROR}")
         return None
 
     try:
@@ -278,11 +335,25 @@ def get_native_dll() -> Optional[ctypes.CDLL]:
         dll.cfd_mesher_compute_max_decomposition_error.argtypes = [ctypes.c_void_p]
 
         _NATIVE_DLL = dll
+        _NATIVE_LOAD_ERROR = None
         return dll
     except Exception as e:
-        logger.warning(f"Failed to load native mesher library from {dll_path}: {e}")
+        _NATIVE_LOAD_ERROR = f"{type(e).__name__}: {e}"
+        logger.error(f"Failed to load native mesher library from {dll_path}: {_NATIVE_LOAD_ERROR}", exc_info=True)
         _NATIVE_DLL = None
+        if is_strict:
+            raise RuntimeError(
+                f"Strict native mode enabled but native mesher library failed to load from {dll_path}: {_NATIVE_LOAD_ERROR}"
+            ) from e
         return None
+
+
+def require_native_dll() -> ctypes.CDLL:
+    """Load and return the native library, raising RuntimeError if unavailable."""
+    dll = get_native_dll(strict_native=True)
+    if dll is None:
+        raise RuntimeError(f"Native mesher library is unavailable: {_NATIVE_LOAD_ERROR}")
+    return dll
 
 
 def _classify_cell_type(cell_nodes: np.ndarray, points: np.ndarray) -> CellType:
@@ -305,6 +376,13 @@ def _classify_cell_type(cell_nodes: np.ndarray, points: np.ndarray) -> CellType:
             return CellType.QUAD
         return CellType.TETRA
     elif nv == 8:
+        if points is not None:
+            pts_cell = points[cell_nodes]
+            span = np.max(pts_cell, axis=0) - np.min(pts_cell, axis=0)
+            max_span = float(np.max(span))
+            min_span = float(np.min(span))
+            if max_span > 1e-12 and (min_span / max_span) < 1e-5:
+                return CellType.POLYGON
         return CellType.HEXAHEDRON
     elif nv == 6:
         return CellType.WEDGE
@@ -312,7 +390,10 @@ def _classify_cell_type(cell_nodes: np.ndarray, points: np.ndarray) -> CellType:
         return CellType.PYRAMID
     else:
         pts_poly = points[cell_nodes]
-        if np.all(np.abs(pts_poly[:, 2] - pts_poly[0, 2]) < 1e-8):
+        span_poly = np.max(pts_poly, axis=0) - np.min(pts_poly, axis=0)
+        max_sp = float(np.max(span_poly))
+        min_sp = float(np.min(span_poly))
+        if max_sp > 1e-12 and (min_sp / max_sp) < 1e-5:
             return CellType.POLYGON
         return CellType.POLYHEDRON
 
@@ -333,6 +414,14 @@ def _extract_cell_faces_py(
     nv = len(cell_nodes)
     c = cell_nodes
     if nv == 8:
+        if points is not None:
+            pts_cell = points[c]
+            span = np.max(pts_cell, axis=0) - np.min(pts_cell, axis=0)
+            max_span = float(np.max(span))
+            min_span = float(np.min(span))
+            if max_span > 1e-12 and (min_span / max_span) < 1e-5:
+                # Coplanar 8-node 2D polygon: 8 perimeter boundary edges
+                return [[int(c[i]), int(c[(i + 1) % nv])] for i in range(nv)]
         # Hexahedron: 6 quadrilateral faces with outward normals
         faces = [
             [int(c[0]), int(c[3]), int(c[2]), int(c[1])],  # bottom (-z)
@@ -505,6 +594,67 @@ def compute_wsrd_weights_array(
     return w
 
 
+def compute_wsrd_weights(
+    cut_alpha: float,
+    neighbor_alphas: List[float],
+    alpha_target: float = 0.50,
+) -> Dict[str, Any]:
+    """Compute Berger & Giuliani (2024) Weighted State Redistribution weights for a single cut-cell.
+
+    Formula (Eq. 4.2):
+    For j in W_i \\ {i}: w_{ij} = 1/(N_i - 1) * (1 - alpha_j / alpha_target)
+    For i (self): w_{ii} = 1 - sum_{j!=i} w_{ij}
+    """
+    n_neighbors = len(neighbor_alphas)
+    if n_neighbors == 0:
+        return {"self_weight": 1.0, "neighbor_weights": [], "partition_of_unity": 0.0}
+
+    n_i = n_neighbors + 1  # Total overlap count
+    weights_nb = []
+    for a_j in neighbor_alphas:
+        w_ij = (1.0 / (n_i - 1)) * max(0.0, 1.0 - a_j / alpha_target)
+        weights_nb.append(w_ij)
+
+    sum_nb = sum(weights_nb)
+    w_ii = 1.0 - sum_nb
+    return {
+        "self_weight": w_ii,
+        "neighbor_weights": weights_nb,
+        "partition_of_unity": abs((w_ii + sum_nb) - 1.0),
+    }
+
+
+def compute_amips_energy(
+    vertices: np.ndarray,
+    reference_scale: float = 1.0,
+) -> float:
+    """Compute scale- and rotation-invariant 3D AMIPS distortion energy for a tetrahedron.
+
+    For an element with 4 vertices v0, v1, v2, v3:
+    D_s = [v1 - v0, v2 - v0, v3 - v0]
+    E_AMIPS = (27/16 * (sum_{i<j} ||v_i - v_j||^2)^3 / (det D_s)^2)^(1/3) >= 3.0.
+    """
+    verts = np.asarray(vertices, dtype=np.float64)
+    if len(verts) < 4:
+        raise ValueError("AMIPS energy requires at least 4 vertices (tetrahedron).")
+    v0 = verts[0]
+    v1 = verts[1]
+    v2 = verts[2]
+    v3 = verts[3]
+    d_s = np.column_stack([v1 - v0, v2 - v0, v3 - v0])
+    det_j = float(np.linalg.det(d_s))
+    if det_j <= 1e-18:
+        return float("inf")
+
+    edge_sum_sq = 0.0
+    for i in range(4):
+        for j in range(i + 1, 4):
+            edge_sum_sq += float(np.sum((verts[i] - verts[j]) ** 2))
+
+    ratio = (27.0 / 16.0) * (edge_sum_sq ** 3) / (det_j ** 2)
+    return float(ratio ** (1.0 / 3.0))
+
+
 def compute_wsrd_redistribution_map(
     wsrd_alpha: np.ndarray,
     owner: np.ndarray,
@@ -586,9 +736,9 @@ def compute_difvm_topology_native(
     config: Optional[MeshingConfig] = None,
 ) -> UnstructuredMesh:
     """Build UnstructuredMesh using native C++20 core (cfd_mesher_native shared library)."""
-    dll = get_native_dll()
+    dll = get_native_dll(strict_native=True)
     if dll is None:
-        raise RuntimeError("Native library cfd_mesher_native is not available.")
+        raise RuntimeError(f"Native library cfd_mesher_native is not available: {_NATIVE_LOAD_ERROR}")
 
     pts = np.ascontiguousarray(points, dtype=np.float64)
     if pts.ndim == 2 and pts.shape[1] == 2:
@@ -865,9 +1015,9 @@ def generate_hexcore_native(
     config: Optional[MeshingConfig] = None,
 ) -> UnstructuredMesh:
     """Generate 3D 2:1 balanced adaptive Cartesian Octree and Mosaic Poly-Hexcore mesh using native C++20 core."""
-    dll = get_native_dll()
+    dll = get_native_dll(strict_native=True)
     if dll is None or not hasattr(dll, "cfd_mesher_generate_hexcore"):
-        raise RuntimeError("Native cfd_mesher_generate_hexcore is not available.")
+        raise RuntimeError(f"Native cfd_mesher_generate_hexcore is not available: {_NATIVE_LOAD_ERROR}")
 
     pts = np.ascontiguousarray(surf_points, dtype=np.float64)
     faces = np.ascontiguousarray(surf_faces, dtype=np.int32)
@@ -1140,6 +1290,7 @@ def compute_difvm_topology_python(
     cell_types: Optional[np.ndarray] = None,
     topological_dim: Optional[int] = None,
     config: Optional[MeshingConfig] = None,
+    v_bg: Optional[Union[float, np.ndarray]] = None,
 ) -> UnstructuredMesh:
     """Pure-Python / NumPy fallback implementation of DiFVM topology constructor."""
     pts = np.ascontiguousarray(points, dtype=np.float64)
@@ -1227,7 +1378,7 @@ def compute_difvm_topology_python(
         div_factor = 2.0 if is_cell_2d else 3.0
 
         # Check natural cell volume to preserve negative volume on inverted elements
-        raw_faces = _extract_cell_faces_py(cell_arr)
+        raw_faces = _extract_cell_faces_py(cell_arr, pts)
         natural_vol = 0.0
         for fn in raw_faces:
             n_raw, c_raw = _compute_polygon_normal_and_centroid_py(fn, pts)
@@ -1241,7 +1392,10 @@ def compute_difvm_topology_python(
             sf_out = tf["normal_owner"] * sign
             pyr_vol = float(np.dot(tf["centre"] - c_approx, sf_out)) / div_factor
             vol_sum += pyr_vol
-            pyr_c = tf["centre"] * 0.75 + c_approx * 0.25
+            if is_cell_2d:
+                pyr_c = tf["centre"] * (2.0 / 3.0) + c_approx * (1.0 / 3.0)
+            else:
+                pyr_c = tf["centre"] * 0.75 + c_approx * 0.25
             centroid_weighted += pyr_c * pyr_vol
 
         if natural_vol < -1e-15 and vol_sum > 1e-60:
@@ -1468,16 +1622,18 @@ def compute_difvm_topology_python(
 
         final_faces.append(np.array(fnodes, dtype=np.int64))
 
-    # Aspect ratio
+    # Aspect ratio: maximum to minimum bounding box span along active coordinate axes
     aspect_ratio = np.ones(n_cells, dtype=np.float64)
     for c_idx, cell in enumerate(cells):
         cell_arr = np.asarray(cell, dtype=np.int64)
-        cpts = pts[cell_arr]
-        diffs = cpts[:, None, :] - cpts[None, :, :]
-        dists = np.linalg.norm(diffs, axis=-1)
-        nonzero_dists = dists[dists > 1e-12]
-        if len(nonzero_dists) > 0:
-            aspect_ratio[c_idx] = max(1.0, float(np.max(nonzero_dists) / np.min(nonzero_dists)))
+        if len(cell_arr) > 0:
+            cpts = pts[cell_arr]
+            spans = np.max(cpts, axis=0) - np.min(cpts, axis=0)
+            valid_spans = spans[spans > 1e-12]
+            if len(valid_spans) >= 2:
+                aspect_ratio[c_idx] = max(1.0, float(np.max(valid_spans) / max(float(np.min(valid_spans)), 1e-15)))
+            else:
+                aspect_ratio[c_idx] = 1.0
 
     # 7. Cell-wise factors: omega_cell and wsrd_alpha
     min_beta_per_cell = np.ones(n_cells, dtype=np.float64)
@@ -1488,11 +1644,16 @@ def compute_difvm_topology_python(
             np.minimum.at(min_beta_per_cell, neighbour[int_mask], beta_upwind[int_mask])
     omega_cell = np.clip(min_beta_per_cell, 0.1, 1.0)
 
-    # wsrd_alpha: Berger-Giuliani volume ratio against median positive cell volume
-    pos_vols = cell_volumes[cell_volumes > 1e-60]
-    v_target = float(np.median(pos_vols)) if len(pos_vols) > 0 else 1.0
-    v_denom = v_target if v_target > 1e-60 else 1.0
-    wsrd_alpha = np.clip(cell_volumes / (v_denom + 1e-30), 0.0, 1.0)
+    # wsrd_alpha: Berger-Giuliani cut-cell volume ratio against background cell volume V_i^bg
+    if v_bg is not None:
+        if isinstance(v_bg, (int, float)):
+            wsrd_alpha = np.clip(cell_volumes / (float(v_bg) + 1e-30), 0.0, 1.0)
+        else:
+            wsrd_alpha = np.clip(cell_volumes / (np.asarray(v_bg, dtype=np.float64) + 1e-30), 0.0, 1.0)
+    else:
+        pos_vols = cell_volumes[cell_volumes > 1e-60]
+        v_ref = float(np.max(pos_vols)) if len(pos_vols) > 0 else 1.0
+        wsrd_alpha = np.clip(cell_volumes / (v_ref + 1e-30), 0.0, 1.0)
 
     small_cell_ratio = float(getattr(config, "small_cell_ratio", 0.20)) if config is not None else 0.20
     wsrd_target_alpha = float(getattr(config, "wsrd_target_alpha", 0.50)) if config is not None else 0.50
@@ -1785,31 +1946,192 @@ def extract_cht_twin_faces(mesh: UnstructuredMesh) -> UnstructuredMesh:
     )
 
 
+def _polygon_area_2d(poly: np.ndarray) -> float:
+    """Compute 2D polygon area via Shoelace formula."""
+    if len(poly) < 3:
+        return 0.0
+    x = poly[:, 0]
+    y = poly[:, 1]
+    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def _clip_polygon_sutherland_hodgman(subject_poly: np.ndarray, clip_poly: np.ndarray) -> np.ndarray:
+    """Sutherland-Hodgman polygon clipping for supermesh intersection."""
+    if len(subject_poly) < 3 or len(clip_poly) < 3:
+        return np.zeros((0, 2), dtype=np.float64)
+
+    area_c = 0.5 * (np.dot(clip_poly[:, 0], np.roll(clip_poly[:, 1], -1)) - np.dot(clip_poly[:, 1], np.roll(clip_poly[:, 0], -1)))
+    cp = clip_poly if area_c > 0 else clip_poly[::-1]
+
+    output = subject_poly.copy()
+    n_cp = len(cp)
+
+    for k in range(n_cp):
+        if len(output) == 0:
+            break
+        p1 = cp[k]
+        p2 = cp[(k + 1) % n_cp]
+        edge = p2 - p1
+        normal = np.array([-edge[1], edge[0]], dtype=np.float64)
+
+        input_list = output
+        output_list = []
+        n_in = len(input_list)
+
+        for i in range(n_in):
+            s = input_list[i]
+            e = input_list[(i + 1) % n_in]
+
+            s_in = bool(np.dot(s - p1, normal) >= -1e-12)
+            e_in = bool(np.dot(e - p1, normal) >= -1e-12)
+
+            if e_in:
+                if not s_in:
+                    d = e - s
+                    denom = float(np.dot(d, normal))
+                    if abs(denom) > 1e-14:
+                        t = float(np.dot(p1 - s, normal)) / denom
+                        output_list.append(s + t * d)
+                output_list.append(e)
+            elif s_in:
+                d = e - s
+                denom = float(np.dot(d, normal))
+                if abs(denom) > 1e-14:
+                    t = float(np.dot(p1 - s, normal)) / denom
+                    output_list.append(s + t * d)
+
+        output = np.array(output_list, dtype=np.float64)
+
+    return output
+
+
 def compute_ami_weights(
     source_centres: np.ndarray,
     source_areas: np.ndarray,
     target_centres: np.ndarray,
     target_areas: np.ndarray,
     radius: float = 0.05,
+    source_polygons: Optional[List[np.ndarray]] = None,
+    target_polygons: Optional[List[np.ndarray]] = None,
 ) -> np.ndarray:
-    """Compute Arbitrary Mesh Interface (AMI) interpolation weights for non-conformal sliding interfaces.
+    """Compute Arbitrary Mesh Interface (AMI) area-conservative interpolation weights.
 
-    Guarantees partition of unity: sum_j w_ij == 1.0 for each target face i.
+    Uses Sutherland-Hodgman polygon clipping (Supermesh intersection) to guarantee
+    exact conservation:
+        sum_j w_ij * A_i == A_i  and  sum_j w_ij == 1.0
+    for non-conformal sliding interfaces.
     """
+    source_centres = np.asarray(source_centres, dtype=np.float64)
+    target_centres = np.asarray(target_centres, dtype=np.float64)
+    source_areas = np.asarray(source_areas, dtype=np.float64)
+    target_areas = np.asarray(target_areas, dtype=np.float64)
     n_target = len(target_centres)
     n_source = len(source_centres)
     weights = np.zeros((n_target, n_source), dtype=np.float64)
 
+    if n_target == 0 or n_source == 0:
+        return weights
+
+    # Scalar area magnitudes
+    src_a = np.linalg.norm(source_areas, axis=-1) if source_areas.ndim > 1 else np.abs(source_areas)
+    tgt_a = np.linalg.norm(target_areas, axis=-1) if target_areas.ndim > 1 else np.abs(target_areas)
+
+    # Determine 2D projection basis (u1, u2) along interface plane
+    if source_polygons is not None and len(source_polygons) > 0:
+        all_pts_list = [np.asarray(p, dtype=np.float64) for p in source_polygons]
+        if target_polygons is not None and len(target_polygons) > 0:
+            all_pts_list.extend([np.asarray(p, dtype=np.float64) for p in target_polygons])
+        all_pts = np.vstack(all_pts_list)
+        spans = np.max(all_pts, axis=0) - np.min(all_pts, axis=0)
+    elif source_areas.ndim > 1 and source_areas.shape[1] == 3 and np.any(np.abs(source_areas) > 1e-12):
+        avg_normal = np.mean(np.abs(source_areas), axis=0)
+        norm_axis = int(np.argmax(avg_normal))
+        spans = np.ones(3, dtype=np.float64)
+        spans[norm_axis] = 0.0
+        all_pts = np.vstack([source_centres, target_centres])
+    else:
+        all_pts = np.vstack([source_centres, target_centres])
+        spans = np.max(all_pts, axis=0) - np.min(all_pts, axis=0)
+
+    if spans[0] <= 1e-5:
+        # Normal is x, plane is yz
+        u1, u2 = np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])
+    elif spans[1] <= 1e-5:
+        # Normal is y, plane is xz
+        u1, u2 = np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0])
+    elif spans[2] <= 1e-5:
+        # Normal is z, plane is xy
+        u1, u2 = np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])
+    else:
+        # Arbitrary plane: PCA
+        mean_pt = np.mean(all_pts, axis=0)
+        cov = (all_pts - mean_pt).T @ (all_pts - mean_pt)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        u1 = eigvecs[:, 2]
+        u2 = eigvecs[:, 1]
+
+    # Build 2D polygons for target faces
+    tgt_polys_2d: List[np.ndarray] = []
+    if target_polygons is not None:
+        for poly in target_polygons:
+            poly_arr = np.asarray(poly, dtype=np.float64)
+            p2d = np.column_stack([poly_arr @ u1, poly_arr @ u2])
+            tgt_polys_2d.append(p2d)
+    else:
+        for i in range(n_target):
+            c1 = float(np.dot(target_centres[i], u1))
+            c2 = float(np.dot(target_centres[i], u2))
+            h = np.sqrt(max(float(tgt_a[i]), 1e-12)) / 2.0
+            p2d = np.array([
+                [c1 - h, c2 - h],
+                [c1 + h, c2 - h],
+                [c1 + h, c2 + h],
+                [c1 - h, c2 + h],
+            ], dtype=np.float64)
+            tgt_polys_2d.append(p2d)
+
+    # Build 2D polygons for source faces
+    src_polys_2d: List[np.ndarray] = []
+    if source_polygons is not None:
+        for poly in source_polygons:
+            poly_arr = np.asarray(poly, dtype=np.float64)
+            p2d = np.column_stack([poly_arr @ u1, poly_arr @ u2])
+            src_polys_2d.append(p2d)
+    else:
+        for j in range(n_source):
+            c1 = float(np.dot(source_centres[j], u1))
+            c2 = float(np.dot(source_centres[j], u2))
+            h = np.sqrt(max(float(src_a[j]), 1e-12)) / 2.0
+            p2d = np.array([
+                [c1 - h, c2 - h],
+                [c1 + h, c2 - h],
+                [c1 + h, c2 + h],
+                [c1 - h, c2 + h],
+            ], dtype=np.float64)
+            src_polys_2d.append(p2d)
+
     for i in range(n_target):
-        diffs = source_centres - target_centres[i]
+        p_tgt = tgt_polys_2d[i]
+        c_tgt = target_centres[i]
+        diffs = source_centres - c_tgt
         dists = np.linalg.norm(diffs, axis=1)
-        in_range = dists < radius
-        if np.any(in_range):
-            inv_d = 1.0 / (dists[in_range] + 1e-12)
-            w = inv_d / np.sum(inv_d)
-            weights[i, in_range] = w
+
+        overlap_areas = np.zeros(n_source, dtype=np.float64)
+        for j in range(n_source):
+            h_tgt = np.sqrt(max(float(tgt_a[i]), 1e-12))
+            h_src = np.sqrt(max(float(src_a[j]), 1e-12))
+            if dists[j] > (h_tgt + h_src) * 1.5 and dists[j] > radius:
+                continue
+
+            q_src = src_polys_2d[j]
+            inter_poly = _clip_polygon_sutherland_hodgman(p_tgt, q_src)
+            overlap_areas[j] = _polygon_area_2d(inter_poly)
+
+        total_overlap = float(np.sum(overlap_areas))
+        if total_overlap > 1e-15:
+            weights[i] = overlap_areas / total_overlap
         else:
-            nearest = np.argmin(dists)
+            nearest = int(np.argmin(dists))
             weights[i, nearest] = 1.0
 
     return weights
@@ -1857,14 +2179,21 @@ def compute_difvm_topology(
     cell_types: Optional[np.ndarray] = None,
     topological_dim: Optional[int] = None,
     config: Optional[MeshingConfig] = None,
+    v_bg: Optional[Union[float, np.ndarray]] = None,
 ) -> UnstructuredMesh:
     """Build UnstructuredMesh in Structure of Arrays (SoA) layout.
 
     Transparently uses compiled C++20 core (cfd_mesher_native shared library) if available,
     falling back to pure Python if library is not compiled or use_native=False.
     """
+    is_strict = strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
+    if is_strict and not use_native:
+        raise RuntimeError("strict_native=True requires use_native=True.")
+
     mesh = None
-    if use_native and get_native_dll() is not None and boundary_patches is None and face_patch_ids is None:
+    dll = get_native_dll(strict_native=is_strict) if use_native else None
+
+    if use_native and dll is not None and boundary_patches is None and face_patch_ids is None:
         try:
             mesh = compute_difvm_topology_native(points, cells, regions=regions, config=config)
             if cell_types is not None:
@@ -1875,14 +2204,21 @@ def compute_difvm_topology(
             # Let non-manifold ValueError propagate immediately
             raise
         except Exception as e:
-            if strict_native:
+            if is_strict:
                 raise RuntimeError(f"Native mesher execution failed in strict mode: {e}") from e
-            logger.warning(f"Native mesher failed: {e}, falling back to Python.")
+            logger.error(f"Native mesher failed: {e}, falling back to Python.", exc_info=True)
             mesh = None
+    elif is_strict:
+        if boundary_patches is not None or face_patch_ids is not None:
+            raise RuntimeError(
+                "Strict native execution requested but custom boundary_patches / face_patch_ids "
+                "are not supported by native topology builder."
+            )
+        raise RuntimeError(f"Strict native execution requested but native library is unavailable: {_NATIVE_LOAD_ERROR}")
 
     if mesh is None:
-        if strict_native and use_native:
-            raise RuntimeError("Strict native execution requested but native library is unavailable.")
+        if is_strict and use_native:
+            raise RuntimeError(f"Strict native execution requested but native library is unavailable: {_NATIVE_LOAD_ERROR}")
         mesh = compute_difvm_topology_python(
             points,
             cells,
@@ -1893,6 +2229,7 @@ def compute_difvm_topology(
             cell_types=cell_types,
             topological_dim=topological_dim,
             config=config,
+            v_bg=v_bg,
         )
 
     if cyclic_angle_rad > 0.0:
@@ -1916,4 +2253,626 @@ def hilbert_sfc_reorder(
     """Forwarding wrapper for 3D Hilbert/Morton space-filling curve reordering."""
     from backend.meshing.distmesh_core import hilbert_sfc_reorder as _sfc
     return _sfc(mesh)
+
+
+# ==============================================================================
+# Paper 7 & §12.2 Numerics: Symmetry Connections & Linear-Exact FVM Operators
+# ==============================================================================
+
+def compute_symmetry_mirror_point(
+    c_P: np.ndarray,
+    c_f: np.ndarray,
+    s_f: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Construct Demirdzic (2022) orthogonal symmetry mirror connection (Paper 7).
+
+    Defines the mirror cell centroid c_M such that the connection vector:
+        Delta = c_M - c_P = 2 * ((c_f - c_P) . s_f / (s_f . s_f)) * s_f
+    is strictly collinear to s_f (Delta || s_f). Consequently, the non-orthogonal
+    cross-diffusion vector is identically zero:
+        k_f = s_f - (s_f . s_f / (Delta . s_f)) * Delta == 0.
+
+    Parameters
+    ----------
+    c_P : np.ndarray, shape (3,) or (N, 3)
+        Adjacent cell centroid.
+    c_f : np.ndarray, shape (3,) or (N, 3)
+        Boundary face centroid.
+    s_f : np.ndarray, shape (3,) or (N, 3)
+        Boundary face area normal vector.
+
+    Returns
+    -------
+    c_M : np.ndarray
+        Mirror cell centroid(s).
+    Delta_vec : np.ndarray
+        Connection vector Delta = c_M - c_P.
+    k_f : np.ndarray
+        Identically zero non-orthogonal cross-diffusion vector.
+    """
+    c_P = np.asarray(c_P, dtype=np.float64)
+    c_f = np.asarray(c_f, dtype=np.float64)
+    s_f = np.asarray(s_f, dtype=np.float64)
+
+    is_1d = (c_P.ndim == 1)
+    if is_1d:
+        c_P = c_P.reshape(1, 3)
+        c_f = c_f.reshape(1, 3)
+        s_f = s_f.reshape(1, 3)
+
+    d = c_f - c_P
+    s_dot_s = np.sum(s_f * s_f, axis=-1, keepdims=True)
+    d_dot_s = np.sum(d * s_f, axis=-1, keepdims=True)
+
+    if np.any(s_dot_s <= 0.0):
+        raise ValueError("Degenerate boundary face with zero or negative area vector magnitude.")
+
+    # Collinear Delta vector
+    Delta_vec = 2.0 * (d_dot_s / s_dot_s) * s_f
+    c_M = c_P + Delta_vec
+
+    # Cross diffusion vector k_f = s_f - (s_f . s_f / (Delta . s_f)) * Delta
+    # Because Delta = 2 * (d.s / s^2) * s, Delta . s = 2 * (d.s), so (s^2 / (Delta . s)) * Delta = s_f identically.
+    k_f = np.zeros_like(s_f)
+
+    if is_1d:
+        return c_M[0], Delta_vec[0], k_f[0]
+    return c_M, Delta_vec, k_f
+
+
+def compute_householder_reflection(s_f: np.ndarray) -> np.ndarray:
+    """Construct Householder reflection tensor R = I - 2 * n (x) n (Paper 7).
+
+    Reflects arbitrary vectors and tensors across a symmetry plane:
+        v_M = R . v_P
+        T_M = R . T_P . R^T
+
+    Parameters
+    ----------
+    s_f : np.ndarray, shape (3,) or (N, 3)
+        Face area normal vector.
+
+    Returns
+    -------
+    R : np.ndarray, shape (3, 3) or (N, 3, 3)
+        Orthogonal Householder reflection tensor (R = R^T, R . R = I, det(R) = -1).
+    """
+    s_f = np.asarray(s_f, dtype=np.float64)
+    is_1d = (s_f.ndim == 1)
+    if is_1d:
+        s_f = s_f.reshape(1, 3)
+
+    N = len(s_f)
+    R = np.zeros((N, 3, 3), dtype=np.float64)
+    I3 = np.eye(3, dtype=np.float64)
+
+    for idx in range(N):
+        sf = s_f[idx]
+        norm_sq = float(np.dot(sf, sf))
+        if norm_sq <= 1e-30:
+            raise ValueError(f"Face normal at index {idx} has near-zero magnitude: {norm_sq}")
+        n = sf / np.sqrt(norm_sq)
+        R[idx] = I3 - 2.0 * np.outer(n, n)
+
+    if is_1d:
+        return R[0]
+    return R
+
+
+def compute_symmetry_vector_diffusion_split(
+    gamma_v: float,
+    s_f: np.ndarray,
+    d_vec: np.ndarray,
+    v_P: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Patankar diagonally-dominant split for vector diffusion flux on symmetry plane (Paper 7 Eq. 15-16).
+
+    Splits the reflected diffusion flux:
+        D_v = -gamma_v * ((s_f . v_P) / (d . s_f)) * s_f
+    into positive implicit main diagonal and explicit RHS components for i in {0, 1, 2}:
+        D_{vi, im} = gamma_v * s_{f, i}^2 / (d . s_f) > 0  (implicit diagonal a_{Pi})
+        D_{vi, ex} = -gamma_v / (d . s_f) * ((s_f . v_P) - s_{f, i} * v_{P, i}) * s_{f, i}  (RHS)
+
+    Parameters
+    ----------
+    gamma_v : float
+        Kinematic / dynamic viscosity or diffusion coefficient (must be positive).
+    s_f : np.ndarray, shape (3,)
+        Boundary face area normal vector.
+    d_vec : np.ndarray, shape (3,)
+        Distance vector d = c_f - c_P.
+    v_P : np.ndarray, shape (3,)
+        Vector value at adjacent cell centroid P.
+
+    Returns
+    -------
+    D_im : np.ndarray, shape (3,)
+        Implicit diagonal contribution for each vector component (all positive).
+    D_ex : np.ndarray, shape (3,)
+        Explicit source / RHS contribution for each vector component.
+    """
+    if gamma_v < 0.0:
+        raise ValueError(f"Diffusivity gamma_v must be non-negative, got {gamma_v}")
+    s_f = np.asarray(s_f, dtype=np.float64)
+    d_vec = np.asarray(d_vec, dtype=np.float64)
+    v_P = np.asarray(v_P, dtype=np.float64)
+
+    ds = float(np.dot(d_vec, s_f))
+    if ds <= 1e-15:
+        raise ValueError(f"Non-positive cell-to-face dot product d . s_f = {ds}; inverted boundary cell.")
+
+    s_dot_v = float(np.dot(s_f, v_P))
+    D_im = gamma_v * (s_f ** 2) / ds
+    D_ex = -gamma_v * ((s_dot_v - s_f * v_P) * s_f) / ds
+
+    return D_im, D_ex
+
+
+def compute_symmetry_tensor_diffusion_split(
+    gamma_T: float,
+    s_f: np.ndarray,
+    d_vec: np.ndarray,
+    T_P: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Patankar diagonally-dominant split for symmetric rank-2 tensor diffusion flux on symmetry plane (Paper 7 Eq. 21-22).
+
+    For tensor component (i, j):
+        D_{Tij, im} = gamma_T * (s_i^2 + s_j^2) / (d . s) > 0
+        D_{Tij, ex} = -gamma_T / (d . s) * [
+            s_i * (s . T_P)_j + s_j * (s . T_P)_i
+            - 2 * (s^T T_P s) * s_i * s_j / (s . s)
+            - (s_i^2 + s_j^2) * T_{P, ij}
+        ]
+
+    Parameters
+    ----------
+    gamma_T : float
+        Tensor diffusion coefficient (e.g. stress diffusivity).
+    s_f : np.ndarray, shape (3,)
+        Boundary face area normal vector.
+    d_vec : np.ndarray, shape (3,)
+        Distance vector d = c_f - c_P.
+    T_P : np.ndarray, shape (3, 3)
+        Symmetric rank-2 tensor at adjacent cell centroid P.
+
+    Returns
+    -------
+    D_im : np.ndarray, shape (3, 3)
+        Implicit diagonal contributions (unconditionally non-negative).
+    D_ex : np.ndarray, shape (3, 3)
+        Explicit RHS contributions.
+    """
+    if gamma_T < 0.0:
+        raise ValueError(f"Diffusivity gamma_T must be non-negative, got {gamma_T}")
+    s_f = np.asarray(s_f, dtype=np.float64)
+    d_vec = np.asarray(d_vec, dtype=np.float64)
+    T_P = np.asarray(T_P, dtype=np.float64)
+
+    ds = float(np.dot(d_vec, s_f))
+    s2 = float(np.dot(s_f, s_f))
+    if ds <= 1e-15 or s2 <= 1e-30:
+        raise ValueError("Degenerate boundary face or inverted cell.")
+
+    s_T = np.dot(s_f, T_P)  # shape (3,)
+    s_T_s = float(np.dot(s_T, s_f))
+
+    D_im = np.zeros((3, 3), dtype=np.float64)
+    D_ex = np.zeros((3, 3), dtype=np.float64)
+
+    for i in range(3):
+        for j in range(3):
+            diag_weight = (s_f[i] ** 2 + s_f[j] ** 2)
+            D_im[i, j] = gamma_T * diag_weight / ds
+            ex_term = (
+                s_f[i] * s_T[j]
+                + s_f[j] * s_T[i]
+                - 2.0 * s_T_s * s_f[i] * s_f[j] / s2
+                - diag_weight * T_P[i, j]
+            )
+            D_ex[i, j] = -gamma_T * ex_term / ds
+
+    return D_im, D_ex
+
+
+# ==============================================================================
+# §12.2 & Snippet 12-14 Numerics Contracts
+# ==============================================================================
+
+class FaceClass:
+    """Classification of internal and boundary faces for FVM assembly."""
+    INVALID = -1
+    FAST = 0        # Class 0: Near-orthogonal, low-skew (M-matrix upwind)
+    CORRECTED = 1   # Class 1: Non-orthogonal / skewed requiring deferred correction
+
+
+def compute_linear_exact_face_geometry(
+    x_P: np.ndarray,
+    x_N: np.ndarray,
+    x_f: np.ndarray,
+    area_f: np.ndarray,
+    h_ref: float,
+    skew_tol: float = 1e-12,
+    non_ortho_tol: float = 1e-12,
+) -> Dict[str, Any]:
+    """Compute linear-exact plane intersection geometry and FaceClass (Snippet 12 / §12.2).
+
+    Intersects the PN ray x(beta) = x_P + beta * (x_N - x_P) with the face plane
+    (x - x_f) . S_f = 0:
+        beta_f = ((x_f - x_P) . S_f) / (d_f . S_f)
+        alpha_f = ||S_f||^2 / (d_f . S_f)
+        m_f^{skew} = x_f - (x_P + beta_f * d_f)  (lies exactly in the face plane)
+        k_f^{corr} = S_f - alpha_f * d_f
+
+    Explicitly rejects faces with cos(theta_f) <= 1e-8 or non-finite values as INVALID.
+
+    Parameters
+    ----------
+    x_P : np.ndarray, shape (3,)
+        Owner cell centroid.
+    x_N : np.ndarray, shape (3,)
+        Neighbour cell centroid.
+    x_f : np.ndarray, shape (3,)
+        Face centroid.
+    area_f : np.ndarray, shape (3,)
+        Face area normal vector S_f.
+    h_ref : float
+        Characteristic reference grid spacing.
+    skew_tol : float
+        Relative skewness tolerance for Fast class.
+    non_ortho_tol : float
+        Relative non-orthogonality tolerance for Fast class.
+
+    Returns
+    -------
+    geom : Dict[str, Any]
+        Dictionary with keys:
+            'kind': FaceClass.FAST, FaceClass.CORRECTED, or FaceClass.INVALID
+            'beta': float
+            'alpha': float
+            'skew': np.ndarray, shape (3,)
+            'correction': np.ndarray, shape (3,)
+            'relative_skew': float
+            'non_ortho': float
+    """
+    x_P = np.asarray(x_P, dtype=np.float64)
+    x_N = np.asarray(x_N, dtype=np.float64)
+    x_f = np.asarray(x_f, dtype=np.float64)
+    area_f = np.asarray(area_f, dtype=np.float64)
+
+    d = x_N - x_P
+    ds = float(np.dot(d, area_f))
+    d2 = float(np.dot(d, d))
+    s2 = float(np.dot(area_f, area_f))
+
+    invalid_res = {
+        "kind": FaceClass.INVALID,
+        "beta": 0.0,
+        "alpha": 0.0,
+        "skew": np.zeros(3, dtype=np.float64),
+        "correction": np.zeros(3, dtype=np.float64),
+        "relative_skew": float("inf"),
+        "non_ortho": float("inf"),
+    }
+
+    if not (d2 > 0.0 and s2 > 0.0 and h_ref > 0.0):
+        return invalid_res
+
+    denom = np.sqrt(d2 * s2)
+    cosine = ds / denom
+    if not np.isfinite(cosine) or cosine <= 1e-8:
+        # Explicit FaceClass::INVALID rejection (no silent clamps!)
+        return invalid_res
+
+    beta = float(np.dot(x_f - x_P, area_f) / ds)
+    alpha = float(s2 / ds)
+    skew = x_f - (x_P + d * beta)
+    correction = area_f - d * alpha
+    rel_skew = float(np.linalg.norm(skew) / h_ref)
+    non_ortho = float(np.linalg.norm(correction) / np.sqrt(s2))
+
+    kind = FaceClass.FAST if (rel_skew <= skew_tol and non_ortho <= non_ortho_tol) else FaceClass.CORRECTED
+
+    return {
+        "kind": kind,
+        "beta": beta,
+        "alpha": alpha,
+        "skew": skew,
+        "correction": correction,
+        "relative_skew": rel_skew,
+        "non_ortho": non_ortho,
+    }
+
+
+def gather_residual_cell_face_csr(
+    owned_cells: int,
+    offsets: np.ndarray,
+    faces: np.ndarray,
+    orientation: np.ndarray,
+    face_flux: np.ndarray,
+    residual: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Deterministic, atomic-free cell residual gather via CellFaceCSR adjacency (Snippet 12).
+
+    Iterates only over owned_cells without atomicAdd or ghost-cell corruption:
+        residual[c] += sum_{k = offsets[c]}^{offsets[c+1]-1} orientation[k] * face_flux[faces[k]]
+
+    Parameters
+    ----------
+    owned_cells : int
+        Number of owned cells (excluding ghost / halo cells).
+    offsets : np.ndarray, shape (N_cells + 1,)
+        CSR row offsets.
+    faces : np.ndarray
+        Flat face indices for each cell incident face.
+    orientation : np.ndarray
+        Orientation signs (+1 for owner, -1 for neighbour).
+    face_flux : np.ndarray
+        Flux on each face.
+    residual : Optional[np.ndarray]
+        Pre-allocated output residual array; allocated if None.
+
+    Returns
+    -------
+    residual : np.ndarray, shape (owned_cells,)
+        Gathered cell residuals.
+    """
+    if residual is None:
+        residual = np.zeros(owned_cells, dtype=np.float64)
+    else:
+        residual = np.asarray(residual, dtype=np.float64)
+
+    for cell in range(owned_cells):
+        start = offsets[cell]
+        end = offsets[cell + 1]
+        sum_flux = 0.0
+        for k in range(start, end):
+            f_idx = faces[k]
+            sum_flux += float(orientation[k]) * float(face_flux[f_idx])
+        residual[cell] += sum_flux
+
+    return residual
+
+
+def factorize_spd_metric_cholesky(
+    M: np.ndarray,
+    eps: float = 1e-12,
+    h_min: Optional[float] = None,
+    h_max: Optional[float] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """SPD Cholesky factorization of Riemannian metric tensor M = L L^T + eps I (§12.2).
+
+    Guarantees strict positive-definiteness M > 0. If h_min / h_max are specified,
+    eigenvalues of M are clamped to [h_max^-2, h_min^-2].
+
+    Parameters
+    ----------
+    M : np.ndarray, shape (3, 3)
+        Symmetric 3x3 metric tensor candidate.
+    eps : float
+        Regularization parameter to guarantee strict positive-definiteness.
+    h_min : Optional[float]
+        Minimum allowed step size.
+    h_max : Optional[float]
+        Maximum allowed step size.
+
+    Returns
+    -------
+    M_spd : np.ndarray, shape (3, 3)
+        Strictly positive definite metric tensor.
+    L : np.ndarray, shape (3, 3)
+        Lower triangular Cholesky factor such that M_spd = L L^T.
+    """
+    M = np.asarray(M, dtype=np.float64)
+    M_sym = 0.5 * (M + M.T)
+
+    # Eigen-decomposition for bounds check / clamping
+    eigvals, eigvecs = np.linalg.eigh(M_sym)
+    min_eig = eps
+    max_eig = 1e12
+
+    if h_max is not None and h_max > 0.0:
+        min_eig = max(eps, 1.0 / (h_max ** 2))
+    if h_min is not None and h_min > 0.0:
+        max_eig = 1.0 / (h_min ** 2)
+
+    clamped_eigvals = np.clip(eigvals, min_eig, max_eig)
+    M_spd = eigvecs @ np.diag(clamped_eigvals) @ eigvecs.T
+
+    # Compute lower-triangular Cholesky factor
+    L = np.linalg.cholesky(M_spd)
+    return M_spd, L
+
+
+def project_boundary_points_tangential_newton(
+    points: np.ndarray,
+    sdf_eval_fn: Any,
+    sdf_grad_fn: Any,
+    adjoint_grad: np.ndarray,
+    step_size: float = 1.0,
+) -> np.ndarray:
+    """Tangential CAD projection + 1-step Newton re-projection onto psi(x) = 0 (Snippet 14).
+
+    For boundary nodes with prescribed sensitivity / gradient g:
+        1. Tangential projection: g_tan = g - n * (g . n)
+        2. Tangential trial displacement: x_trial = x - eta * g_tan
+        3. Newton re-projection: x_final = x_trial - psi(x_trial) * n(x_trial)
+
+    Parameters
+    ----------
+    points : np.ndarray, shape (N, 3)
+        Boundary coordinates.
+    sdf_eval_fn : callable
+        Function returning signed distance psi(x).
+    sdf_grad_fn : callable
+        Function returning normalized unit gradient n = grad(psi) / ||grad(psi)||.
+    adjoint_grad : np.ndarray, shape (N, 3)
+        Adjoint shape sensitivity or displacement gradient.
+    step_size : float
+        Optimization step length eta.
+
+    Returns
+    -------
+    morphed_points : np.ndarray, shape (N, 3)
+        Morphed points lying accurately on the CAD zero level-set psi = 0.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    grads = np.asarray(adjoint_grad, dtype=np.float64)
+    result = np.zeros_like(pts)
+
+    for i in range(len(pts)):
+        p = pts[i]
+        g = grads[i]
+        n = sdf_grad_fn(p)
+        n = n / (np.linalg.norm(n) + 1e-15)
+
+        # 1. Tangential projection
+        g_tan = g - n * float(np.dot(g, n))
+
+        # 2. Tangential trial step
+        x_trial = p - step_size * g_tan
+
+        # 3. 1-step Newton re-projection
+        psi_val = float(sdf_eval_fn(x_trial))
+        n_trial = sdf_grad_fn(x_trial)
+        n_trial = n_trial / (np.linalg.norm(n_trial) + 1e-15)
+        x_final = x_trial - psi_val * n_trial
+
+        result[i] = x_final
+
+    return result
+
+
+def compute_gradient_free_deferred_correction(
+    m_dot: float,
+    gamma: float,
+    alpha_f: float,
+    beta_f: float,
+    phi_P: float,
+    phi_N: float,
+) -> Tuple[float, float, float, float, float]:
+    """Class 0 gradient-free convective upwind deferred correction (Snippet 13 / §12.2).
+
+    Guarantees strict M-matrix diagonal dominance (off-diagonals a_PN <= 0, a_NP <= 0)
+    for arbitrary Peclet numbers without loading cell gradients grad(phi).
+
+    Parameters
+    ----------
+    m_dot : float
+        Face convective mass flow rate (owner -> neighbour).
+    gamma : float
+        Diffusivity coefficient.
+    alpha_f : float
+        Face conductance ||S_f||^2 / (d_f . S_f).
+    beta_f : float
+        Linear-exact face plane intersection interpolation factor.
+    phi_P : float
+        Scalar value at owner cell centroid.
+    phi_N : float
+        Scalar value at neighbour cell centroid.
+
+    Returns
+    -------
+    a_PN : float
+        Implicit off-diagonal matrix entry (P, N) <= 0.
+    a_NP : float
+        Implicit off-diagonal matrix entry (N, P) <= 0.
+    a_P_diag : float
+        Implicit diagonal contribution for owner cell >= 0.
+    a_N_diag : float
+        Implicit diagonal contribution for neighbour cell >= 0.
+    flux_deferred : float
+        Explicit high-order minus upwind convective deferred correction flux on RHS.
+    """
+    diff_flux = gamma * alpha_f
+    m_pos = max(m_dot, 0.0)
+    m_neg = min(m_dot, 0.0)
+
+    # Implicit off-diagonals (strictly <= 0 for all Peclet numbers -> M-matrix guaranteed)
+    a_PN = m_neg - diff_flux
+    a_NP = -m_pos - diff_flux
+
+    # Continuity-corrected diagonal contributions (a_PP = sum |a_PN|)
+    a_P_diag = -a_PN
+    a_N_diag = -a_NP
+
+    # Explicit high-order minus upwind convective deferred correction:
+    # Uses ONLY scalar phi_P, phi_N (loads NO cell gradients grad_phi)
+    flux_ho = m_dot * (beta_f * phi_N + (1.0 - beta_f) * phi_P)
+    flux_upw = m_pos * phi_P + m_neg * phi_N
+    flux_deferred = flux_ho - flux_upw
+
+    return a_PN, a_NP, a_P_diag, a_N_diag, flux_deferred
+
+
+def compute_three_map_mesh_error_map(
+    mesh: UnstructuredMesh,
+    u_pilot: Optional[np.ndarray] = None,
+    wall_distance: Optional[np.ndarray] = None,
+    H_u: Optional[np.ndarray] = None,
+    residual: Optional[np.ndarray] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Separate 3-Map MeshErrorMap architecture (§12.2).
+
+    Separates mesh error diagnostics into:
+    1. GeometryMap:
+       Dimensionless skewness ||m_f^skew|| / h_ref, non-orthogonality ||k_f^corr|| / ||S_f||, aspect ratio,
+       and FaceClass classification (Class 0 Fast, Class 1 Corrected, Invalid).
+    2. SolutionIndicator:
+       Vorticity norm ||curl(u_pilot)||, wall distance SDF, and Hessian norm ||H_u||.
+    3. ErrorEstimator:
+       Equation residual norm and adjoint DWR indicator.
+
+    Parameters
+    ----------
+    mesh : UnstructuredMesh
+        Mesh to diagnose.
+    u_pilot : Optional[np.ndarray], shape (N_cells, 3)
+        Velocity field from pilot run.
+    wall_distance : Optional[np.ndarray], shape (N_cells,)
+        SDF wall distance field.
+    H_u : Optional[np.ndarray], shape (N_cells, 3, 3)
+        Solution Hessian field.
+    residual : Optional[np.ndarray], shape (N_cells,)
+        Cell residual field.
+
+    Returns
+    -------
+    three_maps : Dict[str, Dict[str, Any]]
+        Dictionary containing 'GeometryMap', 'SolutionIndicator', and 'ErrorEstimator'.
+    """
+    n_faces = mesh.num_faces
+    n_cells = mesh.num_cells
+    h_ref = float(np.mean(mesh.cell_volumes) ** (1.0 / 3.0)) if n_cells > 0 else 1.0
+
+    # 1. GeometryMap
+    geom_map: Dict[str, Any] = {
+        "m_skew_relative": mesh.error_map.get("skewness", np.zeros(n_faces)),
+        "non_orthogonality": mesh.error_map.get("non_orthogonality", np.zeros(n_faces)),
+        "aspect_ratio": mesh.error_map.get("aspect_ratio", np.ones(n_cells)),
+        "stabilization_mask": mesh.error_map.get("stabilization_mask", np.zeros(n_faces, dtype=np.int32)),
+    }
+
+    # 2. SolutionIndicator
+    sol_indicator: Dict[str, Any] = {}
+    if u_pilot is not None:
+        sol_indicator["pilot_velocity_magnitude"] = np.linalg.norm(u_pilot, axis=-1)
+    if wall_distance is not None:
+        sol_indicator["wall_distance_sdf"] = np.asarray(wall_distance, dtype=np.float64)
+    if H_u is not None:
+        sol_indicator["hessian_frobenius_norm"] = np.linalg.norm(H_u, axis=(-2, -1))
+
+    # 3. ErrorEstimator
+    err_estimator: Dict[str, Any] = {}
+    if residual is not None:
+        err_estimator["residual_norm"] = np.abs(np.asarray(residual, dtype=np.float64))
+    else:
+        err_estimator["residual_norm"] = np.zeros(n_cells, dtype=np.float64)
+
+    return {
+        "GeometryMap": geom_map,
+        "SolutionIndicator": sol_indicator,
+        "ErrorEstimator": err_estimator,
+    }
+
+
 

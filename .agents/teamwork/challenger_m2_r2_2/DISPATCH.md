@@ -1,25 +1,37 @@
-## 2026-10-28T05:52:42Z
-You are challenger_m2_r2_2, Gate 2 CAD Stress, Boundary Layer & Cyclic Symmetry Challenger for Milestone M2.
+## 2026-11-07T05:22:00Z
+You are challenger_m2_r2_2 (teamwork_challenger) for Milestone M2 Iteration 2 Certification of the CFDSolver Audit Remediation.
 
-## Working Directory
-Your assigned working directory is: `G:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_2`
-Report handoff: `G:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_2\handoff.md`
+Your working directory is:
+g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_2\
 
-## Required Reading
-Read:
-1. `G:\Datein\Projects\CFDSolver\.agents\teamwork\ORIGINAL_REQUEST.md`
-2. `G:\Datein\Projects\CFDSolver\PROJECT.md`
-3. `G:\Datein\Projects\CFDSolver\.agents\teamwork\worker_m2_2\handoff.md`
-4. Previous Challenger Report: `G:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_2\handoff.md`
+Read these files before beginning:
+1. ORIGINAL_REQUEST.md: g:\Datein\Projects\CFDSolver\.agents\teamwork\ORIGINAL_REQUEST.md
+2. Master Project Scope: g:\Datein\Projects\CFDSolver\PROJECT.md
+3. Challenger 2 Handoff (Iteration 1): g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_2\handoff.md
+4. Remediation Worker Changes Report: g:\Datein\Projects\CFDSolver\.agents\teamwork\worker_audit_m2_2\changes.md
+5. Remediation Worker Handoff Report: g:\Datein\Projects\CFDSolver\.agents\teamwork\worker_audit_m2_2\handoff.md
+6. Challenger 2 Test File: g:\Datein\Projects\CFDSolver\tests\test_challenger_m2_audit_2.py
 
-## Scope & Instructions
-Re-test the 5 previously defective areas from Gate 1 to confirm remediation:
-1. Feature 23 Corner Pinching: Verify corner turning angle calculation actively alters mesh coordinates (`diff > 0.0` between pinching=True and False).
-2. Element inversion handling: Confirm negative signed volumes are not masked by `abs()`.
-3. Collapsed clearance handling: Confirm zero clearance evaluates to 0.0 and does not fallback to 1.0.
-4. Feature 21 CHT Interfaces: Confirm conformal twin boundary faces ($\mathbf{S}_{f_F} = -\mathbf{S}_{f_S}$) on `coupledWall_fluid` and `coupledWall_solid`, plus AMI area weighting ($\sum w_{ij} = 1.0$).
-5. Feature 22 Cyclic Pairing: Confirm `cfd_mesher_extract_cyclic_pairs` is exported in DLL and `mesh.cyclic_pairs` is populated.
-6. Run:
-   - `& "G:\Datein\Projects\CFDSolver\.venv\Scripts\python.exe" -m pytest tests/test_challenger_m2_2_adversarial.py -v`
-7. Document exact numerical results in `handoff.md`.
-8. Provide an explicit verdict: `APPROVE` or `REQUEST_CHANGES`. Send completion message via `send_message`.
+USER DIRECTIVE FOR AUDIT / REVIEW PANELS:
+"The auditors and reviewers do NOT need to re-examine the entire codebase from scratch for each gate. It is sufficient to audit the specific modified code sections and all directly affected or interconnected blocks/downstream dependencies that are influenced by the changes. This saves time and computational resources while ensuring thorough verification of affected areas."
+
+HARDWARE CONCURRENCY GUARD (R13):
+- Host stability guard: Ansys Fluent running in background (~95% RAM).
+- In PowerShell, run commands sequentially with `$env:OMP_NUM_THREADS = "8"`
+- Do not run pytest with `-n` or xdist.
+
+YOUR MISSION:
+Empirically verify that the 3 defects you previously flagged have been genuinely and completely resolved:
+1. **Defect 1 (`gci.py:115`)**:
+   - Verify that `topological_dim is None` evaluates cleanly (e.g. $h = 2.0$ for cell volume 8.0) and never raises `TypeError`.
+2. **Defect 2 (`difvm_topology.py:508-575`)**:
+   - Verify that cut cells donate positive weight to larger regular fluid neighbors ($\alpha_{nb} \ge \alpha_{\text{target}}$) and do NOT donate to smaller cut cells when larger neighbors exist.
+   - Verify that partition of unity ($\sum w = 1.0$) is satisfied to $< 10^{-14}$.
+3. **Defect 3 (`mesh_engine.py:129`)**:
+   - Verify that `MeshEngine(config=MeshingConfig(domain_mode="external_fluid"))` is preserved when `mesh_cad_file(path, config=None)` is called.
+4. Run:
+   - `.venv\Scripts\pytest.exe tests/test_challenger_m2_audit_2.py -v`
+
+DELIVERABLE:
+Write `handoff.md` in `g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_2\` following the Handoff Protocol.
+Then call `send_message` to orchestrator (`0e9d9a36-56a7-4f1c-8222-640d7206b910`) with your verdict: **APPROVE** or **REQUEST_CHANGES**.

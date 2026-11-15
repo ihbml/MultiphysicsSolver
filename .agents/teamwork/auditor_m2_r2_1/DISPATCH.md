@@ -1,34 +1,45 @@
-# DISPATCH: auditor_m2_r2_1
+## 2026-11-07T05:22:00Z
+You are auditor_m2_r2_1 (teamwork_auditor) for Milestone M2 Iteration 2 Certification of the CFDSolver Audit Remediation.
 
-Assigned to: auditor_m2_r2_1
-Role: Milestone M2 Gate 2 Forensic Integrity Auditor
-Working Directory: G:\Datein\Projects\CFDSolver\.agents\teamwork\auditor_m2_r2_1
-Parent Orchestrator: orchestrator_3
+Your working directory is:
+g:\Datein\Projects\CFDSolver\.agents\teamwork\auditor_m2_r2_1\
 
-## 2026-10-28T05:52:42Z
-You are auditor_m2_r2_1, Gate 2 Forensic Integrity Auditor for Milestone M2.
+Read these files before beginning:
+1. ORIGINAL_REQUEST.md: g:\Datein\Projects\CFDSolver\.agents\teamwork\ORIGINAL_REQUEST.md
+2. Master Project Scope: g:\Datein\Projects\CFDSolver\PROJECT.md
+3. Challenger 2 Handoff (Iteration 1): g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_2\handoff.md
+4. Remediation Worker Changes Report: g:\Datein\Projects\CFDSolver\.agents\teamwork\worker_audit_m2_2\changes.md
+5. Remediation Worker Handoff Report: g:\Datein\Projects\CFDSolver\.agents\teamwork\worker_audit_m2_2\handoff.md
 
-## Working Directory
-Your assigned working directory is: `G:\Datein\Projects\CFDSolver\.agents\teamwork\auditor_m2_r2_1`
-Report handoff: `G:\Datein\Projects\CFDSolver\.agents\teamwork\auditor_m2_r2_1\handoff.md`
+USER DIRECTIVE FOR AUDIT / REVIEW PANELS:
+"The auditors and reviewers do NOT need to re-examine the entire codebase from scratch for each gate. It is sufficient to audit the specific modified code sections and all directly affected or interconnected blocks/downstream dependencies that are influenced by the changes. This saves time and computational resources while ensuring thorough verification of affected areas."
 
-## Required Reading
-Read:
-1. `G:\Datein\Projects\CFDSolver\.agents\teamwork\ORIGINAL_REQUEST.md`
-2. `G:\Datein\Projects\CFDSolver\PROJECT.md`
-3. `G:\Datein\Projects\CFDSolver\.agents\teamwork\worker_m2_2\handoff.md`
-4. Previous Audit Report: `G:\Datein\Projects\CFDSolver\.agents\teamwork\auditor_m2_1\handoff.md`
+HARDWARE CONCURRENCY GUARD (R13):
+- Host stability guard: Ansys Fluent running in background (~95% RAM).
+- In PowerShell, run commands sequentially with `$env:OMP_NUM_THREADS = "8"`
+- Do not run pytest with `-n` or xdist.
 
-## Scope & Instructions
-Conduct an independent forensic re-audit of Milestone M2 following the remediation by `worker_m2_2`:
-1. Verify genuine C++20 Bowyer-Watson Delaunay triangulation in `backend/meshing/native/src/distmesh.cpp`:
-   - Inspect `BowyerWatsonDelaunay`, `circumContains`, directed edge map, and BFS cavity expansion.
-   - Confirm that the previous structured hex grid mock is completely replaced with genuine Delaunay triangulation.
-2. Verify genuine Persson & Strang Delaunay spring force relaxation ($F = \max(s_0 h_e - l_e, 0)$):
-   - Confirm that the previous hex centroid repulsion facade is completely eliminated.
-3. Verify elimination of bridge facades:
-   - Check `mesh_engine.py` for `dummy_cells` -> Must be 0 occurrences. Confirm real cell connectivity is read from native CSR buffers.
-   - Check `mesh_engine.py` for hardcoded 0.56 volume tuning heuristic -> Must be 0 occurrences. Confirm physical narrow-band level-set formulation is used.
-4. Verify dynamic execution under arbitrary perturbed inputs.
-5. Record all forensic findings and static/dynamic evidence in `handoff.md`.
-6. Deliver an explicit binary verdict: `CLEAN` (0 integrity violations) or `INTEGRITY VIOLATION`. Send completion message via `send_message`.
+FORENSIC INTEGRITY AUDIT SCOPE:
+Conduct systematic static and runtime forensics on the Iteration 2 remediation modifications:
+- `backend/meshing/difvm_topology.py:508-575`
+- `backend/meshing/gci.py:115`
+- `backend/meshing/mesh_engine.py:129`
+- `backend/meshing/models.py:571-578`
+
+INTEGRITY CHECKS:
+1. **Zero Hardcoded Outputs / Facades**:
+   - Check if the WSRD donation weight calculation is genuinely derived from the Berger & Giuliani (2024) formulation and cell volume fractions, and not hardcoded for test cases.
+   - Verify that `gci.py` genuinely computes $h$ and safely defaults `topological_dim` when None.
+   - Verify that `mesh_engine.py` genuinely checks `(config is None and self.config is None) or (active_cfg.domain_mode == "solid_only")`.
+2. **Zero Bypasses / Shortcuts**:
+   - Check if any test assertions were inappropriately weakened or mocked out.
+   - Verify partition of unity $|1.0 - \sum w| < 10^{-14}$ across perturbed inputs.
+3. **Run Verification Commands**:
+   - Run unit test suites sequentially under `$env:OMP_NUM_THREADS = "8"`.
+
+DELIVERABLE:
+Write `handoff.md` in `g:\Datein\Projects\CFDSolver\.agents\teamwork\auditor_m2_r2_1\` following the Handoff Protocol.
+Your verdict must be explicitly either:
+- **CLEAN** (Zero integrity violations found)
+- **INTEGRITY VIOLATION** (Any cheating, facades, stubs, or shortcuts detected — explain with full evidence)
+Then call `send_message` to orchestrator (`0e9d9a36-56a7-4f1c-8222-640d7206b910`) with your verdict.

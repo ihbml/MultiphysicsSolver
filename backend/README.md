@@ -8,13 +8,13 @@ Dieses Verzeichnis enthält die gesamte Berechnungs-, Modellierungs- und Orchest
 
 ## 📚 Wichtige Dokumente & Nachschlagewerke
 
-1. **[OPENFOAM_BACKEND_ATLAS.md](file:///g:/Datein/Projects/CFDSolver/backend/OPENFOAM_BACKEND_ATLAS.md)**:  
+1. **[OPENFOAM_BACKEND_ATLAS.md](OPENFOAM_BACKEND_ATLAS.md)**:  
    **Das zentrale Nachschlagewerk!** Enthält den detaillierten Pfad- und Struktur-Atlas der Upstream OpenFOAM-Basis (`OpenFOAM_base/openfoam`), Mappings aller 12 Physik-Module, Dictionaries, FunctionObjects, C++ Bibliotheken und CLI-Befehle.
-2. **[COMMUNICATION_BACKEND_FRONTEND.md](file:///g:/Datein/Projects/CFDSolver/COMMUNICATION_BACKEND_FRONTEND.md)**:  
+2. **[COMMUNICATION_BACKEND_FRONTEND.md](../COMMUNICATION_BACKEND_FRONTEND.md)**:  
    Schnittstellenvertrag und Datenübergabe zwischen Backend (`ModuleRegistry`, `CaseGenerator`) und Frontend (Trame UI).
-3. **[FRONTEND_REQUIREMENTS_ON_BACKEND.md](file:///g:/Datein/Projects/CFDSolver/FRONTEND_REQUIREMENTS_ON_BACKEND.md)**:  
+3. **[FRONTEND_REQUIREMENTS_ON_BACKEND.md](../FRONTEND_REQUIREMENTS_ON_BACKEND.md)**:  
    Spezifikation der benötigten Eingabemasken, Schemata und Schalter für das UI.
-4. **[SUGGESTIONS_BACKEND.md](file:///g:/Datein/Projects/CFDSolver/SUGGESTIONS_BACKEND.md)**:  
+4. **[SUGGESTIONS_BACKEND.md](../SUGGESTIONS_BACKEND.md)**:  
    Ideenpool für Performance-Tuning (Rust Fast-I/O, Jacobi-Stabilisierung, P/E-Core Tuning, GPU-Kerne).
 
 ---
@@ -35,7 +35,7 @@ backend/
 ├── runner/
 │   └── wsl_runner.py            # Headless-Simulation runner unter WSL2 (blockMesh, decomposePar, mpirun)
 ├── native_cpp/
-│   └── smr_catalysis/           # C++ fvOptions mit analytischer Jacobi-Stabilisierung (wmake)
+│   └── smr_catalysis/           # C++ fvOptions für generische Reaktionsquellterme (wmake)
 ├── native_rust/
 │   └── foam_fast_io/            # High-Speed Field I/O & Memory-Mapped Parser (PyO3)
 ├── physics_modules/

@@ -389,3 +389,112 @@ def test_mesh_engine_facade_2d_polygon():
     assert np.all(mesh.cell_volumes > 1e-15)
     assert len(mesh.cell_volumes) >= 2
     assert abs(np.sum(mesh.cell_volumes) - 1.0) < 1e-12
+
+
+# ---------------------------------------------------------------------------
+# Test Group 8: Phase 3 Remediation (K3, K4, K9, M6/H10)
+# ---------------------------------------------------------------------------
+
+
+def test_k3_l_profile_true_geometric_volume():
+    """Verify K3: L-profile non-box geometry is not meshed as bounding box (4.0) but true volume (~3.0)."""
+    # 2x2x1 bounding box with 1x1x1 cutout: true volume = 2*2*1 - 1*1*1 = 3.0
+    pts = np.array([
+        [0, 0, 0], [1, 0, 0], [2, 0, 0], [2, 1, 0], [1, 1, 0], [1, 2, 0], [0, 2, 0],
+        [0, 0, 1], [1, 0, 1], [2, 0, 1], [2, 1, 1], [1, 1, 1], [1, 2, 1], [0, 2, 1],
+    ], dtype=np.float64)
+    faces = np.array([
+        [0, 4, 1], [0, 6, 4], [6, 5, 4], [1, 3, 2], [1, 4, 3],
+        [7, 8, 11], [7, 11, 13], [13, 11, 12], [8, 9, 10], [8, 10, 11],
+        [0, 1, 8], [0, 8, 7],
+        [1, 2, 9], [1, 9, 8],
+        [2, 3, 10], [2, 10, 9],
+        [3, 4, 11], [3, 11, 10],
+        [4, 5, 12], [4, 12, 11],
+        [5, 6, 13], [5, 13, 12],
+        [6, 0, 7], [6, 7, 13],
+    ], dtype=np.int32)
+
+    # 1. Verification that polycube shortcut rejects non-box geometry
+    R = MeshEngine._detect_oriented_box_axes(pts, faces)
+    assert R is None, "_detect_oriented_box_axes must return None for non-box L-profile"
+
+    # 2. General mesher pipeline produces geometric volume ~3.0, not bounding box 4.0
+    from backend.geometry.models import SurfaceMesh
+    sm = SurfaceMesh(vertices=pts, faces=faces)
+    engine = MeshEngine(use_native=False)
+    mesh = engine._mesh_complex_surface(sm, scale=1.0, h0=0.5, active_cfg=MeshingConfig(domain_mode="solid_only"))
+
+    total_vol = float(np.sum(mesh.cell_volumes))
+    assert abs(total_vol - 3.0) < 0.05, f"L-profile volume {total_vol:.2f} must match true volume 3.0 (not 4.0)"
+    assert abs(total_vol - 4.0) > 0.5, "L-profile must not be meshed as solid bounding box (volume 4.0)"
+
+
+def test_k4_compatibility_shield_removal():
+    """Verify K4: mesh_cad_file honors declarative external_fluid without compatibility shield."""
+    import tempfile
+    engine = MeshEngine(use_native=False)
+
+    # Create temporary simple cube STL
+    cube_stl = Path(tempfile.gettempdir()) / "k4_test_cube.stl"
+    verts = np.array([
+        [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
+        [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
+    ], dtype=np.float64)
+    faces = np.array([
+        [0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6],
+        [0, 4, 5], [0, 5, 1], [2, 6, 7], [2, 7, 3],
+        [0, 3, 7], [0, 7, 4], [1, 5, 6], [1, 6, 2],
+    ], dtype=np.int32)
+    with open(cube_stl, "w") as f:
+        f.write("solid cube\n")
+        for tri in faces:
+            f.write("  facet normal 0 0 0\n    outer loop\n")
+            for vid in tri:
+                f.write(f"      vertex {verts[vid, 0]} {verts[vid, 1]} {verts[vid, 2]}\n")
+            f.write("    endloop\n  endfacet\n")
+        f.write("endsolid cube\n")
+
+    try:
+        # Default with config=None should now honor declarative default "external_fluid"
+        # and create external fluid farfield mesh (larger than unit cube volume 1.0)
+        m_fluid = engine.mesh_cad_file(cube_stl, h0=0.5, config=None)
+        assert isinstance(m_fluid, UnstructuredMesh)
+        assert np.sum(m_fluid.cell_volumes) > 1.0, "external_fluid mesh volume must exceed body volume 1.0"
+
+        # Explicit solid_only should produce solid cube mesh (volume = 1.0)
+        m_solid = engine.mesh_cad_file(cube_stl, h0=0.5, config=MeshingConfig(domain_mode="solid_only"))
+        assert isinstance(m_solid, UnstructuredMesh)
+        assert abs(np.sum(m_solid.cell_volumes) - 1.0) < 1e-4, "solid_only mesh volume must equal 1.0"
+    finally:
+        if cube_stl.exists():
+            cube_stl.unlink()
+
+
+def test_m6_ram_limit_explicit_exception():
+    """Verify M6: excessive resolution raises ValueError instead of silently coarsening."""
+    engine = MeshEngine(use_native=False)
+    verts = np.array([
+        [0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0],
+        [0, 0, 10], [10, 0, 10], [10, 10, 10], [0, 10, 10],
+    ], dtype=np.float64)
+    R = np.eye(3, dtype=np.float64)
+    cfg = MeshingConfig(domain_mode="solid_only")
+    setattr(cfg, "max_cells", 500)
+
+    # 10x10x10 with h0=0.5 -> 20x20x20 = 8000 cells > 500 max_cells
+    with pytest.raises(ValueError, match="exceeds configured limit"):
+        engine._mesh_oriented_box(verts, R, h0=0.5, active_cfg=cfg)
+
+
+def test_k9_step_parser_curved_detection():
+    """Verify K9: _has_curved_entities correctly discriminates curved vs planar models."""
+    from backend.geometry.parsers.step_parser import STEPParser
+    blade_path = Path("resources/CADTestSamples/ComplexGeometryExample/BladeFullRev1CFD.stp")
+    cube_path = Path("resources/CADTestSamples/TestCADSTPAP214.stp")
+
+    if blade_path.exists():
+        assert STEPParser._has_curved_entities(blade_path) is True
+    if cube_path.exists():
+        assert STEPParser._has_curved_entities(cube_path) is False
+

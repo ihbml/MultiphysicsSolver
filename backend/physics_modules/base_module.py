@@ -54,6 +54,19 @@ class BasePhysicsModule(ABC):
         warnings = []
         return warnings
 
+    def get_ui_schema(self) -> Dict[str, Any]:
+        """Liefert das deklarative UI-Schema für das Frontend (nTop-Block-Stack & Egui Inspector)."""
+        return {
+            "module_id": self.name.replace(" ", "_").replace("&", "and"),
+            "display_name": self.name,
+            "ui_category": self.category.lower(),
+            "description": self.description,
+            "variants": [self.config.model_variant],
+            "default_variant": self.config.model_variant,
+            "requires_modules": [],
+            "parameters": {},
+        }
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialisierung für Frontend / Trame UI."""
         return {

@@ -326,6 +326,9 @@ class MeshQualityReport:
     stabilization_tier_counts: Dict[int, int] = field(default_factory=dict)
     is_valid: bool = True
     details: Dict[str, Any] = field(default_factory=dict)
+    j_ens_min: float = 1.0
+    j_ens_mean: float = 1.0
+    inverted_pyramids: int = 0
 
 
 @dataclass
@@ -418,6 +421,9 @@ class UnstructuredMesh:
         tol_rel: float = 1e-11,
         tol_proj: float = 1e-12,
         tol_relax: float = 1e-10,
+        tol_centroid: float = 1e-3,
+        max_aspect_ratio: float = 1000.0,
+        check_containment: bool = True,
     ) -> bool:
         """Audit physical and topological invariants. Raises ValueError on violation."""
         if np.any(self.cell_volumes <= 0.0):
@@ -557,6 +563,70 @@ class UnstructuredMesh:
                         f"Over-relaxation identity delta_f . S_f == ||S_f||^2 violated: max error = {max_relax_err:.2e} > {tol_relax:.2e}"
                     )
 
+        # 6. Cell bounding box containment & elongation check
+        if check_containment and self.num_cells > 0 and len(self.points) > 0:
+            if self.cells is not None and len(self.cells) == self.num_cells:
+                for c_idx, cell_verts in enumerate(self.cells):
+                    if len(cell_verts) == 0:
+                        continue
+                    c_pts = self.points[cell_verts]
+                    b_min = np.min(c_pts, axis=0)
+                    b_max = np.max(c_pts, axis=0)
+                    span = b_max - b_min
+                    char_h = float(np.max(span))
+                    eps = 1e-5 * max(char_h, 1e-12)
+                    C_c = self.cell_centres[c_idx]
+
+                    if np.any(C_c < b_min - eps) or np.any(C_c > b_max + eps):
+                        raise ValueError(
+                            f"Cell {c_idx} centroid {C_c} lies outside its bounding box "
+                            f"[{b_min}, {b_max}] with tolerance {eps:.2e}"
+                        )
+
+                    min_span = float(np.min(span))
+                    if min_span > 1e-15:
+                        elongation = char_h / min_span
+                        if elongation > max_aspect_ratio:
+                            raise ValueError(
+                                f"Cell {c_idx} elongation {elongation:.1f} exceeds maximum allowed {max_aspect_ratio}"
+                            )
+
+        # 7. Global Centroid Divergence Theorem balance check
+        # int_Omega x dV = 1/(d+1) int_{dOmega} x (x . n) dS
+        # sum_c V_c C_c == 1/(d+1) sum_{f in bnd} c_f (c_f . S_f)
+        bnd_mask = self.neighbour < 0
+        n_bnd_faces = int(np.sum(bnd_mask))
+        if n_bnd_faces > 0 and self.num_cells > 0 and len(self.face_centres) == self.num_faces:
+            total_vol = float(np.sum(self.cell_volumes))
+            if total_vol > 1e-15:
+                M_cells = np.sum(self.cell_centres * self.cell_volumes[:, None], axis=0)
+                d_dim = float(max(1, self.topological_dim))
+                cf_bnd = self.face_centres[bnd_mask]
+                sf_bnd = self.face_areas[bnd_mask]
+                if d_dim == 2:
+                    # Planar 2D mesh: shift coordinates relative to in-plane reference point x0
+                    # to properly balance out-of-plane z0 != 0 coordinates and maintain translation invariance
+                    x0 = np.mean(self.points, axis=0) if len(self.points) > 0 else np.zeros(3)
+                    cf_rel = cf_bnd - x0
+                    cf_dot_sf = np.sum(cf_rel * sf_bnd, axis=1)
+                    M_boundary = x0 * total_vol + (1.0 / (d_dim + 1.0)) * np.sum(cf_rel * cf_dot_sf[:, None], axis=0)
+                else:
+                    cf_dot_sf = np.sum(cf_bnd * sf_bnd, axis=1)
+                    M_boundary = (1.0 / (d_dim + 1.0)) * np.sum(cf_bnd * cf_dot_sf[:, None], axis=0)
+
+                diff_moment = float(np.linalg.norm(M_cells - M_boundary))
+                if len(self.points) > 0:
+                    L_char = float(np.linalg.norm(np.max(self.points, axis=0) - np.min(self.points, axis=0)))
+                else:
+                    L_char = 1.0
+                rel_centroid_err = diff_moment / (total_vol * max(L_char, 1e-12))
+                if rel_centroid_err > tol_centroid:
+                    raise ValueError(
+                        f"Global centroid divergence theorem balance violated: "
+                        f"rel error = {rel_centroid_err:.2e} > {tol_centroid:.2e} "
+                        f"(||M_cells - M_boundary|| = {diff_moment:.4e}, total_vol = {total_vol:.4e})"
+                    )
+
         return True
 
     def compute_quality_report(self) -> MeshQualityReport:
@@ -591,6 +661,16 @@ class UnstructuredMesh:
         max_vol = float(np.max(self.cell_volumes)) if len(self.cell_volumes) > 0 else 0.0
         tot_vol = float(np.sum(self.cell_volumes)) if len(self.cell_volumes) > 0 else 0.0
 
+        # Stromberg J_ENS evaluation across cells
+        j_ens_min = 1.0
+        j_ens_mean = 1.0
+        inv_pyr = 0
+        if self.num_cells > 0 and len(self.cells) == self.num_cells:
+            j_ens_arr, inv_pyr = compute_mesh_j_ens(self)
+            if len(j_ens_arr) > 0:
+                j_ens_min = float(np.min(j_ens_arr))
+                j_ens_mean = float(np.mean(j_ens_arr))
+
         return MeshQualityReport(
             num_cells=self.num_cells,
             num_faces=self.num_faces,
@@ -608,8 +688,198 @@ class UnstructuredMesh:
             aspect_ratio_max=float(np.max(aspect_ratio)) if len(aspect_ratio) > 0 else 1.0,
             aspect_ratio_mean=float(np.mean(aspect_ratio)) if len(aspect_ratio) > 0 else 1.0,
             stabilization_tier_counts=tier_counts,
-            is_valid=(min_vol > 0.0 and max_closure <= 1e-10),
+            is_valid=(min_vol > 0.0 and max_closure <= 1e-10 and inv_pyr == 0),
+            j_ens_min=j_ens_min,
+            j_ens_mean=j_ens_mean,
+            inverted_pyramids=inv_pyr,
         )
+
+
+# ==============================================================================
+# Stromberg (2023) Quality Metric J_ENS & Pyramid Protection
+# ==============================================================================
+
+def compute_nodal_scaled_jacobian(e1: np.ndarray, e2: np.ndarray, e3: np.ndarray, max_edge_len: float) -> float:
+    """Aspect-ratio-sensitive nodal Scaled Jacobian (Stromberg 2023, Eq. 3.30).
+
+    J_{s,i} = det([e1, e2, e3]) / (max_k l_k)^3
+    """
+    det_j = float(np.dot(e1, np.cross(e2, e3)))
+    return det_j / (float(max_edge_len) ** 3 + 1e-30)
+
+
+def compute_element_normalized_scaled_jacobian(js_min: float, cell_type: Union[CellType, int]) -> float:
+    """Element Normalized Scaled Jacobian J_ENS in [-1, 1] (Lobos 2015 / Stromberg 2023, Eq. 3.32).
+
+    J_{S,opt}: Hex8 = 1.0, Prism6 = sqrt(3)/2 (~0.866025), Tet4 & Pyr5 = sqrt(2)/2 (~0.707107)
+    """
+    ctype = CellType(cell_type) if not isinstance(cell_type, CellType) else cell_type
+    if ctype == CellType.HEXAHEDRON:
+        js_opt = 1.0
+    elif ctype == CellType.WEDGE:
+        js_opt = 0.8660254037844386  # sqrt(3) / 2
+    else:  # TETRA (10) or PYRAMID (14)
+        js_opt = 0.7071067811865476  # sqrt(2) / 2
+
+    if js_min > js_opt:
+        return float((1.0 + js_opt) - js_min)
+    elif js_min < -js_opt:
+        return float(-(1.0 + js_opt) - js_min)
+    else:
+        return float(js_min / js_opt)
+
+
+def check_pyramid_base_fictitious_hex(base_pts: np.ndarray, apex_pt: np.ndarray) -> float:
+    """Erects a fictitious hexahedron of height l_bar_base over a 4-node pyramid base (Stromberg p. 38).
+
+    Returns minimum nodal Scaled Jacobian of the fictitious hexahedron.
+    Folded, non-convex, or inverted quadrilateral bases yield min SJ <= 0.
+    """
+    base = np.asarray(base_pts, dtype=np.float64)
+    apex = np.asarray(apex_pt, dtype=np.float64)
+    if len(base) != 4:
+        raise ValueError(f"Pyramid base must have exactly 4 nodes, got {len(base)}")
+
+    e01 = base[1] - base[0]
+    e12 = base[2] - base[1]
+    e23 = base[3] - base[2]
+    e30 = base[0] - base[3]
+    edge_lens = [
+        float(np.linalg.norm(e01)),
+        float(np.linalg.norm(e12)),
+        float(np.linalg.norm(e23)),
+        float(np.linalg.norm(e30)),
+    ]
+    h_bar = float(np.mean(edge_lens))
+
+    n_base = np.cross(base[2] - base[0], base[3] - base[1])
+    n_norm = float(np.linalg.norm(n_base))
+    if n_norm < 1e-12:
+        return -1.0
+
+    n_base /= n_norm
+    base_center = np.mean(base, axis=0)
+    if np.dot(apex - base_center, n_base) < 0.0:
+        n_base = -n_base
+
+    top = base + h_bar * n_base
+    hex_pts = np.vstack([base, top])
+
+    hex_edges = list(edge_lens)
+    for k in range(4):
+        hex_edges.append(float(np.linalg.norm(hex_pts[k + 4] - hex_pts[k])))
+        hex_edges.append(float(np.linalg.norm(hex_pts[((k + 1) % 4) + 4] - hex_pts[k + 4])))
+    max_e = max(hex_edges)
+
+    sjs = [
+        compute_nodal_scaled_jacobian(hex_pts[1]-hex_pts[0], hex_pts[3]-hex_pts[0], hex_pts[4]-hex_pts[0], max_e),
+        compute_nodal_scaled_jacobian(hex_pts[2]-hex_pts[1], hex_pts[0]-hex_pts[1], hex_pts[5]-hex_pts[1], max_e),
+        compute_nodal_scaled_jacobian(hex_pts[3]-hex_pts[2], hex_pts[1]-hex_pts[2], hex_pts[6]-hex_pts[2], max_e),
+        compute_nodal_scaled_jacobian(hex_pts[0]-hex_pts[3], hex_pts[2]-hex_pts[3], hex_pts[7]-hex_pts[3], max_e),
+        compute_nodal_scaled_jacobian(hex_pts[7]-hex_pts[4], hex_pts[5]-hex_pts[4], hex_pts[0]-hex_pts[4], max_e),
+        compute_nodal_scaled_jacobian(hex_pts[4]-hex_pts[5], hex_pts[6]-hex_pts[5], hex_pts[1]-hex_pts[5], max_e),
+        compute_nodal_scaled_jacobian(hex_pts[5]-hex_pts[6], hex_pts[7]-hex_pts[6], hex_pts[2]-hex_pts[6], max_e),
+        compute_nodal_scaled_jacobian(hex_pts[6]-hex_pts[7], hex_pts[4]-hex_pts[7], hex_pts[3]-hex_pts[7], max_e),
+    ]
+    return float(min(sjs))
+
+
+def compute_cell_j_ens(points: np.ndarray, cell_nodes: Union[List[int], np.ndarray], cell_type: CellType) -> float:
+    """Compute Element Normalized Scaled Jacobian J_ENS for a single cell."""
+    pts = points[cell_nodes]
+    n_v = len(pts)
+
+    if cell_type == CellType.HEXAHEDRON and n_v == 8:
+        pairs = [(0,1), (1,2), (2,3), (3,0), (4,5), (5,6), (6,7), (7,4), (0,4), (1,5), (2,6), (3,7)]
+        max_e = max(np.linalg.norm(pts[j]-pts[i]) for i, j in pairs)
+        sjs = [
+            compute_nodal_scaled_jacobian(pts[1]-pts[0], pts[3]-pts[0], pts[4]-pts[0], max_e),
+            compute_nodal_scaled_jacobian(pts[2]-pts[1], pts[0]-pts[1], pts[5]-pts[1], max_e),
+            compute_nodal_scaled_jacobian(pts[3]-pts[2], pts[1]-pts[2], pts[6]-pts[2], max_e),
+            compute_nodal_scaled_jacobian(pts[0]-pts[3], pts[2]-pts[3], pts[7]-pts[3], max_e),
+            compute_nodal_scaled_jacobian(pts[7]-pts[4], pts[5]-pts[4], pts[0]-pts[4], max_e),
+            compute_nodal_scaled_jacobian(pts[4]-pts[5], pts[6]-pts[5], pts[1]-pts[5], max_e),
+            compute_nodal_scaled_jacobian(pts[5]-pts[6], pts[7]-pts[6], pts[2]-pts[6], max_e),
+            compute_nodal_scaled_jacobian(pts[6]-pts[7], pts[4]-pts[7], pts[3]-pts[7], max_e),
+        ]
+        return compute_element_normalized_scaled_jacobian(min(sjs), CellType.HEXAHEDRON)
+
+    elif cell_type == CellType.WEDGE and n_v == 6:
+        pairs = [(0,1), (1,2), (2,0), (3,4), (4,5), (5,3), (0,3), (1,4), (2,5)]
+        max_e = max(np.linalg.norm(pts[j]-pts[i]) for i, j in pairs)
+        sjs = [
+            compute_nodal_scaled_jacobian(pts[1]-pts[0], pts[2]-pts[0], pts[3]-pts[0], max_e),
+            compute_nodal_scaled_jacobian(pts[2]-pts[1], pts[0]-pts[1], pts[4]-pts[1], max_e),
+            compute_nodal_scaled_jacobian(pts[0]-pts[2], pts[1]-pts[2], pts[5]-pts[2], max_e),
+            compute_nodal_scaled_jacobian(pts[5]-pts[3], pts[4]-pts[3], pts[0]-pts[3], max_e),
+            compute_nodal_scaled_jacobian(pts[3]-pts[4], pts[5]-pts[4], pts[1]-pts[4], max_e),
+            compute_nodal_scaled_jacobian(pts[4]-pts[5], pts[3]-pts[5], pts[2]-pts[5], max_e),
+        ]
+        return compute_element_normalized_scaled_jacobian(min(sjs), CellType.WEDGE)
+
+    elif cell_type == CellType.PYRAMID and n_v == 5:
+        base_pts = pts[:4]
+        apex = pts[4]
+        fict_hex_sj = check_pyramid_base_fictitious_hex(base_pts, apex)
+        if fict_hex_sj <= 0.0:
+            return float(fict_hex_sj)
+
+        pairs = [(0,1), (1,2), (2,3), (3,0), (0,4), (1,4), (2,4), (3,4)]
+        max_e = max(np.linalg.norm(pts[j]-pts[i]) for i, j in pairs)
+        sjs = [
+            compute_nodal_scaled_jacobian(pts[1]-pts[0], pts[3]-pts[0], pts[4]-pts[0], max_e),
+            compute_nodal_scaled_jacobian(pts[2]-pts[1], pts[0]-pts[1], pts[4]-pts[1], max_e),
+            compute_nodal_scaled_jacobian(pts[3]-pts[2], pts[1]-pts[2], pts[4]-pts[2], max_e),
+            compute_nodal_scaled_jacobian(pts[0]-pts[3], pts[2]-pts[3], pts[4]-pts[3], max_e),
+        ]
+        e0, e1, e2, e3 = pts[0]-apex, pts[1]-apex, pts[2]-apex, pts[3]-apex
+        sjs.append(compute_nodal_scaled_jacobian(e1, e0, e2, max_e))
+        sjs.append(compute_nodal_scaled_jacobian(e2, e1, e3, max_e))
+        sjs.append(compute_nodal_scaled_jacobian(e3, e2, e0, max_e))
+        sjs.append(compute_nodal_scaled_jacobian(e0, e3, e1, max_e))
+        sjs.append(fict_hex_sj)
+        return compute_element_normalized_scaled_jacobian(min(sjs), CellType.PYRAMID)
+
+    elif cell_type == CellType.TETRA and n_v == 4:
+        e1 = pts[1] - pts[0]
+        e2 = pts[2] - pts[0]
+        e3 = pts[3] - pts[0]
+        edges = [
+            np.linalg.norm(pts[1]-pts[0]), np.linalg.norm(pts[2]-pts[0]), np.linalg.norm(pts[3]-pts[0]),
+            np.linalg.norm(pts[2]-pts[1]), np.linalg.norm(pts[3]-pts[1]), np.linalg.norm(pts[3]-pts[2])
+        ]
+        max_e = max(edges)
+        sj = compute_nodal_scaled_jacobian(e1, e2, e3, max_e)
+        return compute_element_normalized_scaled_jacobian(sj, CellType.TETRA)
+
+    return 1.0
+
+
+def compute_mesh_j_ens(mesh: UnstructuredMesh) -> Tuple[np.ndarray, int]:
+    """Compute Element Normalized Scaled Jacobian J_ENS across all cells in mesh."""
+    n_cells = mesh.num_cells
+    if n_cells == 0 or len(mesh.cells) != n_cells:
+        return np.ones(0, dtype=np.float64), 0
+
+    j_ens = np.ones(n_cells, dtype=np.float64)
+    inv_pyr = 0
+
+    for i in range(n_cells):
+        nodes = mesh.cells[i]
+        n_v = len(nodes)
+        ctype = mesh.cell_types[i] if mesh.cell_types is not None else (
+            CellType.HEXAHEDRON if n_v == 8 else
+            CellType.WEDGE if n_v == 6 else
+            CellType.PYRAMID if n_v == 5 else
+            CellType.TETRA if n_v == 4 else
+            CellType.POLYHEDRON
+        )
+        val = compute_cell_j_ens(mesh.points, nodes, CellType(ctype))
+        j_ens[i] = val
+        if ctype == CellType.PYRAMID and val <= 0.0:
+            inv_pyr += 1
+
+    return j_ens, inv_pyr
 
 
 @dataclass

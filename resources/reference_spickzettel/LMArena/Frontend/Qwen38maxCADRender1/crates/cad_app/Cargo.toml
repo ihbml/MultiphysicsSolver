@@ -1,0 +1,22 @@
+[package]
+name = "cad-app"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cad-renderer"
+path = "src/main.rs"
+
+[dependencies]
+cad-core.workspace = true
+cad-plugin-api.workspace = true
+cad-renderer.workspace = true
+cad-addons.workspace = true
+bevy_ecs.workspace = true
+wgpu.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+egui-winit.workspace = true
+winit.workspace = true
+glam.workspace = true
+pollster.workspace = true

@@ -50,6 +50,8 @@ hardware_profile.json
 *.msh
 *.log
 !resources/CADTestSamples/*.log
+!resources/CADTestSamples/*.obj
+!resources/CADTestSamples/**/*.obj
 
 # 6. OS & Editor Dateien
 .DS_Store

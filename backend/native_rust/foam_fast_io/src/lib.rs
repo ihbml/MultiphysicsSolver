@@ -1,11 +1,15 @@
 //! foam_fast_io - High-performance zero-copy OpenFOAM case & field reader for CFDSolver.
 
+pub mod c_abi;
 pub mod ffi;
 pub mod fields;
 pub mod mesh;
+pub mod mphys;
 pub mod parser;
 
-pub use fields::{FoamField, FoamFieldData};
+pub use fields::{
+    list_time_dirs, FoamField, FoamFieldData, PatchFieldData, PatchFieldValues, TimeStepInfo,
+};
 pub use mesh::{FoamBoundaryPatch, FoamMesh};
 pub use parser::load_poly_mesh;
 

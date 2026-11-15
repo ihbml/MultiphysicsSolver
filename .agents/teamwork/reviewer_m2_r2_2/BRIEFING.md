@@ -1,7 +1,7 @@
-# BRIEFING — 2026-10-28T06:01:00Z
+# BRIEFING — 2026-11-07T05:30:00Z
 
 ## Mission
-Review Milestone M2 Native C++20 Core and C-ABI performance, conformance, integrity, and test verification.
+Milestone M2 Iteration 2 Certification: Independent quality & adversarial review of worker_audit_m2_2 remediation changes.
 
 ## 🔒 My Identity
 - Archetype: reviewer / critic
@@ -17,58 +17,62 @@ Review Milestone M2 Native C++20 Core and C-ABI performance, conformance, integr
 - Verify <= 0.1% performance overhead rule
 - Strict C-ABI export verification for cfd_mesher_native.dll
 - Permanent documentation mirroring verification in backend/meshing/docs/
+- Hardware concurrency guard: sequential execution with $env:OMP_NUM_THREADS = "8", no pytest -n/xdist
+- User audit directive: focus on modified sections and directly affected/downstream blocks
 
 ## Current Parent
-- Conversation ID: 3e8c9327-d904-45bd-a4e2-64ef970ab34d
-- Updated: 2026-10-28T05:53:00Z
+- Conversation ID: 0e9d9a36-56a7-4f1c-8222-640d7206b910
+- Updated: 2026-11-07T05:21:45Z
 
 ## Review Scope
 - **Files to review**:
-  - `backend/meshing/cfd_mesher_native.dll`
-  - `backend/meshing/native/src/distmesh.cpp`
-  - `backend/meshing/native/src/cfd_mesher_native.cpp`
-  - `backend/meshing/native/src/difvm_mesh.cpp`
-  - `backend/meshing/native/src/inflation.cpp`
-  - `backend/meshing/native/src/cht_cyclic.cpp`
-  - `backend/meshing/native/include/cfd_mesher_native.h`
-  - `backend/meshing/docs/M2_REMEDIATION_REPORT.md`
-  - `backend/meshing/docs/DISTMESH_ALGORITHM.md`
-  - `backend/meshing/mesh_engine.py`
-  - `tests/test_mesh_engine.py`
-  - `tests/test_mesher.py`
-  - `tests/test_challenger_m2_2_adversarial.py`
-  - `tests/test_challenger_m2_r2_gate2.py`
-  - `tests/test_empirical_challenger_m2_1.py`
+  - `backend/meshing/gci.py` (topological_dim fallback)
+  - `backend/meshing/difvm_topology.py` (WSRD redistribution map Berger & Giuliani (2024), metric key aliases)
+  - `backend/meshing/mesh_engine.py` (is_solid_only logic preserving self.config)
+  - `backend/meshing/models.py` (metric key aliases non_orthogonality/skewness)
+  - `tests/test_challenger_m2_audit_2.py`
+  - `tests/test_asme_vv.py`
+  - `tests/test_wp4_multiphysics_hexcore.py`
+  - `tests/test_wp1_topology_polymesh.py`
+- **Reports reviewed**:
+  - `g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_2\handoff.md`
+  - `g:\Datein\Projects\CFDSolver\.agents\teamwork\worker_audit_m2_2\changes.md`
+  - `g:\Datein\Projects\CFDSolver\.agents\teamwork\worker_audit_m2_2\handoff.md`
 - **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
-- **Review criteria**: Correctness, performance (<= 0.1% overhead), MSVC C++20 compliance, C-ABI integrity, documentation mirroring.
+- **Review criteria**: Correctness, physical & mathematical validity, backward compatibility, edge case robustness, integrity.
 
 ## Review Checklist
 - **Items reviewed**:
-  - 64-bit DLL PE header and 30 export symbols (including `cfd_mesher_extract_cyclic_pairs`) verified.
-  - Native C++20 Bowyer-Watson Delaunay and Persson & Strang spring relaxation in `distmesh.cpp` verified.
-  - Performance overhead <= 0.1% verified: all numerical loops in C++20, Python bridge wraps ctypes pointers.
-  - Documentation mirroring in `backend/meshing/docs/M2_REMEDIATION_REPORT.md` and `DISTMESH_ALGORITHM.md` verified.
-  - Test suites: `test_mesh_engine.py` (13/13 passed), `test_mesher.py` (9 passed, 5 M3 skipped), `test_challenger_m2_2_adversarial.py` (8/8 passed), `test_challenger_m2_r2_gate2.py` (8/8 passed), `test_empirical_challenger_m2_1.py` (48/48 passed), full regression suite (415 passed, 5 skipped).
+  - `backend/meshing/gci.py:115`: Safe fallback on `topological_dim is None` or missing attribute, defaulting to $D=3$.
+  - `backend/meshing/difvm_topology.py:508-575`: Authentic Berger & Giuliani (2024) donor-receiver pairing (cut cells donate to larger neighbors, prioritizing regular cells $\alpha \ge a_{\text{target}}$) with machine-precision partition of unity ($\sum w = 1.0$).
+  - `backend/meshing/mesh_engine.py:127`: `is_solid_only = (config is None and self.config is None) or (active_cfg.domain_mode == "solid_only")` correctly inherits instance configuration while maintaining backward compatibility for legacy unconfigured calls.
+  - `backend/meshing/models.py:571-578` & `difvm_topology.py`: Dual-key alias support (`"non_orthogonality"` / `"non_ortho"`, `"skewness"` / `"skew"`, `"stabilization_mask"` / `"mask"`).
+  - Test suites executed sequentially under `$env:OMP_NUM_THREADS = "8"`:
+    - `tests/test_challenger_m2_audit_2.py`: 13/13 passed (100%)
+    - `tests/test_asme_vv.py`: 7/7 passed (100%)
+    - `tests/test_wp4_multiphysics_hexcore.py`: 24/24 passed (100%)
+    - `tests/test_wp1_topology_polymesh.py`: 11/11 passed (100%)
+    - `tests/test_mesh_engine.py`: 13/13 passed (100%)
 - **Verdict**: APPROVE
 - **Unverified claims**: None.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - PE32+ 64-bit architecture and export table completeness.
-  - Bowyer-Watson super-triangle, cavity formation, edge relaxation.
-  - Inverted cells negative volume preservation and rejection in validate().
-  - Zero/collapsed clearance handling (0.0 volume, not 1.0 m^3).
-  - CHT coupled wall twin boundary patches and normal opposition.
-  - R_z(theta) rotational cyclic pairing.
-  - Performance benchmark C-ABI vs pure Python.
-- **Vulnerabilities found**: None remaining; prior defects were remediated.
-- **Untested angles**: M3 features (SPH coupling, ALE dynamic mesh motion) correctly deferred to Milestone M3.
+  - `topological_dim=None` crash resistance in `compute_grid_representative_size`.
+  - WSRD donor-receiver ordering: regular large fluid neighbors ($\alpha_{nb} \ge 0.50$) receive positive donation, smaller neighbors receive zero donation.
+  - Partition of unity $\sum w = 1.0$ holds to $< 10^{-14}$.
+  - MeshEngine instance configuration inheritance when `config=None` is passed.
+  - Backward compatibility shield for legacy `mesh_cad_file` unconfigured invocations.
+  - Absence of hardcoded test outputs or facade implementations.
+- **Vulnerabilities found**: None remaining; all 3 defects confirmed resolved.
+- **Untested angles**: None within Milestone M2 scope.
 
 ## Key Decisions Made
-- Confirmed full compliance with user mandates, physical invariants, C-ABI specifications, and performance rules.
-- Issued APPROVE verdict for Gate 2.
+- All defects flagged by Challenger 2 have been remediated with genuine mathematical and structural logic.
+- Independent test verification confirms 100% pass across all affected test suites.
+- Issued verdict: APPROVE.
 
 ## Artifact Index
-- handoff.md — Gate 2 Review report
+- handoff.md — M2 Iteration 2 Review and Certification Report
 - progress.md — Liveness heartbeat
 - DISPATCH.md — Task dispatches

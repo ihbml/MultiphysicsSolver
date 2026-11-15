@@ -1,57 +1,60 @@
-# BRIEFING — 2026-10-28T05:05:00Z
+# BRIEFING — 2026-11-07T05:07:30Z
 
 ## Mission
-Empirically and adversarially test the mathematical and physical invariants of `backend/meshing` for Milestone M2.
+Adversarial empirical stress-testing of Milestone M2 audit remediations (R3.3, R4, R5.1, R6.1-4, R7) by writing and executing adversarial tests.
 
 ## 🔒 My Identity
-- Archetype: empirical-challenger
+- Archetype: challenger
 - Roles: critic, specialist
-- Working directory: G:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_1
-- Original parent: 3e8c9327-d904-45bd-a4e2-64ef970ab34d
+- Working directory: g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_1\
+- Original parent: 0e9d9a36-56a7-4f1c-8222-640d7206b910
 - Milestone: M2
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code
-- Must write and execute empirical test scripts to find bugs
-- Run verification code directly with G:\Datein\Projects\CFDSolver\.venv\Scripts\python.exe
-- Verify strict positivity of cell volumes: $V_i > 10^{-15}$
-- Verify Gauss divergence closed-cell closure: $\max_i \|\sum_{f \in \mathcal{F}(i)} \sigma_{if} \mathbf{S}_f\| < 10^{-11}$
-- Verify over-relaxed non-orthogonal decomposition identity: $\max_f \|\boldsymbol{\Delta}_f + \mathbf{k}_f - \mathbf{S}_f\| < 10^{-14}$ across angles $> 70^\circ$
-- Verify error map metrics: angle formula, skewness, aspect ratio, 4-tier stabilization mask ($M_f \in \{0, 1, 2, 3\}$)
+- Empirical verification mandatory: MUST write and run verification tests; do not trust claims or logs
+- Do not modify production implementation code during review (test file `tests/test_challenger_m2_audit_1.py` is allowed/expected)
+- Hardware concurrency guard: host stability (~95% RAM due to Fluent). `$env:OMP_NUM_THREADS = "8"`, sequential execution, no pytest `-n` or xdist
+- Deliver handoff.md with 5 components (Observation, Logic Chain, Caveats, Conclusion, Verification Method) and message orchestrator with APPROVE or REQUEST_CHANGES
 
 ## Current Parent
-- Conversation ID: 3e8c9327-d904-45bd-a4e2-64ef970ab34d
-- Updated: 2026-10-28T05:05:00Z
+- Conversation ID: 0e9d9a36-56a7-4f1c-8222-640d7206b910
+- Updated: 2026-11-07T05:07:30Z
 
 ## Review Scope
-- **Files to review**: `backend/meshing/`, `tests/test_mesher.py`, `tests/test_mesh_engine.py`, `tests/test_empirical_challenger_m2_1.py`
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`, `worker_m2_1/handoff.md`
-- **Review criteria**: Mathematical and physical invariants, numerical correctness, edge-case robustness
+- **Files to review**:
+  - `cfd/solvers/immersed_boundary.py` / `backend/meshing/difvm_topology.py` (R3.3 WSRD dynamic weights)
+  - `cfd/meshing/engine.py` / `backend/meshing/mesh_engine.py` (R4 solid-only domain mode dispatch)
+  - `cfd/meshing/distmesh_2d.py` / `backend/meshing/distmesh_core.py` (R5.1 point filtering & Newton projection)
+  - `cfd/verification/gci.py` / `backend/meshing/gci.py` (R6.1-2 GCI scaling & order clamping)
+  - `cfd/geometry/sdf_3d.py` / `backend/meshing/geometry_sdf.py` & `backend/meshing/native/src/sdf_engine.cpp` (R6.3-4 SDF bounding box & Barnes-Hut dipole)
+  - `backend/meshing/polymesh_io.py`, `backend/meshing/inflation.py`, `backend/meshing/mesh_engine.py` (R7 static audit fixes)
+- **Interface contracts**: `PROJECT.md`, `worker_audit_m2_1/changes.md`, `worker_audit_m2_1/handoff.md`
+- **Review criteria**: Empirical correctness, boundary conditions, numerical stability, mathematical consistency
+
+## Key Decisions Made
+- Authored 16 comprehensive empirical stress tests in `tests/test_challenger_m2_audit_1.py` covering all 6 challenge dimensions.
+- Verified all 16 tests pass under sequential pytest execution with `$env:OMP_NUM_THREADS = "8"`.
+- Verified all 8 interconnected milestone test suites pass cleanly with 0 regressions.
+- Milestone M2 remediations verified as mathematically sound, numerically stable, and compliant with paper fidelity and project scope.
+
+## Artifact Index
+- `.agents/teamwork/challenger_m2_1/DISPATCH.md` — Initial dispatch message
+- `.agents/teamwork/challenger_m2_1/BRIEFING.md` — Situational awareness
+- `.agents/teamwork/challenger_m2_1/progress.md` — Task progress & heartbeat
+- `tests/test_challenger_m2_audit_1.py` — Adversarial test suite (16 tests)
+- `.agents/teamwork/challenger_m2_1/handoff.md` — 5-component handoff report
 
 ## Attack Surface
 - **Hypotheses tested**:
-  * Volume positivity across 3D random nodal perturbations (pert = 0.20 h), micro-scale elements (10^-4 m), extreme aspect ratios (1000:1 and 1:10000), and non-convex chevron elements. (PASSED: min V > 10^-15 everywhere).
-  * Gauss divergence closed-cell closure across shears (0.5 to 3.5), warped non-planar faces, hybrid elements (Hex, Tet, Wedge, Pyramid), and real CAD meshes. (PASSED: max closure = 1.65e-17 << 1e-11).
-  * Over-relaxed non-orthogonal decomposition identity across 0 deg to 89.5 deg. (PASSED: residual = 0.00 << 1e-14).
-  * Error map metrics parity with analytical oracles. (PASSED: angle diff < 7.11e-15 deg, skewness diff < 9.86e-32).
-  * 4-tier stabilization mask transitions across thresholds. (PASSED: all tiers {0, 1, 2, 3} correctly trigger).
-- **Vulnerabilities found**:
-  * Discrepancy in `UnstructuredMesh.compute_quality_report()` (`models.py:310-311`): looks for keys `"non_ortho"` and `"skew"` while `difvm_topology.py` stores `"non_orthogonality"` and `"skewness"`. Reported in handoff.
-- **Untested angles**:
-  * Milestone M3 items (SPH div r, A_iS, OPMIS, ALE moving mesh) intentionally deferred to M3 per roadmap.
+  - Continuous C1 transition and monotonicity of Berger-Giuliani sin^2 dynamic WSRD weights under extreme volume ratios (10^-9 to 1.0). [CONFIRMED ROBUST]
+  - Domain mode dispatch branching to hexcore for fluid_only, conjugate, internal_flow, while preserving solid_only when config is None or solid_only. [CONFIRMED ROBUST]
+  - DistMesh candidate point filtering threshold -0.05*h and 3-step Newton boundary projection for d > 0. [CONFIRMED ROBUST]
+  - GCI grid representative size scaling h = (V/N)^(1/D) for D=1,2,3, and apparent order clamping p in [0.5, 10.0] under oscillatory convergence. [CONFIRMED ROBUST]
+  - MeshSDF signed distance and gradient smoothness across bounding box boundary +/- 10^-5 * diag, and Barnes-Hut dipole evaluation precision. [CONFIRMED ROBUST]
+  - strict_native=True and CFD_STRICT_NATIVE=1 fail-fast safety, OpenFOAM configurable patch_types, and inflation layer node reversal producing positive prism volumes. [CONFIRMED ROBUST]
+- **Vulnerabilities found**: None in production implementation. All 6 audit items are properly and genuinely resolved.
+- **Untested angles**: Large-scale distributed memory execution (out of milestone scope).
 
 ## Loaded Skills
-- None specified by orchestrator
-
-## Key Decisions Made
-- Authored 48 empirical adversarial tests in `tests/test_empirical_challenger_m2_1.py`.
-- Authored numerical measurement script `tests/measure_invariants.py`.
-- Full repository regression suite passed: 406 passed, 5 skipped, 0 failed.
-- Rendered explicit verdict: `APPROVE`.
-
-## Artifact Index
-- `handoff.md` — Final 5-component handoff report with exact numerical values and verdict `APPROVE`
-- `progress.md` — Liveness heartbeat and step tracking
-- `tests/test_empirical_challenger_m2_1.py` — 48 adversarial tests
-- `tests/measure_invariants.py` — Exact measurement harness
+- None specified by dispatch

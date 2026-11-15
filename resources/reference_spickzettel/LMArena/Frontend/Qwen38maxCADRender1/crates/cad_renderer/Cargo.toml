@@ -1,0 +1,15 @@
+[package]
+name = "cad-renderer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cad-core.workspace = true
+cad-plugin-api.workspace = true
+bevy_ecs.workspace = true
+wgpu.workspace = true
+glam.workspace = true
+bytemuck.workspace = true
+pollster.workspace = true
+thiserror.workspace = true
+image.workspace = true

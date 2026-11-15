@@ -33,15 +33,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GCIResult:
-    """ASME V&V 20-2009 Grid Convergence Index calculation results.
+    """ASME V&V 20-2009 / Celik et al. (2008) Grid Convergence Index calculation results.
 
     Attributes:
-        apparent_order_p: Observed apparent order of convergence p.
+        apparent_order_p: Observed apparent order of convergence p (nan on divergence).
         phi_extrapolated: Richardson extrapolated continuum solution phi_ext^21.
         approx_rel_error_fine: Approximate relative error on fine grid e_a^21 = |(phi1 - phi2) / phi1|.
-        gci_fine: Fine grid convergence index GCI_21 = F_s * e_a^21 / (r^p - 1).
-        gci_medium: Medium grid convergence index GCI_32 = F_s * e_a^32 / (r^p - 1).
-        asymptotic_ratio: Range check ratio GCI_32 / (r^p * GCI_21) (asymptotic if ~ 1.0).
+        gci_fine: Fine grid convergence index GCI_21 = F_s * e_a^21 / (r21^p - 1) (inf on divergence).
+        gci_medium: Medium grid convergence index GCI_32 = F_s * e_a^32 / (r32^p - 1).
+        asymptotic_ratio: Range check ratio GCI_32 / (r21^p * GCI_21) (asymptotic if ~ 1.0).
+        convergence_type: Convergence classification: 'monotonic', 'oscillatory', or 'divergence'.
     """
 
     apparent_order_p: float
@@ -50,6 +51,7 @@ class GCIResult:
     gci_fine: float
     gci_medium: float
     asymptotic_ratio: float
+    convergence_type: str = "monotonic"
 
     def __getitem__(self, key: str) -> Any:
         """Allow dict-like indexing for backward compatibility with test suites."""
@@ -57,7 +59,7 @@ class GCIResult:
             return getattr(self, key)
         raise KeyError(f"GCIResult has no field '{key}'")
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary of metrics."""
         return asdict(self)
 
@@ -76,6 +78,8 @@ class GCIHierarchy:
     h1: float
     h2: float
     h3: float
+    r21: Optional[float] = None
+    r32: Optional[float] = None
 
     def __iter__(self) -> Iterator[UnstructuredMesh]:
         """Iterate in order: fine (Grid 1), medium (Grid 2), coarse (Grid 3)."""
@@ -121,60 +125,142 @@ def compute_asme_vv20_gci(
     phi_1: float,
     phi_2: float,
     phi_3: float,
-    r: float,
+    r21: Optional[float] = None,
+    r32: Optional[float] = None,
     f_s: float = 1.25,
+    r: Optional[float] = None,
 ) -> GCIResult:
     """Calculate ASME V&V 20-2009 / Celik et al. (2008) Grid Convergence Index.
 
+    Full formulation per Celik et al. (2008):
+    1. Grid refinement ratios: r21 = h2 / h1 > 1, r32 = h3 / h2 > 1.
+    2. Convergence ratio: R = eps_21 / eps_32 = (phi2 - phi1) / (phi3 - phi2).
+       - Monotonic convergence: 0 < R < 1.
+       - Oscillatory convergence: -1 < R < 0.
+       - Divergence: |R| >= 1.0 (flags apparent_order_p=nan, gci_fine=inf).
+    3. Apparent order p:
+       - Uniform refinement (r21 == r32): p = ln|1/R| / ln(r21).
+       - Non-uniform refinement (r21 != r32): fixed-point iteration with transcendental q(p).
+    4. Exact Richardson extrapolation and GCI without artificial clamps.
+
     Args:
-        phi_1: Numerical solution of key scalar quantity on fine grid (h1).
-        phi_2: Numerical solution of key scalar quantity on medium grid (h2 = r * h1).
-        phi_3: Numerical solution of key scalar quantity on coarse grid (h3 = r^2 * h1).
-        r: Uniform grid refinement ratio (r = h2 / h1 = h3 / h2 > 1).
-        f_s: Safety factor (1.25 for 3-grid study with estimated p, 3.0 for 2-grid study).
+        phi_1: Numerical solution on fine grid (h1).
+        phi_2: Numerical solution on medium grid (h2).
+        phi_3: Numerical solution on coarse grid (h3).
+        r21: Grid refinement ratio h2 / h1 > 1 (or uniform ratio r).
+        r32: Grid refinement ratio h3 / h2 > 1 (defaults to r21 if omitted).
+        f_s: Safety factor (1.25 for 3-grid study, 3.0 for 2-grid study).
+        r: Backward-compatible keyword for uniform refinement ratio.
 
     Returns:
-        GCIResult containing apparent order p, extrapolated solution, errors, and GCI indices.
+        GCIResult containing apparent order p, extrapolated solution, errors, GCI, and convergence_type.
 
     Raises:
-        ValueError: If refinement ratio r <= 1.0 or solutions are invalid.
+        ValueError: If refinement ratio <= 1.0 or parameters invalid.
     """
-    if r <= 1.0:
-        raise ValueError(f"Refinement ratio r must be strictly greater than 1.0, got {r}")
+    if r21 is None:
+        if r is not None:
+            r21 = float(r)
+        else:
+            raise ValueError("Refinement ratio r21 (or r) must be provided.")
+    else:
+        r21 = float(r21)
 
-    eps_32 = phi_3 - phi_2
-    eps_21 = phi_2 - phi_1
+    if r32 is None:
+        r32 = r21
+    else:
+        r32 = float(r32)
+
+    if r21 <= 1.0:
+        raise ValueError(f"Refinement ratio r21 must be strictly greater than 1.0, got {r21}")
+    if r32 <= 1.0:
+        raise ValueError(f"Refinement ratio r32 must be strictly greater than 1.0, got {r32}")
+
+    eps_32 = float(phi_3 - phi_2)
+    eps_21 = float(phi_2 - phi_1)
+
+    # Check for zero step / identical solutions
+    if abs(eps_21) < 1e-15 and abs(eps_32) < 1e-15:
+        return GCIResult(
+            apparent_order_p=0.0,
+            phi_extrapolated=float(phi_1),
+            approx_rel_error_fine=0.0,
+            gci_fine=0.0,
+            gci_medium=0.0,
+            asymptotic_ratio=1.0,
+            convergence_type="monotonic",
+        )
+
+    if abs(eps_32) < 1e-15:
+        # eps_32 == 0 while eps_21 != 0 -> infinite ratio R -> divergence
+        return GCIResult(
+            apparent_order_p=float("nan"),
+            phi_extrapolated=float("nan"),
+            approx_rel_error_fine=float(abs(eps_21 / (phi_1 + 1e-30))),
+            gci_fine=float("inf"),
+            gci_medium=float("inf"),
+            asymptotic_ratio=float("nan"),
+            convergence_type="divergence",
+        )
+
+    # Convergence ratio R (Celik et al. 2008)
+    R = eps_21 / eps_32
+
+    # Divergence detection: |R| >= 1.0 (error expands on refinement)
+    if abs(R) >= 1.0:
+        return GCIResult(
+            apparent_order_p=float("nan"),
+            phi_extrapolated=float("nan"),
+            approx_rel_error_fine=float(abs(eps_21 / (phi_1 + 1e-30))),
+            gci_fine=float("inf"),
+            gci_medium=float("inf"),
+            asymptotic_ratio=float("nan"),
+            convergence_type="divergence",
+        )
+
+    convergence_type = "oscillatory" if R < 0.0 else "monotonic"
 
     # Apparent order of convergence p (Celik et al. 2008, Eq. 10)
-    # Guard against oscillatory convergence (eps_32 * eps_21 <= 0) or zero step
-    if eps_32 * eps_21 <= 0.0 or abs(eps_21) < 1e-30:
-        p = 1.0
+    inv_R = abs(1.0 / R)
+    if abs(r21 - r32) < 1e-6:
+        # Uniform refinement ratio
+        p = float(np.log(inv_R) / np.log(r21))
     else:
-        ratio = abs(eps_32 / eps_21)
-        if ratio < 1e-15:
-            p = 0.5
-        else:
-            raw_p = float(np.log(ratio) / np.log(r))
-            p = max(0.5, min(raw_p, 10.0))
+        # Non-uniform refinement ratio: fixed-point iteration
+        s = 1.0 if R > 0.0 else -1.0
+        p = float(np.log(inv_R) / np.log(r21))
+        for _ in range(100):
+            num = r21 ** p - s
+            den = r32 ** p - s
+            if den <= 0.0 or num <= 0.0:
+                break
+            q = float(np.log(num / den))
+            p_next = float((1.0 / np.log(r21)) * abs(np.log(inv_R) + q))
+            if abs(p_next - p) < 1e-6:
+                p = p_next
+                break
+            p = p_next
 
     # Richardson extrapolation (Celik et al. 2008, Eq. 13)
-    r_pow_p = r ** p
-    denom = r_pow_p - 1.0
-    if abs(denom) < 1e-15:
-        phi_ext_21 = phi_1
+    r21_pow_p = float(r21 ** p)
+    denom21 = r21_pow_p - 1.0
+    if abs(denom21) < 1e-15:
+        phi_ext_21 = float(phi_1)
     else:
-        phi_ext_21 = float((r_pow_p * phi_1 - phi_2) / denom)
+        phi_ext_21 = float((r21_pow_p * phi_1 - phi_2) / denom21)
 
     # Approximate relative errors (Celik et al. 2008, Eq. 14)
     e_a_21 = float(abs((phi_1 - phi_2) / (phi_1 + 1e-30)))
     e_a_32 = float(abs((phi_2 - phi_3) / (phi_2 + 1e-30)))
 
     # Grid Convergence Index (Celik et al. 2008, Eqs. 16-17)
-    gci_21 = float((f_s * e_a_21) / max(denom, 1e-15))
-    gci_32 = float((f_s * e_a_32) / max(denom, 1e-15))
+    gci_21 = float((f_s * e_a_21) / max(denom21, 1e-15))
+    r32_pow_p = float(r32 ** p)
+    denom32 = r32_pow_p - 1.0
+    gci_32 = float((f_s * e_a_32) / max(denom32, 1e-15))
 
     # Asymptotic range check (Celik et al. 2008, Eq. 18)
-    asymptotic_ratio = float(gci_32 / (r_pow_p * gci_21 + 1e-30))
+    asymptotic_ratio = float(gci_32 / (r21_pow_p * gci_21 + 1e-30))
 
     return GCIResult(
         apparent_order_p=p,
@@ -183,6 +269,7 @@ def compute_asme_vv20_gci(
         gci_fine=gci_21,
         gci_medium=gci_32,
         asymptotic_ratio=asymptotic_ratio,
+        convergence_type=convergence_type,
     )
 
 
@@ -287,6 +374,15 @@ def generate_3grid_gci_hierarchy(
         mesh_coarse.num_cells,
     )
 
+    # Calculate effective grid refinement ratios from actual cell counts
+    topo_dim = getattr(mesh_fine, "topological_dim", 3)
+    dim = float(max(1, int(topo_dim))) if topo_dim is not None else 3.0
+    n1 = float(mesh_fine.num_cells)
+    n2 = float(mesh_medium.num_cells)
+    n3 = float(mesh_coarse.num_cells)
+    r21_eff = float((n1 / n2) ** (1.0 / dim)) if (n2 > 0 and n1 > 0) else r
+    r32_eff = float((n2 / n3) ** (1.0 / dim)) if (n3 > 0 and n2 > 0) else r
+
     return GCIHierarchy(
         fine=mesh_fine,
         medium=mesh_medium,
@@ -295,4 +391,6 @@ def generate_3grid_gci_hierarchy(
         h1=h1,
         h2=h2,
         h3=h3,
+        r21=r21_eff,
+        r32=r32_eff,
     )

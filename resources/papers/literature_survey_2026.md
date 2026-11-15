@@ -379,3 +379,155 @@ Umgekehrt erlaubt die **Hydrodynamic Schrödinger Equation (Meng & Yang)** sowie
      *Theorem 1:* Der Abstand eines Oberflächenpunktes $x \in X$ zur nächsten Voronoi-Facette ist **exakt gleich** dem Abstand zur nächsten Mittelsenkrechten-Ebene $H_{i_x, j}$ zwischen dem nächsten Generator $q_{i_x}$ ($i_x = \arg\min_i \|x - q_i\|_2$) und einem Nachbar-Generator $q_j$:
      $$\operatorname{VoroLoss}(X, \mathbf{Q}) = \sum_{x \in X} \min_{j \neq i_x} \|x - H_{i_x, j}\|^2, \qquad \|x - H_{i,j}\| = \frac{\left|\left(x - \frac{q_i + q_j}{2}\right)\cdot (q_j - q_i)\right|}{\|q_j - q_i\|_2}$$
      Dadurch lassen sich die 3D-Voronoi-Saatpunkte $\mathbf{Q}$ rein über $k$-NN-Abfragen ($k=16$) in $\mathcal{O}(N + |X|k)$ analytisch auf die CAD/Level-Set-Oberfläche optimieren; das resultierende Polyedernetz ist **per Konstruktion zu 100 % wasserdicht und selbstschnittfrei**!
+
+
+---
+
+### 9.9 [`SuperElements_Db_115554.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/SuperElements_Db_115554.pdf) — Combinatorial Meshing, ASP-optimierte Super Elements ($\min SJ \ge 0.302$), Rohteil-Precursor-Mesh & Top-Down Entity Mapping
+* **Autor & Quelle:** H. Stromberg (2023), *„Combinatorial Meshing for Mechanical FEM“*, Dissertation D 104, Fakultät für Mathematik/Informatik und Maschinenbau, Institut für Maschinenwesen (IMW), Technische Universität Clausthal (Hauptreferent: Prof. Dr.-Ing. A. Lohrengel; Korreferent: Prof. Dr. R. Ehlers; ASP/Clingo-Modell in Zusammenarbeit mit V. Mayer-Eichberger).
+* **Kernproblem & Motivation:**
+  1. **Empfindlichkeit lokaler Kerbspannungen $\boldsymbol{\sigma}_{\max}$ & künstliche Versteifung (*Excessive Stiffening*):** Der diskrete Differentialoperator $\underline{\underline{B}} = \frac{\delta\mathbf{E}}{\delta\vec{u}}$ (Gl. 3.6, 3.19) reagiert an Kerbradien empfindlich auf Elementverzerrungen.
+  2. **Verbot von Hanging Nodes UND Hanging Edges (Kap. 3.1.2 & 4.1, S. 53–54):** Treffen zwei Tetraeder-Dreiecksflächen ohne zwischengeschaltete Pyramide direkt auf eine Vierecksfläche eines Hexaeders, entsteht entlang der Diagonale eine **Hanging Edge** (Abb. 4.1, S. 54). Bei quadratischen Ansatzfunktionen besitzt die Diagonalkante der Tetraeder einen Midside-Knoten, den das biquadratische Viereck nicht besitzt ($\implies$ Sprung im Verschiebungsfeld und Spannungssingularität).
+  3. **Schwächen klassischer Kartesischer Grid-/Octree-Mesher (Kap. 3.4.4 & 4.2):** Orientierungssensitivität bei gedrehten/rotationssymmetrischen Bauteilen (Zahnräder, Wellen), *Staircase*-Effekt mit unrettbaren Randwinkeln ($SJ \le 0$ nach dem Snapping) und Verlust des CAD-Entity-Bezugs.
+* **Mathematische & Algorithmische Kern-Bausteine (Kap. 3.3, 4, 5, 6, 7 & Anhang B/C):**
+  1. **Vereinheitlichte Qualitätsmetrik $J_{\text{ENS}}$ für gemischte Netze (Hex8, Prism6, Pyr5, Tet4) + Pyramiden-Basis-Check (Kap. 3.3, Gl. 3.28–3.32, S. 36–38):**
+     - *Aspektverhältnis-sensitiver Knoten-Scaled-Jacobian (Gl. 3.28 & 3.30):* Normiert $\det(J_i)$ nicht über das Produkt der drei lokalen Kantenlängen, sondern über die **dritte Potenz der maximalen Elementkantenlänge** $\max_k l_k$, um auch extrem gestreckte Elemente zu bestrafen:
+       $$J_{s,i} = \frac{\det\big([\vec{x}_{i,1} - \vec{x}_i,\; \vec{x}_{i,2} - \vec{x}_i,\; \vec{x}_{i,3} - \vec{x}_i]\big)}{\left(\max_k l_k\right)^3} \in [-1, 1] \quad \text{(Gl. 3.30)}$$
+     - *Element Normalized Scaled Jacobian $J_{\text{ENS}}$ (Lobos 2015 / Stromberg Gl. 3.32, S. 38):* Normiert das elementweite Minimum $J_S = \min_i J_{s,i}$ über den elementspezifischen Idealwert $J_{S,\text{opt}}$ auf $[-1, 1]$:
+       $$J_{\text{ENS}} = \begin{cases} (1 + J_{S,\text{opt}}) - J_S & \text{falls } J_S > J_{S,\text{opt}} \\ J_S / J_{S,\text{opt}} & \text{falls } -J_{S,\text{opt}} \le J_S \le J_{S,\text{opt}} \\ -(1 + J_{S,\text{opt}}) - J_S & \text{falls } J_S < -J_{S,\text{opt}} \end{cases}, \qquad J_{S,\text{opt}} = \begin{cases} 1.0 & (\text{Hex8}) \\ \sqrt{3}/2 \approx 0.8660 & (\text{Prism6}) \\ \sqrt{2}/2 \approx 0.7071 & (\text{Tet4, Pyr5}) \end{cases} \quad \text{(Gl. 3.32)}$$
+     - *Erweiterung für nicht-konvexe/invertierte Pyramiden-Basen (S. 38, Abb. 3.19):* An der Pyramidenspitze wird das Minimum über alle $\binom{4}{3} = 4$ Kanten-Tripel gebildet; zusätzlich wird über der Vierecks-Basis ein **fiktives Hexaeder** der Höhe $\bar{l}_{\text{base}} = \frac{1}{4}\sum_{b=1}^4 l_b$ errichtet und dessen 8 Knoten-SJs in das Pyramiden-Minimum einbezogen.
+  2. **Precursor Mesh aus dem CAD-Halbzeug (*Bar Stock*, Kap. 4.2, S. 54–56):**
+     Statt einer achsenparallelen Bounding-Box wird das reale Fertigungs-Rohteil (Zylinder/Rundstab bei Drehteilen, Extrusionsprofil bei Walzteilen) aus der CAD-Feature-Historie als **Precursor Mesh** per Sweeping vernetzt ($\implies$ **100 % orientierungsinvariant** bei Zahnrädern/Wellen wie MAMBO B42!).
+  3. **23 Kanonische Hexaeder-Super-Elemente via Answer Set Programming (ASP / Clingo, Kap. 5, S. 61–76 & Anhang B/C, S. 121–159):**
+     - Durch Rotations- und Spiegelsymmetrie reduzieren sich die $2^n$ An-/Abwesenheitsmuster der $n$ *Outer Nodes* auf **23 eindeutige Fälle beim Hexaeder** ($n=8, 2^8=256$), **5 beim Tetraeder** ($n=4$), **13 beim Prisma** ($n=6$) und **12 bei der Pyramide** ($n=5$) (Tab. 5.1, S. 64).
+     - Im Referenzwürfel $[-1, 1]^3$ werden **35 Kandidatenknoten** definiert (Tab. B.1, S. 121–122): 8 Ecken $(\pm 1, \pm 1, \pm 1)$, 12 Kantenmitten, 6 Flächenmitten, 1 Zentrum $(0,0,0)$ sowie **8 innere Oktanten-Stützknoten $(\pm 0.5, \pm 0.5, \pm 0.5)$**, auf denen sich die Pyramiden der Außenflächen mit hohem $SJ$ abstützen!
+     - Da das Oberflächenmuster jeder Außenfläche (9 Dreiecks-Muster in Abb. 5.1, 16 Vierecks-Muster in Abb. 5.2) **eindeutig durch die aktiven Outer Nodes dieser Fläche determiniert** ist, passen benachbarte Super Elements bei übereinstimmender Knotenfärbung **automatisch ohne Hanging Nodes und ohne Hanging Edges** zusammen!
+     - Über 767.020 logische ASP-Klauseln (Mannigfaltigkeit, Abgeschlossenheit, Oberflächen-Konvexität, Schnittfreiheit, Erreichbarkeit) wurde für alle 23 Hex-Fälle das **globale Optimum bewiesen**: Über alle 23 Fälle gilt **$\min SJ \ge 0.302$** (in 14 Fällen $\ge 0.500$, Tab. 5.4, S. 74). Alle **Knoten-Inzidenzmatrizen sind vollständig in Anhang C (Tab. C.2–C.7, S. 130–159) tabelliert** und können als statische `constexpr`-Lookup-Tabelle ohne Laufzeit-Solver genutzt werden!
+  4. **Asymmetrisches Residual Volume (RV) & $\mathcal{O}(n_{\text{elem}})$ Greedy-Voting-Heuristik (Kap. 6, S. 77–86, Gl. 6.1–6.3):**
+     - Um hochfrequente *Zigzag*-Sprünge an fast gitterparallelen Wänden zu unterbinden (Abb. 6.1–6.2, S. 78), wird fehlendes Bauteilvolumen ($RV_{\text{missing}}$) **quadratisch** und überstehendes Volumen ($RV_{\text{excess}}$) **linear** über $6\times 6\times 6 = 216$ Subdomains pro Zelle bestraft:
+       $$R(e, D) = \left(RV_{\text{missing}}(e, D)\right)^2 + RV_{\text{excess}}(e, D), \qquad D^*(e) = \arg\min_{D \in \{0,\dots,255\}} R(e, D)$$
+     - Jedes Precursor-Element $e$ gibt für seine Eckknoten $N \in e$ eine Stimme $v(e, N) \in \{+1, -1\}$ ab; Knoten mit Mehrheits-Score $S(N) = \sum_{e \ni N} v(e, N) > 0$ bleiben erhalten, woraus in strikt linearer Zeit $C_t(n_{\text{elem}}) = n_{\text{elem}}k_1 + n_{\text{nodes}}k_2 = \mathcal{O}(n_{\text{elem}})$ (Gl. 6.2–6.3; **38 ms für 1.000 Zellen in Python**) die global konsistente Super-Element-Zerlegung folgt.
+  5. **Top-Down Entity Mapping & Automatisches Defeaturing in $\mathcal{O}(n \log n)$ (Kap. 7, S. 87–91, Gl. 7.1–7.3):**
+     - Vorab-Triangulierung aller CAD-NURBS-Flächen mit Zielkantenlänge $l_{\text{tri}} = \frac{1}{2} l_{\text{min,mesh}}$ (eliminiert Newton-Raphson-Divergenz auf gekrümmten NURBS und filtert Mikro-Features $< \frac{1}{2} l_{\text{min,mesh}}$ automatisch aus!).
+     - **3-Stufen-Hierarchie:**
+       1. *Mesh-Faces $\to$ CAD-Surfaces* per Octree/k-d-Tree Raycasting in $\mathcal{O}(n \log n)$ (Gl. 7.3).
+       2. *Mesh-Edges $\to$ CAD-Curves* genau dann, wenn die zwei adjazenten Randflächen auf verschiedene CAD-Surfaces $(S_1 \neq S_2)$ abgebildet wurden und einen zusammenhängenden Pfad bilden.
+       3. *Mesh-Nodes $\to$ CAD-Corners* am Treffpunkt von $\ge 3$ CAD-Kurven.
+     - **DOF-gebundene Projektion & Glättung (Tab. 7.2, S. 90):** Corner-Nodes fixiert (0 DOF), Curve-Nodes gleiten auf der 1D-Kurve (1 DOF), Surface-Nodes gleiten auf der 2D-Fläche (2 DOF), Innenknoten frei im 3D-Volumen (3 DOF).
+
+
+---
+
+### 9.10 [`Continuous_Mesh_Framework_Part_II_Validations_and_.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Continuous_Mesh_Framework_Part_II_Validations_and_.pdf) — Optimale $L^p$-Metrik, $P_2$-Kantenrekonstruktion & Multiskalen-Adaption
+* **Autoren & Quelle:** A. Loseille, F. Alauzet (INRIA, 2011), *„Continuous Mesh Framework Part II: Validations and Applications“*, *SIAM J. Numer. Anal. (SINUM)* 49(1), 61–86, DOI: `10.1137/10078654X`.
+* **Mathematische & Algorithmische Kern-Bausteine:**
+  1. **Exakte analytische Lösung des globalen Variationsproblems in $L^p$ (Theorem 2.1, Gl. 2.1–2.12):**
+     Die Minimierung von $\mathcal{E}_p(\mathbf{M}) = \left(\int_\Omega e_{\mathcal{M}}^p\,\mathrm{d}\mathbf{x}\right)^{1/p}$ unter der Komplexitätsnebenbedingung $\mathcal{C}(\mathbf{M}) = \int_\Omega d(\mathbf{x})\,\mathrm{d}\mathbf{x} = N$ entkoppelt über die Transformation $h_i = d^{-1/3}r_i^{1/3}$ in Richtung/Anisotropie ($r_i^* = (\gamma_1\gamma_2\gamma_3)^{1/2}\gamma_i^{-3/2}$, Gl. 2.5) und Dichte ($d^*$, Gl. 2.6) und besitzt die eindeutige globale Lösung:
+     $$\mathcal{M}_{L^p}(\mathbf{x}) = D_{L^p}\,\det(|H_u(\mathbf{x})|)^{-\frac{1}{2p+3}}\,|H_u(\mathbf{x})|, \qquad D_{L^p} = N^{\frac{2}{3}}\left(\int_\Omega \det(|H_u|)^{\frac{p}{2p+3}}\,\mathrm{d}\mathbf{x}\right)^{-\frac{2}{3}} \quad \text{(Gl. 2.10)}$$
+     mit der scharfen a-priori-Fehlerschranke 2. Ordnung auf Einheitsgittern ($\ell_{\mathcal{M}}(e) \in [\frac{\sqrt{2}}{2}, \sqrt{2}]$, $N_v \approx 2\,\mathcal{C}(\mathbf{M})$):
+     $$\|u - \pi_{\mathbf{M}_{L^p}} u\|_{L^p(\Omega)} = 3\,N^{-\frac{2}{3}}\left(\int_\Omega \det(|H_u|)^{\frac{p}{2p+3}}\,\mathrm{d}\mathbf{x}\right)^{\frac{2p+3}{3p}} \le \frac{\text{Cst}}{N^{2/3}} \quad \text{(Gl. 2.11–2.12)}$$
+     *(Wichtig: $p \to \infty$ liefert die klassische $L^\infty$-Metrik, die alle Zellen im stärksten Stoß konzentriert; $p=1,2$ dämpft Singularitäten über $\det(|H_u|)^{-1/(2p+3)}$ und löst feine Nachlaufwirbel und Akustikwellen gleichzeitig auf!).*
+  2. **Rauschfreie $P_2$-Kantenmittelpunkts- & $L^2$-Clément-Hesse-Rekonstruktion (§3.1–3.2, Gl. 3.1–3.2):**
+     Volumengewichtete nodale Gradientenprojektion $\nabla_R u_h(\mathbf{p}_i) = \frac{\sum_{K_j \in S_i} |K_j| \nabla(u_h|_{K_j})}{\sum_{K_j \in S_i} |K_j|}$, gefolgt von der kubischen Rekonstruktion auf Kantenmittelpunkten $\mathbf{e} = \mathbf{p}\mathbf{q}$:
+     $$u_h(\mathbf{e}) = \frac{u_h(\mathbf{p}) + u_h(\mathbf{q})}{2} + \frac{\nabla_R u_h(\mathbf{p}) - \nabla_R u_h(\mathbf{q})}{8} \cdot \mathbf{p}\mathbf{q}$$
+     und anschließender $L^2$-Projektion der zweiten Ableitungen der $P_2$-Lagrange-Funktion $R_h u_h$.
+
+---
+
+### 9.11 [`VoronoiDiagrams_2404.18629v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/VoronoiDiagrams_2404.18629v1.pdf) — Voll differenzierbare 3D Restricted-Power-/Voronoi-Diagramme über Topologie-Flips
+* **Autoren & Quelle:** L. Numerow, Y. Li, S. Coros, B. Thomaszewski (ETH Zürich, SIGGRAPH 2024), *„Differentiable Voronoi Diagrams for Simulation of Cell-Based Mechanical Systems“*, *ACM TOG* 43(4), Art. 69, `arXiv:2404.18629v1`, DOI: `10.1145/3658152`.
+* **Mathematische & Algorithmische Kern-Bausteine:**
+  1. **Power-Diagramm-Metrik & die 4 Klassen von 3D-Restricted-Voronoi-Eckpunkten (§3.1–3.2, Gl. 3–4):**
+     Mit $d_{\text{Power}}(\mathbf{p}, C_i)^2 = \|\mathbf{p} - \mathbf{x}_i\|^2 - w_i$ (Gl. 3) bleiben alle Zellfacetten exakt planar, während die Gewichte $w_i$ beliebige Zellgrößen bis zum glatten Zellkollaps ($V_i \to 0$) steuern. Jeder 3D-Eckpunkt $\mathbf{x}_c$ ist der Schnittpunkt von 3 Ebenen (Klasse a: 3 Bisektoren zu 4 Saatpunkten; Klasse b: 2 Bisektoren + 1 Randdreieck; Klasse c: 1 Bisektor + 2 Randdreiecke; Klasse d: 3 Randdreiecke):
+     $$\mathbf{A}(\mathbf{c}, \mathbf{v})\,\mathbf{x}_c = \mathbf{b}(\mathbf{c}, \mathbf{v}), \qquad (\mathbf{x}_j - \mathbf{x}_i)\cdot \mathbf{x}_c = \frac{1}{2}\left(\|\mathbf{x}_j\|^2 - \|\mathbf{x}_i\|^2 + w_i - w_j\right) \quad \text{(Gl. 4)}$$
+  2. **Exakte analytische 1. und 2. Ableitungen der Voronoi-Eckpunkte & $C^1$-Stetigkeit über Flips (§3.2–3.6, Gl. 5–9, 29):**
+     Implizite Differentiation des lokalen $3\times 3$-Systems $\mathbf{A}\mathbf{x}_c = \mathbf{b}$ nach jeder Saatpunkt-/Gewichts-/Randknotenvariable $q, r \in (\mathbf{c}, \mathbf{v})$ liefert:
+     $$\frac{\partial \mathbf{x}_c}{\partial q} = \mathbf{A}^{-1}\!\left(\frac{\partial \mathbf{b}}{\partial q} - \frac{\partial \mathbf{A}}{\partial q}\mathbf{x}_c\right), \qquad \frac{\partial^2 \mathbf{x}_c}{\partial q\,\partial r} = \mathbf{A}^{-1}\!\left(\frac{\partial^2 \mathbf{b}}{\partial q\partial r} - \frac{\partial^2 \mathbf{A}}{\partial q\partial r}\mathbf{x}_c - \frac{\partial \mathbf{A}}{\partial q}\frac{\partial \mathbf{x}_c}{\partial r} - \frac{\partial \mathbf{A}}{\partial r}\frac{\partial \mathbf{x}_c}{\partial q}\right)$$
+     Zellvolumina $V_i(\mathbf{c})$ und glatte Volumenintegrale (ausgewertet ohne innere Tetraedrisierung über orientierte Rand-Simplices zum Ursprung, Gl. 25–28) sind **über topologische Nachbarschafts-Flips hinweg $C^1$-stetig**!
+  3. **Newton-Optimierung, BDF2-Dynamik & Impliziter Adjoint (Gl. 11–24):**
+     Kombiniert Volumenterm $a_0(V/\bar{V}-1)^2$, zweites Trägheitsmoment $a_1 \bar{V}^{-4/3}\int_{\mathcal{R}}\|\mathbf{x}-\bar{\mathbf{x}}\|^2\mathrm{d}V$ und Centroidal-Voronoi-Regularisierung $a_2 \bar{V}^{-2/3}\|\mathbf{c}-\bar{\mathbf{x}}\|^2$ (Gl. 22) mit BDF2-Zeitintegration (Gl. 14–15) und implizitem Adjoint $\frac{\mathrm{d}\mathbf{y}}{\mathrm{d}\mathbf{u}} = -\left(\frac{\partial^2 E}{\partial \mathbf{y}^2}\right)^{-1}\frac{\partial^2 E}{\partial \mathbf{y}\partial \mathbf{u}}$ (Gl. 18–19).
+
+---
+
+### 9.12 [`MeshlessVoronoiOnGPU_3272127.3275092.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/MeshlessVoronoiOnGPU_3272127.3275092.pdf) — Synchronisationsfreies 3D-Voronoi-Meshing im GPU Shared Memory
+* **Autoren & Quelle:** N. Ray, D. Sokolov, S. Lefebvre, B. Lévy (Inria / LORIA, SIGGRAPH Asia 2018), *„Meshless Voronoi on the GPU“*, *ACM TOG* 37(6), Art. 265, DOI: `10.1145/3272127.3275092`.
+* **Mathematische & Algorithmische Kern-Bausteine:**
+  1. **Duale Dreiecks-Repräsentation konvexer Polyeder im Shared Memory (§3.2, Abb. 8 & 10):**
+     Jeder GPU-Thread berechnet eine 3D-Voronoi-Zelle komplett unabhängig (ohne globalen Delaunay-Graphen und ohne Locks: **10 Mio. Zellen in 800 ms**!). Da jede Ecke eines generischen konvexen 3D-Polyeders exakt die Valenz 3 (Schnittpunkt von 3 Ebenen) besitzt, wird die Zelle rein dual gespeichert:
+     - `float4 P[max_P]` (`max_P = 64`): Halbraum-Ebenen $(a_j, b_j, c_j, d_j)$, initialisiert mit den 6 Bounding-Box-/Octree-Seitenflächen.
+     - `int3 T[max_T]` (`max_T = 96`): Duale Dreiecke $T_m = (u, v, w) \iff$ primaler Eckpunkt $\mathbf{v}_{uvw} = \mathcal{P}_u \cap \mathcal{P}_v \cap \mathcal{P}_w$ (initialisiert mit 8 Ecken).
+  2. **Radius of Security & `clipByPlane` (Alg. 1–4, §3.1–3.3):**
+     - Nachbarn $\mathbf{x}_j$ werden aufsteigend nach Abstand per gitterbasiertem Max-Heap (`Alg. 1`) durchlaufen; Abbruch sobald $\|\mathbf{x}_p - \mathbf{x}_i\| > 2 R_{\max} = 2 \max_{\mathbf{v} \in T} \|\mathbf{v} - \mathbf{x}_i\|$ (*Radius of Security*, `Alg. 2`).
+     - `clipByPlane` (`Alg. 3`): Entfernt alle Ecken $(u,v,w) \in \mathcal{T}$ mit $(\mathbf{v}_{uvw}, 1)\cdot \mathbf{p} > 0$ in das Rückseiten-Array $\mathcal{R}$, bestimmt den einfachen Randzyklus $\partial\mathcal{R}$ als zirkuläre Liste `char next_in_cycle[64]` (`Alg. 4`) und schließt das duale Loch durch neue Dreiecke $(s, t, p)$ für jede Randkante $(s,t) \in \partial\mathcal{R}$.
+  3. **On-the-fly Volumenintegration über 6 orientierte Projektions-Tetraeder pro Ecke (§3.5, Abb. 13–14) & FP-Filter (App. A):**
+     Summiert direkt über $(u,v,w) \in \mathcal{T}$ je 6 orientierte Tetraeder aus $\mathbf{x}_i$, den 3 Ebenenprojektionen $\mathbf{p}_u, \mathbf{p}_v, \mathbf{p}_w$, den 3 Kantenprojektionen $\mathbf{e}_{uv}, \mathbf{e}_{vw}, \mathbf{e}_{wu}$ und $\mathbf{v}_{uvw}$ (überstehende Außenteile heben sich nach dem Satz von Stokes exakt weg). Numerisch kritische $3\times 3$-Schnitte ($< 10$ von $10^7$ Zellen) werden per Melquiond-Pion Gleitkomma-Filter erkannt und exakt aufgelöst.
+
+---
+
+### 9.13 [`DiscreteGCL_1709.04788v4.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/DiscreteGCL_1709.04788v4.pdf) — Exakte Diskrete Erhaltungssätze (Skopenkov 2023) & ALE Discrete Geometric Conservation Law (DGCL)
+* **Autoren & Quellen:**
+  1. **M. Skopenkov (2023):** *„Discrete field theory: symmetries and conservation laws“*, `arXiv:1709.04788v4 [math-ph]`.
+  2. **H. Guillard, C. Farhat (2000):** *„On the significance of the geometric conservation law for flow computations on moving meshes“*, *Comput. Methods Appl. Mech. Engrg.* 190, 1467–1482.
+* **Mathematische & Algorithmische Kern-Bausteine:**
+  1. **Topologische Exaktheit auf Zellkomplexen (Skopenkov Def. 1.4.1–1.4.8, Theorem 1.4.5, 1.4.7, 1.4.9, Prop. 4.2.4, Gl. 4–21):**
+     Mit Randoperator $\partial$, Korandoperator $\delta$ ($\delta\delta = 0, \partial\partial = 0$), Cup-/Cap-Produkten $\smile, \frown$ (diskrete Leibniz-Regel $\delta(\phi\smile\psi) = \delta\phi\smile\psi + (-1)^{\dim\phi}\phi\smile\delta\psi$, Gl. 21) und dem Chain-Cochain-Kreuzprodukt $[\psi\times\phi](e\times f) = \psi(e)\phi(f)$ ist für **jede** Lösung der diskreten Euler-Lagrange-Gleichung $\partial\frac{\partial\mathcal{L}}{\partial(\delta\phi)} + \frac{\partial\mathcal{L}}{\partial\phi} = 0$ (Gl. 7) der diskrete Energie-Impuls-Tensor
+     $$T[\phi] = \frac{\partial\mathcal{L}[\phi]}{\partial(\delta\phi)} \times \delta\phi + \frac{\partial\mathcal{L}[\phi]}{\partial\phi} \times \phi \quad \Longrightarrow \quad \partial T[\phi] \equiv 0 \quad \text{(Gl. 10)}$$
+     **ohne Rückgriff auf kontinuierliche Translationssymmetrie exakt erhalten**, und über die diskrete Stokes-Formel $\langle T, \partial g\rangle_k = \langle \partial T, g\rangle_k = 0$ (Prop. 4.2.4) verschwindet die Bilanz über jede geschlossene Kontrollzelle exakt.
+  2. **3D Swept-Face-Volumes via Simpson-Regel & RK-/BDF2-DGCL auf bewegten FVM-Gittern:**
+     Für geradlinige Knotenbewegung $\mathbf{x}_k(\tau) = (1-\tau)\mathbf{x}_k^n + \tau\mathbf{x}_k^{n+1}$ ist der Flächenvektor $\mathbf{S}_f(\tau)$ in 3D quadratisch in $\tau \in [0, 1]$, sodass das überstrichene Facettenvolumen $\Delta V_f^{n,n+1}$ exakt durch die Simpson-Regel gegeben ist:
+     $$\Delta V_f^{n,n+1} = \frac{1}{6}(\mathbf{x}_f^{n+1} - \mathbf{x}_f^n) \cdot \left(\mathbf{S}_f(t^n) + 4\,\mathbf{S}_f(t^{n+1/2}) + \mathbf{S}_f(t^{n+1})\right), \qquad V_i^{n+1} - V_i^n = \sum_{f \in \partial\Omega_i} \Delta V_f^{n,n+1}$$
+     Damit ein konstanter Freiströmungszustand $u_\infty$ exakt erhalten bleibt, muss der diskrete Gittervolumenfluss $\dot{V}_f = (\mathbf{w}_f\cdot\mathbf{S}_f)_{\text{DGCL}}$ exakt dieselben Zeitintegrationsgewichte nutzen wie die Erhaltungsgleichung:
+     - **BDF2-DGCL:** $\frac{3 V_i^{n+1} - 4 V_i^n + V_i^{n-1}}{2\Delta t} = \sum_{f \in \partial\Omega_i} \dot{V}_f^{n+1} \implies \dot{V}_f^{n+1} = \frac{3\,\Delta V_f^{n,n+1} - \Delta V_f^{n-1,n}}{2\,\Delta t}$.
+     - **Runge-Kutta-DGCL:** $V_i^{(j)} = V_i^n + \Delta t\sum_{k=1}^s a_{jk}\sum_{f\in\partial\Omega_i}(\mathbf{w}_f\cdot\mathbf{S}_f)^{(k)}$.
+
+---
+
+### 9.14 [`Demirdzic-2022-Symmetryplaneboundaryconditionsforcell-centeredfinite-volumecontinuummechanics.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Demirdzic-2022-Symmetryplaneboundaryconditionsforcell-centeredfinite-volumecontinuummechanics.pdf) — Einheitliche CC-FVM Kontinuumsmechanik & Householder-Symmetrie-Randbedingungen
+* **Autoren & Quelle:** I. Demirdžić, P. Cardiff (2022), *„Symmetry plane boundary conditions for cell-centered finite-volume continuum mechanics“*, *Numerical Heat Transfer, Part B*, 82(1–2), 1–12, DOI: `10.1080/10407790.2022.2105073`.
+* **Mathematische & Algorithmische Kern-Bausteine (Gl. 1–40):**
+  1. **Exaktes Verschwinden der Cross-Diffusion an Symmetrieebenen (Gl. 1–7):**
+     Da der Verbindungsvektor zur Spiegelzelle $M$, $\boldsymbol{\Delta} = \overrightarrow{PM} = 2\frac{\mathbf{d}\cdot\mathbf{s}}{\mathbf{s}\cdot\mathbf{s}}\mathbf{s}$ (Gl. 3), immer exakt kollinear zum äußeren Flächenvektor $\mathbf{s}$ steht, ist der nicht-orthogonale Cross-Diffusion-Term an einer Symmetrieebene selbst auf beliebig schiefen Polyedergittern **identisch Null** ($D_\phi = \Gamma_\phi \frac{\mathbf{s}\cdot\mathbf{s}}{2\,\mathbf{d}\cdot\mathbf{s}}(\phi_M - \phi_P)$, Gl. 4)! Gitter-Schiefheit ($\mathbf{d} \nparallel \mathbf{s}$) tritt ausschließlich bei der Flächenmittelpunkts-Rekonstruktion $\phi_B = \phi_N + \mathbf{t}\cdot(\operatorname{grad}\phi)_N$ über den Tangentialversatz $\mathbf{t} = \mathbf{d} - \frac{\mathbf{d}\cdot\mathbf{s}}{\mathbf{s}\cdot\mathbf{s}}\mathbf{s}$ (Gl. 6–7) auf.
+  2. **Householder-Spiegelung $\mathbf{R} = \mathbf{I} - 2\mathbf{n}\otimes\mathbf{n}$ & Patankar-Split für Vektoren $\mathbf{v}$ (Geschwindigkeit / Strukturverschiebung, Gl. 8, 11–16, 34–35):**
+     Aus $\mathbf{v}_M = \mathbf{R}\cdot\mathbf{v}_P$ folgt $\mathbf{D}_v = -\Gamma_v \frac{\mathbf{s}\cdot\mathbf{v}_P}{\mathbf{d}\cdot\mathbf{s}}\mathbf{s}$ (Gl. 12) und der unbedingt diagonaldominante Split $D_{vi} = D_{vi,\text{ex}} - D_{vi,\text{im}} v_{Pi}$:
+     $$D_{vi,\text{im}} = \Gamma_v \frac{s_i s_i}{\mathbf{d}\cdot\mathbf{s}} > 0 \;\text{(auf Hauptdiagonale } a_P\text{)}, \qquad D_{vi,\text{ex}} = -\Gamma_v \frac{\mathbf{s}\cdot\mathbf{v}_P - s_i v_{Pi}}{\mathbf{d}\cdot\mathbf{s}} s_i \;\text{(auf RHS } b_P\text{)} \quad \text{(Gl. 15–16)}$$
+     sowie der schiefe-korrigierte Randwert $\mathbf{v}_B = \mathbf{v}_P - \frac{\mathbf{s}\cdot\mathbf{v}_P}{\mathbf{s}\cdot\mathbf{s}}\mathbf{s} + \mathbf{t}\cdot\mathbf{G}_P - \mathbf{t}\cdot\frac{\mathbf{G}_P\cdot\mathbf{s}\otimes\mathbf{s}}{\mathbf{s}\cdot\mathbf{s}}$ (Gl. 34).
+  3. **Symmetrische & unsymmetrische Tensoren 2. Stufe $\mathbf{T}$ (Spannungs- / Cauchy-Green-Tensor, Gl. 17–22, 36–37):**
+     Aus $\mathbf{T}_M = \mathbf{R}\cdot\mathbf{T}_P\cdot\mathbf{R}^T$ folgt für jede Komponente $T_{ij}$ ($i,j \in \{1,2,3\}$, keine Summation über $i,j$):
+     $$D_{Tij,\text{im}} = \Gamma_T \frac{s_i s_i + s_j s_j}{\mathbf{d}\cdot\mathbf{s}}, \qquad D_{Tij,\text{ex}} = -\Gamma_T \frac{s_i(s_k T_{Pkj}) + s_j(s_k T_{Pik}) - \frac{2(s_p s_q T_{Ppq})s_i s_j}{\mathbf{s}\cdot\mathbf{s}} - (s_i^2 + s_j^2)T_{Pij}}{\mathbf{d}\cdot\mathbf{s}} \quad \text{(Gl. 21–22)}$$
+
+---
+
+### 9.15 [`FSI_Monolithic_2505.22920v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/FSI_Monolithic_2505.22920v1.pdf) — Monolithische 3D Euler'sche FSI mit Geometrischem VOF/PLIC
+* **Autoren & Quelle:** S. Prajapati, A. Fakhreddine, K. Mahesh (Univ. of Minnesota & Univ. of Michigan, Mai 2025), *„Monolithic framework to simulate fluid-structure interaction problems using geometric volume-of-fluid method“*, `arXiv:2505.22920v1 [physics.flu-dyn]`.
+* **Mathematische & Algorithmische Kern-Bausteine (Gl. 1–39):**
+  1. **One-Continuum Monolithische Impuls- & Spannungsformulierung auf festem Gitter (Gl. 6–15):**
+     Mit dem Festkörper-Volumenbruch $\phi \in [0, 1]$ (Gl. 6) erfüllen die gemischten Größen $u_i = \phi u_i^s + (1-\phi)u_i^f$, $\rho = \phi\rho^s + (1-\phi)\rho^f$ und $\sigma_{ij} = \phi\sigma_{ij}^s + (1-\phi)\sigma_{ij}^f$ (Gl. 7–10) auf dem gesamten Gebiet exakt die kinematische und dynamische Kopplungsbedingung:
+     $$\frac{\partial u_i}{\partial t} + \frac{\partial (u_i u_j)}{\partial x_j} = -\frac{1}{\rho}\frac{\partial p}{\partial x_i} + \frac{1}{\rho}\frac{\partial \sigma_{ij}}{\partial x_j}, \qquad \sigma_{ij}^s = 2\mu^s D_{ij} + \begin{cases} G^s(B_{ij} - \delta_{ij}) & \text{(Neo-Hooke, Gl. 14)} \\ G^s(B_{ik}B_{kj} - B_{ij}) & \text{(St. Venant-Kirchhoff, Gl. 15)} \end{cases}$$
+  2. **Oldroyd-Transport des linken Cauchy-Green-Tensors $\mathbf{B} = \mathbf{F}\mathbf{F}^T$ mit WENO-Z & Fluid-Reset (Gl. 16–18, 30–39):**
+     $$\frac{\partial B_{ij}}{\partial t} + u_k \frac{\partial B_{ij}}{\partial x_k} = B_{ik}\frac{\partial u_j}{\partial x_k} + B_{kj}\frac{\partial u_i}{\partial x_k} \quad \text{(Gl. 16)}$$
+     Zeitintegration via Adams-Bashforth 2 ($\text{CFL} < 0.5$, Gl. 18) und 5.-Ordnung WENO-Z für $u_k \partial_{x_k} B_{ij}$ (Gl. 31–39).
+     **Entscheidender Stabilitäts-Mechanismus:** Nach der direktional gesplitteten Lagrangeschen PLIC-Advektion ($m_x x + m_y y + m_z z = \beta$, Gl. 29) wird für alle reinen Fluidzellen ($\phi < \epsilon_c = 10^{-8}$) $\phi = 0$ geclippt und **hart $\mathbf{B} = \mathbf{I}$ zurückgesetzt** — das verhindert das exponentielle Anwachsen von $\mathbf{B}$ durch Fluidscherung und erreicht auf einem $128^2$-Gitter dieselbe Schärfe wie diffusive WENO-FSI-Löser auf $1024^2$ ($512\times$ weniger 3D-Zellen!).
+
+---
+
+### 9.16 [`CADWatertightFineMeshing_2604.02141v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/CADWatertightFineMeshing_2604.02141v1.pdf) — Topology-First B-Rep Meshing (100 % Wasserdichter STEP-Import ohne 2D-Trimmkurven)
+* **Autoren & Quelle:** Y. Zhou, D. Zint, N. Izadyar, M. Tao, D. Panozzo, T. Schneider (NYU, TU Berlin, Univ. Victoria, April 2026), *„Topology-First B-Rep Meshing“*, `arXiv:2604.02141v1 [cs.GR]`.
+* **Kernproblem & Durchbruch:**
+  In realen STEP-Dateien (Fusion-360-/ABC-Datensatz) schneiden sich **14 % aller 2D-$(u,v)$-Trimmkurven (`PCURVE`) selbst** oder klaffen auseinander, weshalb klassische $(u,v)$-Delaunay-Mesher (Gmsh, OCCT) Risse oder Abstürze produzieren. *Topology-First B-Rep Meshing* **verwirft alle 2D-Trimmkurven komplett** und behandelt die kombinatorische B-Rep-Topologie $\mathcal{P} = (\{v_i^b\}, \{e_i^b\}, \{\ell_i^b\}, \{f_i^b\})$ als unverletzliche Invariante:
+  1. **Ungetrimmtes Patch-Sampling (Stage 1–2):** Jedes NURBS-Patch $p_i^2(u,v): [0,1]^2 \to \mathbb{R}^3$ wird auf dem vollen ungetrimmten Einheitsquadrat $[0,1]^2$ vernetzt und per RGB-Subdivision auf Abstand $< \epsilon$ zur Fläche verfeinert; 3D-Randkurven $p_i^1(t)$ werden auf die exakten 3D-Eckpunkte $p_i^0$ gesnappt (1D-Laplace-Glättung).
+  2. **Topologie-garantiertes 3D Loop-Embedding via Dijkstra (`Algorithm 1 & 2`, Stage 3):**
+     Nicht-mannigfaltige b-vertices/Seam-Edges werden temporär dupliziert (sodass jeder Loop eine topologische Disk begrenzt), die 3D-Kurvenpunkte per Closest-Point auf das 3D-Flächennetz $M_k$ projiziert und durch **kürzeste Pfade im Kantengraphen von $M_k$ per Dijkstra** (unter Umgehung bereits belegter Randkanten $\mathcal{F}$) verbunden. Der geschlossene Zyklus $\Gamma$ zerlegt $M_k$ nach dem Jordan-Kurvensatz rein kombinatorisch in Disk (`KeepDisk` für Außenloop) und Annulus (`KeepComplement` + `RestoreDisk` für Innenlöcher) — **komplett ohne geometrische In/Out-Tests**!
+  3. **Harmonisches Snapping $\Delta u = 0$ & 1D-$t$-Parameter-Stitching (Stage 4–5):**
+     Randknoten werden auf $p_j^1(t_k)$ gezogen, das Innere über die diskrete harmonische Gleichung $\Delta u = 0$ mit $u|_{\partial M_k} = u_c$ entspannt und die 1D-Kurvenparameter $\{t_k\} \subset [0,1]$ der beiden Nachbarflächen auf jeder `EDGE_CURVE` vereinigt und gesplittet $\implies$ **garantiert 100 % wasserdichte, 2-mannigfaltige Oberflächengitter**.
+
+---
+
+### 9.17 [`Differtialble3DCAD_2110.01182v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Differtialble3DCAD_2110.01182v1.pdf) — Differenzierbare 3D-CAD-Programme & Automatische Gültigkeitsschranken
+* **Autoren & Quelle:** D. Cascaval, M. Shalah, P. Quinn, R. Bodik, M. Agrawala, A. Schulz (Univ. Washington & Stanford, SIGGRAPH Asia 2021), *„Differentiable 3D CAD Programs for Bidirectional Editing“*, *ACM TOG*, `arXiv:2110.01182v1`.
+* **Mathematische & Algorithmische Kern-Bausteine (Gl. 1–13 & Appendix A):**
+  1. **Kompilierter Berechnungsgraph (DAG) $G$ statt AD über den CAD-Kernel (§3.1–3.2, Abb. 4):**
+     Bei fester Topologie $(V, E, F)$ zeichnet der CAD-Interpreter während des einmaligen Geometrieaufbaus für jede Operation (`Box`, `Chamfer`, `Extrude`, `Revolve`) den symbolischen Berechnungsgraphen $V = \mathcal{F}(P)$ der 3D-Oberflächenknoten in Abhängigkeit der Konstruktionsparameter $P \equiv \boldsymbol{\theta}_{\text{CAD}}$ auf (z. B. Fase $V_5 = V_3 + d\frac{V_1 - V_3}{\|V_1 - V_3\|_2}$) und erzeugt **automatisch die topologischen Sicherheits-Ungleichungen** $g_m(P) \ge 0$ (z. B. $\|V_4 - V_3\|_2 - d \ge 0$, damit eine Fase niemals die Kantenlänge überschreitet!).
+  2. **Direkte Adjoint-Kettenregel & Biharmonische/ARAP-Regularisierung im Parameterraum (§3.3, Gl. 1–13, App. A):**
+     Kompiliert $\mathcal{F}(P)$, $\nabla\mathcal{F}(P) = \frac{\partial \mathbf{x}_{\text{surf}}}{\partial \boldsymbol{\theta}_{\text{CAD}}}$ und $\nabla g_m(P)$ in nativen Maschinencode (0 CAD-Kernel-Aufrufe in der Optimierungsschleife!). Koppelt unsere FVM-Adjoint-Oberflächensensitivitäten direkt über
+     $$\frac{\mathrm{d}J}{\mathrm{d}\boldsymbol{\theta}_{\text{CAD}}} = \left(\frac{\partial J}{\partial \mathbf{x}_{\text{surf}}}\right)^T \frac{\partial \mathbf{x}_{\text{surf}}}{\partial \boldsymbol{\theta}_{\text{CAD}}} \qquad \text{u. d. N.} \quad g_m(\boldsymbol{\theta}_{\text{CAD}}) \ge 0$$
+     sowie optionaler biharmonischer Deformationsenergie $E_{\text{bh}}(P) = \operatorname{tr}(\mathbf{D}(P)^T \mathbf{Q}\mathbf{D}(P))$ (Gl. 7) und Volumenerhaltung $E_{\text{vol}}(P) = (\operatorname{Vol}(P) - \operatorname{Vol}(P_0))^2$ (Gl. 11) via SLSQP.

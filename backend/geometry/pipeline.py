@@ -77,6 +77,7 @@ class CADGeometryEngine:
             raise FileNotFoundError(f"CAD geometry file not found: {path}")
 
         self.source_file = path
+        lower_name = path.name.lower()
         ext = path.suffix.lower()
 
         # Step 1: If native format (.prt), route through CAD bridge
@@ -88,16 +89,17 @@ class CADGeometryEngine:
                 allow_fallback=allow_cad_fallback,
             )
             path = translated_path
+            lower_name = path.name.lower()
             ext = path.suffix.lower()
 
         # Step 2: Route through format parser
-        if ext in (".stl",):
+        if lower_name.endswith(".stl") or lower_name.endswith(".stl.gz"):
             parser: BaseParser = STLParser(weld_tolerance=weld_tolerance)
             self.current_mesh = parser.parse(path)
-        elif ext in (".obj",):
+        elif lower_name.endswith(".obj") or lower_name.endswith(".obj.gz"):
             parser = OBJParser()
             self.current_mesh = parser.parse(path)
-        elif ext in (".stp", ".step"):
+        elif lower_name.endswith(".stp") or lower_name.endswith(".step") or lower_name.endswith(".stp.gz") or lower_name.endswith(".step.gz"):
             parser = STEPParser(
                 deflection=deflection,
                 angular_tolerance=angular_tolerance,

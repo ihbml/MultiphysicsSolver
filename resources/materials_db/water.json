@@ -1,0 +1,10 @@
+{
+  "name": "Water",
+  "category": "liquid",
+  "density": 998.2,
+  "viscosity": 1.002e-3,
+  "specific_heat": 4182.0,
+  "thermal_conductivity": 0.600,
+  "molecular_weight": 18.015,
+  "prandtl_number": 6.99
+}

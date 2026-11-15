@@ -1,0 +1,17 @@
+{
+  "name": "Air",
+  "category": "gas",
+  "density": 1.204,
+  "viscosity": 1.825e-5,
+  "specific_heat": 1005.0,
+  "thermal_conductivity": 0.0257,
+  "molecular_weight": 28.966,
+  "prandtl_number": 0.71,
+  "nasa_polynomials": {
+    "t_low": 200.0,
+    "t_mid": 1000.0,
+    "t_high": 6000.0,
+    "low": [3.568396, -6.787294e-4, 1.553715e-6, -3.299374e-12, -4.663954e-13, -1062.347, 5.714829],
+    "high": [3.087927, 1.245972e-3, -4.23719e-7, 6.74775e-11, -3.97077e-15, -995.2614, 4.10342]
+  }
+}

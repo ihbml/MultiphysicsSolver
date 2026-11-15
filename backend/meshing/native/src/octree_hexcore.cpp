@@ -359,7 +359,7 @@ int32_t OctreeHexcore::generate(
 
   // 3. Adaptive Surface Refinement Pass
   // Subdivide nodes that intersect or are in the narrow band of the CAD surface
-  int32_t max_depth = std::clamp(options.max_depth, 0, 4);
+  int32_t max_depth = std::clamp(options.max_depth, 0, 16);
   for (int pass = 0; pass < max_depth; ++pass) {
     size_t current_count = nodes.size();
     std::vector<int32_t> leaf_indices;
@@ -945,11 +945,11 @@ int32_t OctreeHexcore::generate(
     }
 
     cell_vols[c] = vol_sum;
-    if (vol_sum > 1e-15) {
+    if (std::abs(vol_sum) > 1e-15) {
       cell_cents[c] = cent_sum / vol_sum;
     } else {
       cell_cents[c] = c_approx;
-      cell_vols[c] = nodes[active_leaves[c]].v_bg;
+      cell_vols[c] = 0.0;
     }
   }
 

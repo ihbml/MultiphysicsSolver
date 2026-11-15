@@ -1,0 +1,219 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Chakra Petch", "IBM Plex Sans", sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* graphite / engine shell */
+  --color-ink-950: #07090d;
+  --color-ink-900: #0b0e14;
+  --color-ink-850: #10151d;
+  --color-ink-800: #141a23;
+  --color-ink-750: #19212c;
+  --color-ink-700: #1f2833;
+  --color-ink-600: #2b3644;
+  --color-ink-500: #3d4b5c;
+  --color-ink-400: #64748b;
+
+  /* paper / blueprint docs */
+  --color-paper-50: #f4f7fa;
+  --color-paper-100: #e9eef4;
+  --color-paper-200: #d8e0e9;
+  --color-paper-300: #bcc8d6;
+  --color-paper-700: #33414f;
+  --color-paper-900: #161d26;
+
+  /* signal accents */
+  --color-amber-signal: #f5a524;
+  --color-amber-deep: #c97a09;
+  --color-cyan-signal: #35c9e8;
+  --color-cyan-deep: #0d7f97;
+  --color-lime-signal: #8ede63;
+  --color-red-signal: #ff6b5a;
+  --color-violet-dim: #8b7fd6;
+
+  --animate-blink: blink 1.15s steps(2, start) infinite;
+  --animate-sweep: sweep 7s linear infinite;
+  --animate-drift: drift 24s ease-in-out infinite alternate;
+  --animate-spinslow: spin 14s linear infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+@keyframes sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(210%);
+  }
+}
+@keyframes drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(3%, -4%, 0) scale(1.08);
+  }
+}
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes logIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+    background-color: rgba(53, 201, 232, 0.14);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    background-color: transparent;
+  }
+}
+@keyframes dashFlow {
+  to {
+    stroke-dashoffset: -240;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-950);
+  color: var(--color-paper-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--color-amber-signal);
+  color: #0b0e14;
+}
+
+/* scroll reveal */
+.reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+.reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+.log-line {
+  animation: logIn 0.45s ease-out both;
+}
+
+/* blueprint paper background for doc sections */
+.blueprint {
+  background-color: var(--color-paper-50);
+  background-image:
+    linear-gradient(rgba(13, 127, 151, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 127, 151, 0.09) 1px, transparent 1px),
+    linear-gradient(rgba(13, 127, 151, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 127, 151, 0.05) 1px, transparent 1px);
+  background-size:
+    120px 120px,
+    120px 120px,
+    24px 24px,
+    24px 24px;
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(245, 165, 36, 0.16) 0 2px,
+    transparent 2px 7px
+  );
+}
+
+.rail-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* thin technical scrollbars */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+.thin-scroll::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 99px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-dash {
+  stroke-dasharray: 6 8;
+  animation: dashFlow 6s linear infinite;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.marquee {
+  animation: marquee 42s linear infinite;
+}
+.marquee:hover {
+  animation-play-state: paused;
+}
+
+/* range input */
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #f5a524;
+  border: 1px solid #0b0e14;
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  background: #f5a524;
+  border: 1px solid #0b0e14;
+  cursor: pointer;
+  border-radius: 0;
+}

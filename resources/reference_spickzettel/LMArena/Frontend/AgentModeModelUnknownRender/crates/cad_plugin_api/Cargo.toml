@@ -1,0 +1,12 @@
+[package]
+name = "cad-plugin-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cad-core.workspace = true
+bevy_ecs.workspace = true
+glam.workspace = true
+egui.workspace = true
+serde.workspace = true
+thiserror.workspace = true

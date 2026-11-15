@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces and ink */
+  --color-paper: #f2f4f3;
+  --color-card: #ffffff;
+  --color-ink: #10181c;
+  --color-muted: #536067;
+  --color-rule: #d3dadb;
+
+  /* Colour encodes length scale everywhere on the page */
+  --color-micro: #6b3fd4;
+  --color-meso: #0e8f8a;
+  --color-macro: #d9731a;
+  /* Darker variants that hold 4.5:1 as text on paper */
+  --color-micro-ink: #5a2fc0;
+  --color-meso-ink: #0a6f6b;
+  --color-macro-ink: #a14d08;
+
+  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: var(--color-ink);
+    color: var(--color-paper);
+  }
+
+  section[id] {
+    scroll-margin-top: 4.5rem;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* One faint gridline per decade on the log axis (13 decades wide) */
+  .decade-grid {
+    background-image: linear-gradient(90deg, var(--color-rule) 1px, transparent 1px);
+    background-size: calc(100% / 13) 100%;
+  }
+}

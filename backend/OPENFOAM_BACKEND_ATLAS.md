@@ -21,7 +21,7 @@ backend/
 ├── runner/                      # Headless Orchestrierung & MPI-Execution
 │   └── wsl_runner.py            # WSL2-Brücke, blockMesh, decomposePar, mpirun
 ├── native_cpp/                  # Eigene OpenFOAM C++ Shared Libraries (wmake)
-│   └── smr_catalysis/           # Analytisch Jacobi-stabilisierte fvOptions für Wandkatalyse
+│   └── smr_catalysis/           # Analytisch Jacobi-stabilisierte fvOptions für generische Reaktionsquellterme
 ├── native_rust/                 # High-Performance Field-Parser & Zero-Copy I/O
 │   └── foam_fast_io/            # PyO3 + memmap2 + rayon für Multi-GB Mesh/Feld-Extraktion
 └── physics_modules/             # 12 gekapselte Physik-Module
@@ -174,7 +174,7 @@ Jedes Modul im `backend/physics_modules/` korrespondiert mit spezifischen OpenFO
   * `constant/chemistryProperties` (`chemistryType { method ode; solver EulerImplicit; }`)
   * `constant/reactions` (Arrhenius-Kinetiken, reversible Reaktionen)
   * `constant/thermo.data` (NASA 7/9-Koeffizienten-Polynome)
-* **Wandkatalyse Backend-Hook:** `backend/native_cpp/smr_catalysis/smrKineticsSource.C`
+* **Reaktionskinetik Backend-Hook:** `backend/native_cpp/smr_catalysis/genericReactionSource.C`
 * **Upstream C++ Code:** `src/thermophysicalModels/reactionThermo/`
 * **Referenz-Tutorial:** `tutorials/combustion/reactingFoam/RAS/sandiaD_LTS`
 
@@ -249,9 +249,9 @@ OpenFOAM nutzt das Werkzeug `wmake` zum Erstellen dynamischer Bibliotheken (`.so
 ### Aufbau des `Make/`-Verzeichnisses:
 1. **`Make/files`:**
    ```text
-   smrKineticsSource.C
+   genericReactionSource.C
 
-   LIB = $(FOAM_USER_LIBBIN)/libsmrKineticsSource
+   LIB = $(FOAM_USER_LIBBIN)/libgenericReactionSource
    ```
 2. **`Make/options`:**
    ```text
@@ -274,13 +274,13 @@ source /usr/lib/openfoam/openfoam/etc/bashrc
 cd /mnt/g/Datein/Projects/CFDSolver/backend/native_cpp/smr_catalysis
 wmake libso
 ```
-Die erzeugte Bibliothek landet in `$FOAM_USER_LIBBIN` (typischerweise `~/OpenFOAM/$USER-v2606/platforms/linux64GccDPInt32Opt/lib/libsmrKineticsSource.so`).
+Die erzeugte Bibliothek landet in `$FOAM_USER_LIBBIN` (typischerweise `~/OpenFOAM/$USER-v2606/platforms/linux64GccDPInt32Opt/lib/libgenericReactionSource.so`).
 
 ### Einbindung im OpenFOAM-Case (`system/controlDict`):
 ```text
 libs
 (
-    "libsmrKineticsSource.so"
+    "libgenericReactionSource.so"
 );
 ```
 

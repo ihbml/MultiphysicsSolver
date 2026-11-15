@@ -1,56 +1,56 @@
-# BRIEFING — 2026-10-28T07:03:00Z
+# BRIEFING — 2026-11-07T05:27:00Z
 
 ## Mission
-Empirically stress-test the mathematical invariants of the remediated `backend/meshing` (Milestone M2, Gate 2) and verify volume divisors, closure, positivity, inversion handling, and over-relaxed non-orthogonal decomposition.
+Empirically stress-test physical and mathematical invariants of Milestone M2 after remediation to certify audit compliance.
 
 ## 🔒 My Identity
 - Archetype: challenger
 - Roles: critic, specialist
-- Working directory: G:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_1
-- Original parent: 3e8c9327-d904-45bd-a4e2-64ef970ab34d
+- Working directory: g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_1\
+- Original parent: 0e9d9a36-56a7-4f1c-8222-640d7206b910
 - Milestone: M2
-- Instance: 1 of 1
+- Instance: 2 of 2 (Iteration 2)
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code (`backend/meshing`)
-- Author test/verification code in `tests/`
-- Run verification tests with Python 3.14 venv
-- Deliver verdict: APPROVE or REQUEST_CHANGES
-- Communicate findings via `send_message` and self-contained `handoff.md`
+- Review-only — do NOT modify implementation code
+- Host stability guard: Ansys Fluent running in background (~95% RAM). Sequential execution, $env:OMP_NUM_THREADS = "8", no -n / xdist in pytest.
+- Write only to .agents/teamwork/challenger_m2_r2_1/. Never place source/tests in .agents/teamwork/.
 
 ## Current Parent
-- Conversation ID: 3e8c9327-d904-45bd-a4e2-64ef970ab34d
-- Updated: 2026-10-28T07:03:00Z
+- Conversation ID: 0e9d9a36-56a7-4f1c-8222-640d7206b910
+- Updated: 2026-11-07T05:27:00Z
 
 ## Review Scope
-- **Files to review**: `backend/meshing/*`, `tests/test_empirical_challenger_m2_1.py`, `tests/test_challenger_m2_2_adversarial.py`
-- **Interface contracts**: `PROJECT.md`, `worker_m2_2/handoff.md`
-- **Review criteria**: Mathematical invariants:
-  1. Volume calculation divisor 2.0 (2D) and 3.0 (3D)
-  2. Strictly positive cell volumes ($V_i > 10^{-15}$) on valid meshes; genuine negative signed volumes on inverted cells without artificial 1.0 fallback
-  3. Gauss divergence closed-cell closure $\max_i \|\sum \sigma_{if} \mathbf{S}_f\| < 10^{-11}$
-  4. Over-relaxed non-orthogonal decomposition identity $\max_f \|\boldsymbol{\Delta}_f + \mathbf{k}_f - \mathbf{S}_f\| < 10^{-14}$ across severe non-orthogonality
-
-## Key Decisions Made
-- Authored 9 empirical stress test sections in `tests/test_empirical_challenger_m2_1.py` totaling 57 unit/stress tests.
-- Evaluated both native C++20 (`cfd_mesher_native.dll`) and pure-Python fallback implementations.
-- Confirmed zero residual violations: Gauss closure residual $< 1.78 \times 10^{-15} \ll 10^{-11}$, over-relaxed decomposition error $< 3.47 \times 10^{-18} \ll 10^{-14}$, min positive volume on valid meshes $> 10^{-15}$, genuine negative volumes on inverted cells preserved without `abs()` or 1.0 m^3 fallback, zero volume on collapsed cells.
-- Final verdict: APPROVE.
-
-## Artifact Index
-- `handoff.md` — Final 5-component challenger report
-- `progress.md` — Liveness heartbeat and milestone tracking
-- `tests/test_empirical_challenger_m2_1.py` — 57 empirical invariant verification tests
+- **Files reviewed**: `backend/meshing/gci.py`, `backend/meshing/difvm_topology.py`, `backend/meshing/mesh_engine.py`, `backend/meshing/models.py`, `tests/test_empirical_challenger_m2_1.py`, `tests/test_challenger_m2_audit_1.py`, `tests/test_challenger_m2_audit_2.py`, `tests/test_empirical_challenger_m2_r2_1.py`.
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
+- **Review criteria**:
+  1. Invariant 1: Strictly positive cell volumes ($V_i > 10^{-15}$) across all cells.
+  2. Invariant 2: Discrete Gauss divergence closure $\max_c \|\sum_{f \in c} \mathbf{S}_f\| / V_c^{2/3} < 10^{-11}$.
+  3. Invariant 3: Over-relaxed non-orthogonal decomposition identity residual $< 10^{-14}$.
+  4. Invariant 4: Error map metrics, 4-tier stabilization masks, and key aliases.
+  5. Invariant 5: Remediation fidelity (GCI None-safe fallback, Berger-Giuliani WSRD donor-receiver pairing, domain mode dispatch).
 
 ## Attack Surface
 - **Hypotheses tested**:
-  * 2D polygon area integration divisor (Green's theorem 2.0 vs 3.0) -> Confirmed divisor 2.0 active and exact.
-  * 3D polyhedral volume integration divisor (Gauss divergence 3.0) -> Confirmed divisor 3.0 active and exact across Tet, Hex, Wedge, Pyramid.
-  * Cell inversion masking via `abs()` or artificial `1.0 m^3` -> Confirmed removed; inverted cells evaluate to $-V_0$, collapsed cells evaluate to $0.0$.
-  * Closed-cell Gauss closure on highly sheared ($\gamma=3.5$) and non-planar warped meshes -> Confirmed closure residual $< 1.39 \times 10^{-16} \ll 10^{-11}$.
-  * Over-relaxed decomposition identity across extreme angles $\theta \to 89^\circ$ -> Confirmed identity holds to machine precision ($3.47 \times 10^{-18} \ll 10^{-14}$).
-- **Vulnerabilities found**: None in remediated codebase. (Noted architectural distinction: elements with `nv == 4` default to 3D tetrahedra; 2D meshes are triangular `nv == 3` or polygonal `nv != 4,5,6,8`).
-- **Untested angles**: Moving mesh ALE dynamic remeshing and SPH-FVM coupling kernels (scoped for Milestone M3).
+  - H1: Random 3D perturbations or extreme shear (shear=5.0) causes cell volume inversion or violates discrete Gauss closure. [Falsified: strictly positive $V_i > 10^{-15}$, Gauss closure residual is $0.00e+00 < 10^{-11}$].
+  - H2: Non-orthogonality angles approaching $89.5^\circ$ blow up over-relaxed decomposition residual. [Falsified: residual is $3.47e-18 < 10^{-14}$].
+  - H3: Stabilization mask misclassifies edge angles across boundary thresholds (40, 65, 75 deg). [Falsified: all 4 tiers classified with 100% precision].
+  - H4: Setting `mesh.topological_dim = None` crashes GCI calculation. [Falsified: safely defaults to $D=3$, $h=2.0$].
+  - H5: WSRD volume redistribution donates to smaller cells or violates partition of unity. [Falsified: small cells receive 0 weight, regular cells receive positive capacity weight, $|1.0 - \sum w| < 10^{-14}$].
+- **Vulnerabilities found**: None. All 3 defects from Iteration 1 have been completely remediated and verified.
+- **Untested angles**: All identified boundary angles and mesh distortions have been stress-tested.
 
 ## Loaded Skills
 - None
+
+## Key Decisions Made
+- Executed existing test suites `test_empirical_challenger_m2_1.py` (57 tests) and `test_challenger_m2_audit_1.py` (16 tests).
+- Executed `test_challenger_m2_audit_2.py` (13 tests) verifying Challenger 2's adversarial targets.
+- Authored and executed dedicated stress suite `tests/test_empirical_challenger_m2_r2_1.py` (55 tests) targeting physical/mathematical invariants and post-remediation fixes.
+- Unanimously confirmed **APPROVE** verdict.
+
+## Artifact Index
+- DISPATCH.md — incoming dispatch instructions
+- BRIEFING.md — persistent state index
+- progress.md — liveness heartbeat and milestone progress
+- handoff.md — 5-component certification handoff report

@@ -1,0 +1,137 @@
+{
+  "meta": {
+    "architecture": "Option C: Rust + wgpu (DX12/Vulkan) + egui",
+    "ui_inspirations": ["nTop (nTopology)", "Blender 3.x/4.x"],
+    "external_colormap_sources": [
+      "https://github.com/jrwrigh/cfdpost_colormaps/tree/master/colormaps",
+      "https://www.kennethmoreland.com/color-advice/"
+    ]
+  },
+  "ui_color_triads": [
+    {
+      "id": "T1",
+      "name": "Warm Editorial & Probe Contrast",
+      "colors": ["#F0E5DB", "#474326", "#FC75B4"],
+      "roles": ["light_surface_or_paper", "olive_neutral", "probe_and_highlight_pink"]
+    },
+    {
+      "id": "T2",
+      "name": "Electric Precision",
+      "colors": ["#FAC7E1", "#A5467C", "#004AFD"],
+      "labels": { "#004AFD": "Electric Blue" },
+      "roles": ["soft_accent", "chemistry_block", "cad_selection_electric_blue"]
+    },
+    {
+      "id": "T3",
+      "name": "Obsidian Alert (Core Dark UI)",
+      "colors": ["#111217", "#DFE5EB", "#EF233C"],
+      "notes": "Normalized #11217 to #111217",
+      "roles": ["canvas_bg_deep", "primary_text_ice", "alert_divergence_crimson"]
+    },
+    {
+      "id": "T4",
+      "name": "Carbon Cyber (nTop Dark UI)",
+      "colors": ["#18181C", "#723BFA", "#B9F500"],
+      "labels": { "#B9F500": "Acid Lime" },
+      "roles": ["panel_bg_carbon", "solver_mhd_violet", "mesh_ok_and_nan_acid_lime"]
+    },
+    {
+      "id": "T5",
+      "name": "Thermal Gold",
+      "colors": ["#FDEFD6", "#731328", "#FEC40B"],
+      "roles": ["warm_text_accent", "thermal_deep_burgundy", "warning_amber_gold"]
+    },
+    {
+      "id": "T6",
+      "name": "High-Energy Rose & Sun",
+      "colors": ["#6D0317", "#E52150", "#F4EB06"],
+      "labels": {
+        "#E52150": "Rose Red",
+        "#F4EB06": "Sunshine Yellow"
+      },
+      "roles": ["combustion_dark", "rose_red_accent", "sunshine_yellow_peak"]
+    }
+  ],
+  "cfd_colormaps": {
+    "core_required": [
+      {
+        "id": "inferno",
+        "name": "Inferno",
+        "category": "perceptually_uniform_sequential",
+        "stops": ["#000004", "#1B0C41", "#4A0C6B", "#781C6D", "#A52C60", "#CF4446", "#ED6925", "#FB9B06", "#F7D13D", "#FCFFA4"],
+        "recommended_fields": ["T", "h", "wallHeatFlux", "radiationIntensity"]
+      },
+      {
+        "id": "traffic_light",
+        "name": "Ampel (Traffic Light)",
+        "category": "semantic_threshold",
+        "stops": ["#009E73", "#66C266", "#FEC40B", "#F46D25", "#EF233C"],
+        "recommended_fields": ["yPlus", "meshSkewness", "nonOrthogonality", "safetyMargin"]
+      },
+      {
+        "id": "aero",
+        "name": "Aero",
+        "category": "aerodynamic_sequential_diverging",
+        "stops": ["#081D58", "#1D5AA6", "#41B6C4", "#EDF8B1", "#FFFFFF", "#FDB863", "#E52150", "#731328"],
+        "recommended_fields": ["Ma", "Cp", "U_mag", "totalPressureLoss"]
+      },
+      {
+        "id": "green_white",
+        "name": "Grün - Weiß",
+        "category": "monochromatic_sequential",
+        "stops": ["#0B3D20", "#166938", "#2EA058", "#6FD08C", "#B9ECC8", "#FFFFFF"],
+        "invertible": true,
+        "recommended_fields": ["H2", "CH4", "CO", "filmHeight", "alpha.water", "porosity"]
+      },
+      {
+        "id": "dark_ember_10",
+        "name": "Dark Ember (10-Step Reference)",
+        "category": "thermal_sequential",
+        "stops": ["#03071E", "#370617", "#6A040F", "#9D0208", "#D00000", "#DC2F02", "#E85D04", "#F48C06", "#FAA307", "#FBB539"],
+        "recommended_fields": ["T_solid", "ablationRate", "chtBladeTemp"]
+      },
+      {
+        "id": "fire_scheme_6",
+        "name": "Fire Color Scheme (6-Step Reference)",
+        "category": "thermal_sequential",
+        "stops": ["#801100", "#B62203", "#D73502", "#FC6400", "#FF7500", "#FAC000"],
+        "recommended_fields": ["reactionRate", "Qdot", "batteryRunawayHeat"]
+      }
+    ],
+    "recommended_additions": [
+      {
+        "id": "moreland_coolwarm",
+        "name": "Moreland Cool-Warm",
+        "category": "diverging_zero_centered",
+        "stops": ["#3B4CC0", "#6788EE", "#9ABBFF", "#C9D7F0", "#DDDDDD", "#F7B799", "#EE8468", "#D65244", "#B40426"],
+        "recommended_fields": ["p_rgh", "U_x_recirculation", "vorticity_z"]
+      },
+      {
+        "id": "viridis",
+        "name": "Viridis (ANSYS / Perceptual)",
+        "category": "perceptually_uniform_sequential",
+        "stops": ["#440154", "#3B528B", "#21918C", "#5EC962", "#FDE725"],
+        "recommended_fields": ["k", "omega", "nut"]
+      },
+      {
+        "id": "cividis",
+        "name": "Cividis (Colorblind-Safe)",
+        "category": "perceptually_uniform_sequential",
+        "stops": ["#00204C", "#31446B", "#666970", "#9F966E", "#DEC958", "#FFEA46"],
+        "recommended_fields": ["general_publication_plots"]
+      },
+      {
+        "id": "schlieren_xray",
+        "name": "Schlieren / X-Ray",
+        "category": "greyscale_high_contrast",
+        "stops": ["#0A0A0D", "#2E3038", "#6E7380", "#B8BECA", "#FFFFFF"],
+        "recommended_fields": ["grad_rho", "shockWaves", "Q_criterion"]
+      }
+    ],
+    "special_indicators": {
+      "nan_or_inf_cell": "#B9F500",
+      "clamped_underflow": "#03071E",
+      "clamped_overflow": "#FC75B4"
+    }
+  }
+}

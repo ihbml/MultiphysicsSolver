@@ -1,0 +1,15 @@
+[package]
+name = "cad-addons"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cad-core.workspace = true
+cad-plugin-api.workspace = true
+bevy_ecs.workspace = true
+glam.workspace = true
+egui.workspace = true
+rhai.workspace = true
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true

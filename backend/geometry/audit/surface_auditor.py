@@ -30,6 +30,7 @@ class SurfaceAuditor:
         auto_repair_normals: bool = True,
         area_tol: float = 1e-14,
         min_quality_tol: float = 1e-5,
+        max_faces_self_intersection: int = 5000,
     ) -> None:
         """Initialize SurfaceAuditor.
 
@@ -37,10 +38,12 @@ class SurfaceAuditor:
             auto_repair_normals: If True, automatically invert winding when signed volume is negative.
             area_tol: Minimum allowable triangle area to avoid degenerate facets.
             min_quality_tol: Minimum equilateral triangle quality threshold (OpenFOAM surfaceCheck).
+            max_faces_self_intersection: Maximum face count to run full quadratic Moeller self-intersection test.
         """
         self.auto_repair_normals = auto_repair_normals
         self.area_tol = area_tol
         self.min_quality_tol = min_quality_tol
+        self.max_faces_self_intersection = max_faces_self_intersection
 
     def audit(self, mesh: SurfaceMesh) -> AuditReport:
         """Execute complete topological and geometric audit on the given surface mesh.
@@ -285,6 +288,13 @@ class SurfaceAuditor:
 
     def _detect_self_intersections(self, mesh: SurfaceMesh) -> int:
         """Detect self-intersecting triangle pairs using AABB pruning and Moeller intersection test."""
+        if len(mesh.faces) > self.max_faces_self_intersection:
+            logger.info(
+                "Skipping quadratic self-intersection detection for large mesh (%d faces > %d)",
+                len(mesh.faces),
+                self.max_faces_self_intersection,
+            )
+            return 0
         return self._detect_self_intersections_aabb(mesh.vertices, mesh.faces)
 
     @staticmethod

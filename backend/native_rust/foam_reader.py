@@ -5,19 +5,41 @@ Provides:
 1. Native high-speed Rust FFI bridge (`foam_fast_io`) when compiled.
 2. High-performance vectorized Python/NumPy fallback implementing the exact same API.
 3. Automated geometric precomputations (SoA format matching ARCHITECTURE.md).
+4. BoundaryField dictionary parsing with zeroGradient / calculated owner-cell fallback.
+5. Case time directory discovery (reconstructed vs processor_only).
+6. format binary; header support and binary list decoders.
 """
 
 from __future__ import annotations
 
-import ctypes
+from dataclasses import dataclass, field
 import gzip
 import logging
 import os
 from pathlib import Path
+import re
+import struct
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TimeStepInfo:
+    """Information about an OpenFOAM case time directory."""
+    time: float
+    time_dir: str
+    reconstructed: bool
+    available_fields: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "time": self.time,
+            "time_dir": self.time_dir,
+            "reconstructed": self.reconstructed,
+            "available_fields": list(self.available_fields),
+        }
 
 
 class FoamBoundaryPatch:
@@ -34,6 +56,7 @@ class FoamBoundaryPatch:
             "type": self.patch_type,
             "start_face": self.start_face,
             "n_faces": self.n_faces,
+            "count": self.n_faces,
         }
 
     def __repr__(self) -> str:
@@ -216,6 +239,22 @@ class FoamReader:
         with open(p, "rb") as f:
             return f.read()
 
+    @staticmethod
+    def _check_format_binary(data: bytes) -> bool:
+        """Inspects FoamFile header to determine if format is binary."""
+        header_chunk = data[:2048].decode("latin1", errors="ignore")
+        match = re.search(r"format\s+(binary|ascii)\s*;", header_chunk)
+        if match:
+            return match.group(1).lower() == "binary"
+        return False
+
+    @staticmethod
+    def _strip_comments(text: str) -> str:
+        """Strips both block /* ... */ and line // comments cleanly."""
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        text = re.sub(r"//.*", "", text)
+        return text
+
     @classmethod
     def load_mesh(cls, poly_mesh_dir: Union[str, Path]) -> FoamMesh:
         """Loads complete OpenFOAM polyMesh from directory."""
@@ -244,19 +283,27 @@ class FoamReader:
         return mesh
 
     @staticmethod
-    def _strip_comments(text: str) -> str:
-        """Strips both block /* ... */ and line // comments cleanly."""
-        import re
-        text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-        text = re.sub(r"//.*", "", text)
-        return text
-
-    @staticmethod
     def parse_points(data: bytes) -> np.ndarray:
+        is_binary = FoamReader._check_format_binary(data)
+        if is_binary:
+            # Find points count followed by '(' or raw binary block
+            header_match = re.search(rb"\n\s*(\d+)\s*\n\s*\(", data)
+            if not header_match:
+                header_match = re.search(rb"\n\s*(\d+)\s*\n", data[200:])
+            if not header_match:
+                raise ValueError("Could not find binary points count in header")
+            n_points = int(header_match.group(1))
+            data_start = header_match.end()
+            # If starting byte is '(' or newline, step over
+            while data_start < len(data) and data[data_start:data_start+1] in (b'(', b'\n', b'\r', b' '):
+                data_start += 1
+            pts_bytes = data[data_start : data_start + n_points * 3 * 8]
+            points = np.frombuffer(pts_bytes, dtype=np.float64, count=n_points * 3).reshape(n_points, 3)
+            return np.array(points, dtype=np.float64, copy=True)
+
         text = FoamReader._strip_comments(data.decode("utf-8", errors="ignore"))
         tokens = text.replace("(", " ( ").replace(")", " ) ").split()
 
-        # Find points count followed by '('
         idx = 0
         n_points = 0
         while idx < len(tokens):
@@ -272,13 +319,12 @@ class FoamReader:
         while idx < len(tokens) and p_idx < n_points:
             t = tokens[idx]
             if t == "(":
-                # Next 3 tokens are x y z
                 x = float(tokens[idx + 1])
                 y = float(tokens[idx + 2])
                 z = float(tokens[idx + 3])
                 points[p_idx] = [x, y, z]
                 p_idx += 1
-                idx += 5  # past ( x y z )
+                idx += 5
             elif t == ")":
                 break
             else:
@@ -308,7 +354,6 @@ class FoamReader:
             l = lines[idx]
             if l == ")":
                 break
-            # e.g. 4(0 1 2 3) or 3(4 5 6)
             if "(" in l and l.endswith(")"):
                 parts = l.split("(", 1)
                 nodes = [int(v) for v in parts[1][:-1].split()]
@@ -320,6 +365,26 @@ class FoamReader:
 
     @staticmethod
     def parse_label_list(data: bytes) -> np.ndarray:
+        is_binary = FoamReader._check_format_binary(data)
+        if is_binary:
+            header_match = re.search(rb"\n\s*(\d+)\s*\n\s*\(", data)
+            if not header_match:
+                header_match = re.search(rb"\n\s*(\d+)\s*\n", data[200:])
+            if not header_match:
+                raise ValueError("Could not find binary labelList count in header")
+            n_labels = int(header_match.group(1))
+            data_start = header_match.end()
+            while data_start < len(data) and data[data_start:data_start+1] in (b'(', b'\n', b'\r', b' '):
+                data_start += 1
+            
+            # Check 32-bit vs 64-bit int
+            rem = len(data) - data_start
+            if rem >= n_labels * 8:
+                labels = np.frombuffer(data[data_start : data_start + n_labels * 8], dtype=np.int64, count=n_labels)
+            else:
+                labels = np.frombuffer(data[data_start : data_start + n_labels * 4], dtype=np.int32, count=n_labels)
+            return np.array(labels, dtype=np.int64, copy=True)
+
         text = FoamReader._strip_comments(data.decode("utf-8", errors="ignore"))
         tokens = text.replace("(", " ( ").replace(")", " ) ").split()
 
@@ -338,7 +403,7 @@ class FoamReader:
             t = tokens[idx]
             if t == ")":
                 break
-            if t.isdigit():
+            if t.isdigit() or (t.startswith("-") and t[1:].isdigit()):
                 labels.append(int(t))
             idx += 1
 
@@ -347,9 +412,7 @@ class FoamReader:
     @staticmethod
     def parse_boundary(data: bytes) -> List[FoamBoundaryPatch]:
         text = data.decode("utf-8", errors="ignore")
-        # Tokenize
         clean = ""
-        in_block_comment = False
         for line in text.splitlines():
             line = line.split("//")[0]
             if "/*" in line and "*/" in line:
@@ -360,7 +423,6 @@ class FoamReader:
 
         tokens = clean.replace(";", " ; ").replace("{", " { ").replace("}", " } ").replace("(", " ( ").replace(")", " ) ").split()
 
-        # Find '('
         idx = 0
         while idx < len(tokens):
             if tokens[idx].isdigit() and idx + 1 < len(tokens) and tokens[idx + 1] == "(":
@@ -399,25 +461,47 @@ class FoamReader:
         return patches
 
     @classmethod
-    def load_field(cls, field_path: Union[str, Path], n_cells: Optional[int] = None) -> Dict[str, Any]:
-        """Loads a volScalarField or volVectorField."""
-        raw = cls._read_raw(field_path)
-        text = raw.decode("utf-8", errors="ignore")
-        tokens = text.replace(";", " ; ").replace("[", " [ ").replace("]", " ] ").replace("(", " ( ").replace(")", " ) ").split()
+    def load_field(
+        cls,
+        field_path: Union[str, Path],
+        n_cells: Optional[int] = None,
+        mesh: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Loads a volScalarField or volVectorField including boundaryField and owner fallbacks.
 
-        result = {
-            "name": Path(field_path).stem,
+        Args:
+            field_path: Path to field file (e.g. 0/U, 0/p, 0/T).
+            n_cells: Optional expected cell count for uniform internalField sizing.
+            mesh: Optional FoamMesh or UnstructuredMesh for zeroGradient/calculated fallback.
+
+        Returns:
+            Dictionary containing:
+            - name: Field name
+            - dimensions: 7-element SI dimension vector [kg, m, s, K, mol, A, cd]
+            - internal_field: NumPy array of shape (N,) or (N, 3)
+            - is_vector: Boolean
+            - boundary_fields: Dict mapping patch_name -> dict(type, data, source, is_fallback)
+        """
+        raw = cls._read_raw(field_path)
+        is_binary = cls._check_format_binary(raw)
+        text = raw.decode("utf-8", errors="ignore")
+        clean_text = cls._strip_comments(text)
+        tokens = clean_text.replace(";", " ; ").replace("[", " [ ").replace("]", " ] ").replace("(", " ( ").replace(")", " ) ").replace("{", " { ").replace("}", " } ").split()
+
+        result: Dict[str, Any] = {
+            "name": Path(field_path).name.replace(".gz", ""),
             "dimensions": [0] * 7,
             "internal_field": None,
             "is_vector": False,
+            "boundary_fields": {},
         }
 
+        raw_boundaries: Dict[str, Dict[str, Any]] = {}
         idx = 0
         while idx < len(tokens):
             tok = tokens[idx]
             if tok == "dimensions":
-                # [ 0 1 -1 0 0 0 0 ]
-                if tokens[idx + 1] == "[":
+                if idx + 1 < len(tokens) and tokens[idx + 1] == "[":
                     dims = [int(v) for v in tokens[idx + 2 : idx + 9]]
                     result["dimensions"] = dims
                     idx += 9
@@ -426,7 +510,6 @@ class FoamReader:
                 if kind == "uniform":
                     val_tok = tokens[idx + 2]
                     if val_tok == "(":
-                        # Vector
                         vx = float(tokens[idx + 3])
                         vy = float(tokens[idx + 4])
                         vz = float(tokens[idx + 5])
@@ -441,28 +524,366 @@ class FoamReader:
                         result["is_vector"] = False
                         idx += 3
                 elif kind == "nonuniform":
-                    # nonuniform List<scalar> or List<vector>
-                    type_tok = tokens[idx + 2]
+                    type_tok = tokens[idx + 1 + 1]
                     is_vec = "vector" in type_tok
                     count = int(tokens[idx + 3])
                     result["is_vector"] = is_vec
-                    # Read values
-                    idx += 5  # past '('
-                    if is_vec:
-                        vecs = np.zeros((count, 3), dtype=np.float64)
-                        for c in range(count):
-                            assert tokens[idx] == "("
-                            vecs[c, 0] = float(tokens[idx + 1])
-                            vecs[c, 1] = float(tokens[idx + 2])
-                            vecs[c, 2] = float(tokens[idx + 3])
-                            idx += 5
-                        result["internal_field"] = vecs
+
+                    if is_binary:
+                        # Extract binary slice from raw bytes
+                        b_match = re.search(rb"internalField\s+nonuniform\s+List<[^>]+>\s+\d+\s*\(", raw)
+                        if b_match:
+                            b_start = b_match.end()
+                            while b_start < len(raw) and raw[b_start:b_start+1] in (b'\n', b'\r', b' '):
+                                b_start += 1
+                            if is_vec:
+                                b_slice = raw[b_start : b_start + count * 3 * 8]
+                                result["internal_field"] = np.frombuffer(b_slice, dtype=np.float64, count=count * 3).reshape(count, 3).copy()
+                            else:
+                                b_slice = raw[b_start : b_start + count * 8]
+                                result["internal_field"] = np.frombuffer(b_slice, dtype=np.float64, count=count).copy()
+                        idx += 5
                     else:
-                        vals = np.zeros(count, dtype=np.float64)
-                        for c in range(count):
-                            vals[c] = float(tokens[idx])
+                        idx += 5  # past '('
+                        if is_vec:
+                            vecs = np.zeros((count, 3), dtype=np.float64)
+                            for c in range(count):
+                                assert tokens[idx] == "("
+                                vecs[c, 0] = float(tokens[idx + 1])
+                                vecs[c, 1] = float(tokens[idx + 2])
+                                vecs[c, 2] = float(tokens[idx + 3])
+                                idx += 5
+                            result["internal_field"] = vecs
+                        else:
+                            vals = np.zeros(count, dtype=np.float64)
+                            for c in range(count):
+                                vals[c] = float(tokens[idx])
+                                idx += 1
+                            result["internal_field"] = vals
+            elif tok == "boundaryField":
+                if idx + 1 < len(tokens) and tokens[idx + 1] == "{":
+                    idx += 2
+                    while idx < len(tokens) and tokens[idx] != "}":
+                        patch_name = tokens[idx]
+                        idx += 1
+                        if idx < len(tokens) and tokens[idx] == "{":
                             idx += 1
-                        result["internal_field"] = vals
+                            ptype = "patch"
+                            pdata: Optional[Union[float, np.ndarray]] = None
+                            is_uniform = True
+
+                            while idx < len(tokens) and tokens[idx] != "}":
+                                key = tokens[idx]
+                                if key == "type":
+                                    ptype = tokens[idx + 1]
+                                    idx += 2
+                                elif key == "value":
+                                    vkind = tokens[idx + 1]
+                                    if vkind == "uniform":
+                                        val_tok = tokens[idx + 2]
+                                        if val_tok == "(":
+                                            vx = float(tokens[idx + 3])
+                                            vy = float(tokens[idx + 4])
+                                            vz = float(tokens[idx + 5])
+                                            pdata = np.array([vx, vy, vz], dtype=np.float64)
+                                            idx += 7
+                                        else:
+                                            pdata = float(val_tok)
+                                            idx += 3
+                                    elif vkind == "nonuniform":
+                                        type_tok = tokens[idx + 2]
+                                        is_v = "vector" in type_tok
+                                        count = int(tokens[idx + 3])
+                                        is_uniform = False
+                                        idx += 5
+                                        if is_v:
+                                            v_arr = np.zeros((count, 3), dtype=np.float64)
+                                            for c in range(count):
+                                                if tokens[idx] == "(":
+                                                    v_arr[c, 0] = float(tokens[idx + 1])
+                                                    v_arr[c, 1] = float(tokens[idx + 2])
+                                                    v_arr[c, 2] = float(tokens[idx + 3])
+                                                    idx += 5
+                                                else:
+                                                    idx += 1
+                                            pdata = v_arr
+                                        else:
+                                            s_arr = np.zeros(count, dtype=np.float64)
+                                            for c in range(count):
+                                                s_arr[c] = float(tokens[idx])
+                                                idx += 1
+                                            pdata = s_arr
+                                    else:
+                                        idx += 1
+                                else:
+                                    idx += 1
+                            raw_boundaries[patch_name] = {
+                                "type": ptype,
+                                "data": pdata,
+                                "is_uniform": is_uniform,
+                            }
+                        idx += 1
             idx += 1
 
+        # Resolve boundary fields and fallback
+        patch_info: Dict[str, Tuple[int, int]] = {}
+        owner_array: Optional[np.ndarray] = None
+
+        if mesh is not None:
+            if hasattr(mesh, "boundaries"):
+                if isinstance(mesh.boundaries, list):
+                    patch_info = {b.name: (b.start_face, b.n_faces) for b in mesh.boundaries}
+                elif isinstance(mesh.boundaries, dict):
+                    patch_info = {k: (v[0], v[1]) for k, v in mesh.boundaries.items()}
+            if hasattr(mesh, "owner"):
+                owner_array = np.asarray(mesh.owner, dtype=np.int64)
+
+        internal_f = result["internal_field"]
+        is_vec = result["is_vector"]
+
+        for p_name, p_dict in raw_boundaries.items():
+            ptype = p_dict["type"]
+            pdata = p_dict["data"]
+            fell_back = False
+
+            if (pdata is None or ptype in ("zeroGradient", "calculated")) and owner_array is not None and p_name in patch_info:
+                start_f, n_f = patch_info[p_name]
+                face_owners = owner_array[start_f : start_f + n_f]
+                if internal_f is not None:
+                    pdata = internal_f[face_owners].copy()
+                    fell_back = True
+
+            source_str = "owner_cell_fallback" if fell_back else "boundary_field"
+            result["boundary_fields"][p_name] = {
+                "type": ptype,
+                "data": pdata,
+                "source": source_str,
+                "is_fallback": fell_back,
+            }
+
         return result
+
+
+def list_time_dirs(case_path: Union[str, Path]) -> List[TimeStepInfo]:
+    """Discovers numeric time directories in an OpenFOAM case.
+
+    Tags reconstructed vs processor_only status and lists available fields.
+
+    Args:
+        case_path: Path to case directory.
+
+    Returns:
+        List of TimeStepInfo instances sorted in ascending numerical time order.
+    """
+    case_dir = Path(case_path).resolve()
+    if not case_dir.exists():
+        raise FileNotFoundError(f"Case directory does not exist: {case_dir}")
+
+    time_map: Dict[str, Tuple[float, bool]] = {}
+
+    # 1. Root case directory
+    for item in case_dir.iterdir():
+        if item.is_dir():
+            name = item.name
+            try:
+                t_val = float(name)
+                time_map[name] = (t_val, True)
+            except ValueError:
+                pass
+
+    # 2. Decomposed processor directories
+    proc_idx = 0
+    while True:
+        proc_dir = case_dir / f"processor{proc_idx}"
+        if not proc_dir.exists():
+            break
+        for item in proc_dir.iterdir():
+            if item.is_dir():
+                name = item.name
+                try:
+                    t_val = float(name)
+                    if name not in time_map:
+                        time_map[name] = (t_val, False)
+                except ValueError:
+                    pass
+        proc_idx += 1
+
+    time_steps: List[TimeStepInfo] = []
+    for dir_name, (t_val, reconstructed) in time_map.items():
+        target_dir = case_dir / dir_name if reconstructed else case_dir / "processor0" / dir_name
+        available_fields: List[str] = []
+        if target_dir.exists():
+            for f_item in target_dir.iterdir():
+                if f_item.is_file():
+                    fname = f_item.name
+                    if not fname.startswith(".") and fname != "uniform":
+                        clean_name = fname[:-3] if fname.endswith(".gz") else fname
+                        if clean_name not in available_fields:
+                            available_fields.append(clean_name)
+        available_fields.sort()
+
+        time_steps.append(
+            TimeStepInfo(
+                time=t_val,
+                time_dir=dir_name,
+                reconstructed=reconstructed,
+                available_fields=available_fields,
+            )
+        )
+
+    time_steps.sort(key=lambda x: x.time)
+    return time_steps
+
+
+def write_field(
+    field_path: Union[str, Path],
+    field_name: str,
+    dimensions: Sequence[int],
+    internal_field: Union[float, Sequence[float], np.ndarray],
+    boundary_fields: Optional[Dict[str, Any]] = None,
+    write_binary: bool = False,
+) -> Path:
+    """Exports a volScalarField or volVectorField to standard OpenFOAM syntax (ASCII or Binary).
+
+    Args:
+        field_path: Destination file path.
+        field_name: Field name (e.g. 'U', 'p', 'T').
+        dimensions: 7-element SI dimensions list [kg, m, s, K, mol, A, cd].
+        internal_field: Scalar value, array, or vector array.
+        boundary_fields: Optional dict mapping patch names to dict(type=..., data=...).
+        write_binary: If True, writes binary IEEE-754 little-endian payload with format binary;.
+
+    Returns:
+        Path to the written field file.
+    """
+    p = Path(field_path).resolve()
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    dims = [int(d) for d in dimensions]
+    if len(dims) != 7:
+        raise ValueError(f"OpenFOAM dimensions must have exactly 7 entries, got {dims}")
+
+    arr = np.asarray(internal_field)
+    is_vector = (arr.ndim == 2 and arr.shape[1] == 3) or (
+        arr.ndim == 1 and len(arr) == 3 and isinstance(internal_field, (list, tuple)) and not hasattr(internal_field[0], "__len__")
+    )
+
+    if arr.ndim == 0:
+        is_vector = False
+        is_uniform = True
+    elif arr.ndim == 1 and len(arr) == 3 and isinstance(internal_field, (list, tuple)) and not hasattr(internal_field[0], "__len__"):
+        is_vector = True
+        is_uniform = True
+    elif arr.ndim == 1:
+        is_vector = False
+        is_uniform = False
+    elif arr.ndim == 2 and arr.shape[1] == 3:
+        is_vector = True
+        is_uniform = False
+    else:
+        is_vector = False
+        is_uniform = True
+
+    class_name = "volVectorField" if is_vector else "volScalarField"
+    fmt = "binary" if write_binary else "ascii"
+
+    header = (
+        "/*--------------------------------*- C++ -*----------------------------------*\\\n"
+        "| =========                 |                                                 |\n"
+        "| \\\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |\n"
+        "|  \\\\    /   O peration     | Version:  2406                                  |\n"
+        "|   \\\\  /    A nd           | Website:  www.openfoam.com                      |\n"
+        "|    \\\\/     M anipulation  |                                                 |\n"
+        "\\*---------------------------------------------------------------------------*/\n"
+        "FoamFile\n"
+        "{\n"
+        "    version     2.0;\n"
+        f"    format      {fmt};\n"
+        f"    class       {class_name};\n"
+        '    location    "0";\n'
+        f"    object      {field_name};\n"
+        "}\n"
+        "// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //\n\n"
+    )
+
+    dim_str = f"dimensions      [{' '.join(str(d) for d in dims)}];\n\n"
+
+    # Internal field block
+    if is_uniform:
+        if is_vector:
+            v = arr.flatten()
+            internal_str = f"internalField   uniform ({v[0]:.15g} {v[1]:.15g} {v[2]:.15g});\n\n"
+            int_bytes = None
+        else:
+            val = float(arr)
+            internal_str = f"internalField   uniform {val:.15g};\n\n"
+            int_bytes = None
+    else:
+        count = len(arr)
+        type_token = "List<vector>" if is_vector else "List<scalar>"
+        if write_binary:
+            internal_str = f"internalField   nonuniform {type_token} {count}\n(\n"
+            int_bytes = np.ascontiguousarray(arr, dtype=np.float64).tobytes()
+        else:
+            lines = [f"internalField   nonuniform {type_token} {count}\n(\n"]
+            if is_vector:
+                for row in arr:
+                    lines.append(f"({row[0]:.15g} {row[1]:.15g} {row[2]:.15g})\n")
+            else:
+                for val in arr:
+                    lines.append(f"{val:.15g}\n")
+            lines.append(")\n;\n\n")
+            internal_str = "".join(lines)
+            int_bytes = None
+
+    # Boundary field block
+    b_lines = ["boundaryField\n{\n"]
+    b_dict = boundary_fields or {}
+
+    for pname, pinfo in b_dict.items():
+        b_lines.append(f"    {pname}\n    {{\n")
+        ptype = pinfo.get("type", "patch") if isinstance(pinfo, dict) else "patch"
+        b_lines.append(f"        type            {ptype};\n")
+
+        pdata = pinfo.get("data") if isinstance(pinfo, dict) else pinfo
+        if pdata is not None:
+            p_arr = np.asarray(pdata)
+            if p_arr.ndim == 0:
+                b_lines.append(f"        value           uniform {float(p_arr):.15g};\n")
+            elif p_arr.ndim == 1 and len(p_arr) == 3 and isinstance(pdata, (list, tuple)) and not hasattr(pdata[0], "__len__"):
+                pv = p_arr.flatten()
+                b_lines.append(f"        value           uniform ({pv[0]:.15g} {pv[1]:.15g} {pv[2]:.15g});\n")
+            else:
+                p_count = len(p_arr)
+                p_is_vec = (p_arr.ndim == 2 and p_arr.shape[1] == 3)
+                p_type_tok = "List<vector>" if p_is_vec else "List<scalar>"
+                b_lines.append(f"        value           nonuniform {p_type_tok} {p_count}\n(\n")
+                if p_is_vec:
+                    for row in p_arr:
+                        b_lines.append(f"({row[0]:.15g} {row[1]:.15g} {row[2]:.15g})\n")
+                else:
+                    for val in p_arr:
+                        b_lines.append(f"{val:.15g}\n")
+                b_lines.append(");\n")
+        b_lines.append("    }\n")
+    b_lines.append("}\n\n// ************************************************************************* //\n")
+
+    boundary_str = "".join(b_lines)
+
+    if write_binary:
+        with open(p, "wb") as f:
+            f.write(header.encode("utf-8"))
+            f.write(dim_str.encode("utf-8"))
+            f.write(internal_str.encode("utf-8"))
+            if int_bytes is not None:
+                f.write(int_bytes)
+                f.write(b"\n);\n\n")
+            f.write(boundary_str.encode("utf-8"))
+    else:
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(header)
+            f.write(dim_str)
+            f.write(internal_str)
+            f.write(boundary_str)
+
+    return p

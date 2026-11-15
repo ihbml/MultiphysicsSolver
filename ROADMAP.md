@@ -1,6 +1,6 @@
 # CFDSolver Platform — Master Roadmap
 > **Strategische Ausrichtung:** Aufbau eines **eigenständigen, In-Memory Multiphysics- und Optimierungs-Solvers** (C++ / Modern Fortran / Rust), bei dem OpenFOAM als mathematische Orientierung & Validierungs-Referenz dient.  
-> **Architektur-Vorgabe:** Siehe **[ARCHITECTURE.md](file:///G:/Datein/Projects/CFDSolver/ARCHITECTURE.md)** & **[literature_survey_2026.md](file:///G:/Datein/Projects/CFDSolver/resources/papers/literature_survey_2026.md)**.
+> **Architektur-Vorgabe:** Siehe **[ARCHITECTURE.md](ARCHITECTURE.md)** & **[literature_survey_2026.md](resources/papers/literature_survey_2026.md)**.
 
 ---
 
@@ -22,7 +22,7 @@ flowchart LR
   * Sauberes Klonen der OpenFOAM-Quellen als mathematisches Nachschlagewerk („Spickzettel“) und Benchmark-Referenz.
 * [x] **CAD & Geometry Ingestion Engine (`backend/geometry/`):**
   * Unterstützung für ISO STEP (AP203/214/242), Binary/ASCII STL, Wavefront OBJ und native Siemens NX `.prt`-Dateien.
-  * Vollständiger Topologie- und Qualitäts-Auditor (2-Manifold, Euler $\chi=2$, Normalen, 10/10 `surfaceCheck`-Kriterien, 272/272 Tests bestanden).
+  * Vollständiger Topologie- und Qualitäts-Auditor (2-Manifold, Euler $\chi=2$, Normalen, 10/10 `surfaceCheck`-Kriterien; 272/272 CAD-Geometrie- & Topologie-Unit-Tests bestanden).
 * [x] **Architektur-, Sprach- & Literatur-Vertrag (`ARCHITECTURE.md` & `resources/papers/`):**
   * Festlegung auf **Google C++ Style Guide** (Graph-FVM & SoA-Datenstrukturen), **Modern Fortran** (`iso_c_binding` Rechenkerne) und **Rust** (In-Memory-Pool, I/O & Network).
   * Integration der 7 Schlüsselpublikationen zu Graph-FVM (*DiFVM*), Eulerian/Adaptive SPH-FVM (*Wang et al.*, *Zhang et al.*), Thermo-Fluid SIMP (*Chimisso*), Robust FOSM Optimization (*Kranz et al.*), Level-Set (*James & Martins*) und MIGA/Simplex (*Tan et al.*).
@@ -34,15 +34,15 @@ flowchart LR
 ## Phase 2: Eigenständiger In-Memory Graph-FVM, Next-Gen Mesher & SPH-FVM HPC-Kern (Wochen 4–6)
 
 * [ ] **Produktionsreifer In-Memory Mesher, Poly-Hexcore & `polyMesh`-Cross-Validation (`backend/meshing/`):**
-  * Vollständige Sanierung der Audit-Befunde (`K1`–`K8`, `Bug A`–`Bug F`, `H1`–`H11` gemäß [`SUGGESTIONS_BACKEND.md`](file:///G:/Datein/Projects/CFDSolver/SUGGESTIONS_BACKEND.md)): explizite `faces`-Konnektivität + `constant/polyMesh`-Exporter für `checkMesh`-Kreuzvalidierung, echte 3D-Fluidgebiets-Extraktion (`external_fluid` Farfield-Box & `internal_fluid` Floodfill), B-Rep Patch-Vererbung, Generalized Winding Numbers / Pseudonormalen-SDF (`libigl`/`fTetWild`), kollisionsfreie Medial-Axis-Grenzschichtextrusion mit Kernnetz-Stitching sowie Hilbert/Morton Space-Filling-Curve-Ordering.
+  * Vollständige Sanierung der Audit-Befunde (`K1`–`K8`, `Bug A`–`Bug F`, `H1`–`H11` gemäß [`SUGGESTIONS_BACKEND.md`](SUGGESTIONS_BACKEND.md)): explizite `faces`-Konnektivität + `constant/polyMesh`-Exporter für `checkMesh`-Kreuzvalidierung, echte 3D-Fluidgebiets-Extraktion (`external_fluid` Farfield-Box & `internal_fluid` Floodfill), B-Rep Patch-Vererbung, Generalized Winding Numbers / Pseudonormalen-SDF (`libigl`/`fTetWild`), kollisionsfreie Medial-Axis-Grenzschichtextrusion mit Kernnetz-Stitching sowie Hilbert/Morton Space-Filling-Curve-Ordering.
   * Ausbau zu **Mosaic-artigem Poly-Hexcore / VoroCrust** (Octree-Hexaeder-Kern + Poly-Prismen-Wand + konvexe Polyeder-Übergangsschicht / Small-Cut-Cell Merging & WSRD), **polykonvexer Neo-Hooke-ALE** und gekoppeltem **2D-`faMesh`-Submesh** für Wandfilme.
 * [ ] **C++ Unstructured Graph-FVM Backbone & `MeshErrorMap` (`backend/native_cpp/`):**
-  * Statische *Structure of Arrays (SoA)* Graph-Repräsentation nach *DiFVM* ([`Meshing_FVM_DiFVM_2603.15920v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Meshing_FVM_DiFVM_2603.15920v1.pdf)): `owner`, `neighbour`, Flächenvektoren $\mathbf{S}_f$, orthogonale Zerlegung $\boldsymbol{\Delta}_f$, nicht-orthogonale Korrektur $\mathbf{k}_f$, Volumina $V_i$ und Zell-Designfeld $\gamma_i \in [0, 1]$.
+  * Statische *Structure of Arrays (SoA)* Graph-Repräsentation nach *DiFVM* ([`Meshing_FVM_DiFVM_2603.15920v1.pdf`](resources/papers/Meshing_FVM_DiFVM_2603.15920v1.pdf)): `owner`, `neighbour`, Flächenvektoren $\mathbf{S}_f$, orthogonale Zerlegung $\boldsymbol{\Delta}_f$, nicht-orthogonale Korrektur $\mathbf{k}_f$, Volumina $V_i$ und Zell-Designfeld $\gamma_i \in [0, 1]$.
   * **Vorberechnete Geometrische Fehlerkompensations- & Stabilisierungs-Map (`MeshErrorMap` nach dem CMS-Prinzip):** Einmalig im Mesher erzeugte Qualitäts- & Kompensationsfelder (Skewness-Versatzvektor $\mathbf{m}_f^{\text{skew}}$, gedeckeltes $\mathbf{k}_f^{\text{comp}}$, verzweigungsfreies Upwind-Blending $\beta_f \in [0, 1]$ und zellweise Diagonal-Stabilisierung $\omega_i \in (0, 1]$ für Multiphysics/Adjoint).
   * Zweischrittige, 100 % vektorisierte **Gather-Compute-Scatter**-Operatoren für Konvektion (*Deferred Correction* SOU/QUICK), Diffusion (*Over-Relaxed Correction*), Rhie-Chow-Interpolation und 3-Layer PISO-Projektion.
 * [ ] **Adaptive SPH-FVM Hybrid-Kopplung (`backend/native_cpp/sph_fvm/`):**
-  * Konsistenter Eulerian-SPH Randalgorithmus (Nullte-Ordnung-Konsistenz $\mathbf{A}_{iS}^{ESPH} = -\sum_P V_P \nabla W_{iP}$ nach *Wang et al.* [`MeshingFVM_SPH_2312.03542v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/MeshingFVM_SPH_2312.03542v1.pdf)).
-  * Mitwandernde SPH-Partikelzone ($P_{com}, P_{trn}, P_{imt}$) mit **OPMIS-Interpolation** (Renormierungsmatrix $\mathbf{B}_i$ nach *Zhang et al.* [`MeshingPaperBubble1-s2.0-S030193222500134X-main.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/MeshingPaperBubble1-s2.0-S030193222500134X-main.pdf)) für heftige Mehrphasen-Grenzflächen.
+  * Konsistenter Eulerian-SPH Randalgorithmus (Nullte-Ordnung-Konsistenz $\mathbf{A}_{iS}^{ESPH} = -\sum_P V_P \nabla W_{iP}$ nach *Wang et al.* [`MeshingFVM_SPH_2312.03542v1.pdf`](resources/papers/MeshingFVM_SPH_2312.03542v1.pdf)).
+  * Mitwandernde SPH-Partikelzone ($P_{com}, P_{trn}, P_{imt}$) mit **OPMIS-Interpolation** (Renormierungsmatrix $\mathbf{B}_i$ nach *Zhang et al.* [`MeshingPaperBubble1-s2.0-S030193222500134X-main.pdf`](resources/papers/MeshingPaperBubble1-s2.0-S030193222500134X-main.pdf)) für heftige Mehrphasen-Grenzflächen.
 * [ ] **Modern Fortran Numerik- & Gleichungskerne (`backend/native_fortran/`):**
   * Implementierung der vektorisierten FVM- & HLLC-Riemann-Flüsse (inkl. Limiter $\beta_{HLLC}$), Gauss-Green-Gradienten und linearen Gleichungslöser (PCG, BiCGStab, GMRES mit ILU/AMG) via `iso_c_binding` in striktem `FP64` (Standard-CPU-Baseline).
   * Vektorisierte Kinetik-, Thermophysik- und analytische Jacobi-Matrix-Kerne (`!$omp simd` / `do concurrent`).
@@ -59,7 +59,7 @@ flowchart LR
 
 ## Phase 3: Ausbau der 12 Multiphysik-Module & 3D-Cockpit (Wochen 7–9)
 
-*(Mathematische Gleichungen adaptiert aus `OpenFOAM_base` und [`literature_survey_2026.md`](file:///G:/Datein/Projects/CFDSolver/resources/papers/literature_survey_2026.md), implementiert als saubere C++/Fortran-Module)*
+*(Mathematische Gleichungen adaptiert aus `OpenFOAM_base` und [`literature_survey_2026.md`](resources/papers/literature_survey_2026.md), implementiert als saubere C++/Fortran-Module)*
 
 * [ ] **Cluster A — Thermal, Flow & Reactions:**
   * **Energy & CHT:** Sensible/totale Enthalpie, gekoppelte Fluid-Festkörper-Wärmeleitung.

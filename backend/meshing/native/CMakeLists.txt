@@ -23,6 +23,8 @@ else()
     add_definitions(-DCFD_MESHER_EXPORTS)
 endif()
 
+find_package(OpenMP REQUIRED)
+
 add_library(cfd_mesher_native SHARED
     src/cfd_mesher_native.cpp
     src/difvm_mesh.cpp
@@ -33,6 +35,8 @@ add_library(cfd_mesher_native SHARED
     src/sdf_engine.cpp
     src/octree_hexcore.cpp
 )
+
+target_link_libraries(cfd_mesher_native PRIVATE OpenMP::OpenMP_CXX)
 
 target_include_directories(cfd_mesher_native PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

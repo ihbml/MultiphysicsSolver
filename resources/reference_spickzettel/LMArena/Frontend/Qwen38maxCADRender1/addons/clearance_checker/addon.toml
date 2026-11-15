@@ -1,0 +1,7 @@
+id = "rhai.clearance_checker"
+name = "AABB Clearance Analyzer"
+version = "1.0.0"
+author = "CAD Addon SDK"
+description = "Analyzes bounding-box proximity of the selected CAD part against assembly neighbors."
+entry = "main.rhai"
+enabled = true

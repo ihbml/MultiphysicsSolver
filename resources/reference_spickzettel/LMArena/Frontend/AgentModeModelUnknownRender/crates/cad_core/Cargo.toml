@@ -1,0 +1,13 @@
+[package]
+name = "cad-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+glam.workspace = true
+bytemuck.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+stl_io.workspace = true
+tobj.workspace = true
+gltf.workspace = true

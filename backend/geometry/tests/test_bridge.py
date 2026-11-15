@@ -19,7 +19,9 @@ def test_cad_bridge_detection():
     assert "Siemens_NX" in inst
     assert "Autodesk_Inventor" in inst
     assert "Ansys" in inst
-    # On this machine, NX 1926 is installed
+    # If Siemens NX is installed, verify detection; otherwise skip assertion
+    if not bridge.nx_translator.is_available:
+        pytest.skip("Siemens NX is not installed on this system.")
     assert inst["Siemens_NX"] is not None
 
 

@@ -1,0 +1,15 @@
+# PETSc baseline for a nonsymmetric convection-diffusion system.
+# Build PETSc with the GPU backend that matches your hardware.
+-ksp_type fgmres
+-ksp_rtol 1e-8
+-ksp_atol 1e-12
+-ksp_max_it 500
+-ksp_monitor_true_residual
+-ksp_converged_reason
+-pc_type gamg
+-log_view
+
+# Experiment separately, not as an unconditional default:
+# -ksp_type pipefgmres
+# Verify MPI asynchronous progress and true residual accuracy.
+# CG / PIPECG require a compatible symmetric positive-definite system.

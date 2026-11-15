@@ -290,15 +290,17 @@ class SPHFVMCoupler:
         h: float,
         return_sum_grad: bool = False,
         dim: Optional[int] = None,
+        mesh: Optional[UnstructuredMesh] = None,
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """Compute the virtual FVM wall boundary area vector A_iS.
 
         Wang, Haidn & Hu (2025):
-            A_iS = -sum_j V_j grad_i W_ij  for boundary particles (div r < 0.75 * d)
-            A_iS ~ 0                       for interior particles (full support)
+            A_iS = sum_{f in wall} S_f * W(||x_i - c_f||, h)  when mesh geometry is provided
+            A_iS = -sum_j V_j grad_i W_ij                     when mesh is omitted (synthetic)
+            A_iS ~ 0                                          for interior particles (full support)
 
         Exact 0th-order consistency invariant:
-            ||A_iS + sum_j V_j grad_i W_ij|| < 10^-10 on boundary particles.
+            ||A_iS + sum_j V_j grad_i W_ij|| < 10^-10 on boundary particles when mesh is None.
 
         Parameters
         ----------
@@ -312,6 +314,8 @@ class SPHFVMCoupler:
             If True, also returns the kernel gradient sum array.
         dim : Optional[int]
             Spatial dimension.
+        mesh : Optional[UnstructuredMesh]
+            FVM mesh containing physical wall boundary faces.
 
         Returns
         -------
@@ -363,10 +367,31 @@ class SPHFVMCoupler:
         threshold = self.boundary_threshold_ratio * d
         is_boundary = div_r < threshold
 
-        # Virtual wall vector A_iS:
-        # Exactly cancels the gradient sum for boundary particles, zero for interior
-        A_iS = np.zeros_like(sum_grad_W)
-        A_iS[is_boundary] = -sum_grad_W[is_boundary]
+        if mesh is not None:
+            # Physical SPH-FVM coupling: compute A_iS directly from FVM wall boundary geometry
+            # A_iS = sum_{f in wall} S_f * W(||x_i - c_f||, h)
+            bnd_faces = np.where(mesh.neighbour < 0)[0]
+            A_iS = np.zeros_like(pos)
+            if len(bnd_faces) > 0:
+                wall_sf = mesh.face_areas[bnd_faces]
+                wall_cf = mesh.face_centres[bnd_faces]
+                if d == 2:
+                    wall_sf = wall_sf[:, :2]
+                    wall_cf = wall_cf[:, :2]
+
+                wall_tree = cKDTree(wall_cf)
+                for i in range(n_particles):
+                    if not is_boundary[i]:
+                        continue
+                    w_nbrs = wall_tree.query_ball_point(pos[i], R)
+                    if len(w_nbrs) > 0:
+                        w_dists = np.linalg.norm(pos[i] - wall_cf[w_nbrs], axis=1)
+                        w_vals = self.kernel.evaluate(w_dists, h, d)
+                        A_iS[i] = np.sum(wall_sf[w_nbrs] * w_vals[:, None], axis=0)
+        else:
+            # Virtual wall vector: exactly cancels gradient sum for boundary particles, zero for interior
+            A_iS = np.zeros_like(sum_grad_W)
+            A_iS[is_boundary] = -sum_grad_W[is_boundary]
 
         if return_sum_grad:
             return A_iS, sum_grad_W
@@ -428,9 +453,15 @@ class OPMISTaylorInterpolator:
     in both particle-to-mesh (P2M) and mesh-to-particle (M2P) directions.
     """
 
-    def __init__(self, k_neighbors_p2m: int = 16, k_neighbors_m2p: int = 12) -> None:
+    def __init__(
+        self,
+        k_neighbors_p2m: int = 16,
+        k_neighbors_m2p: int = 12,
+        kernel: Optional[SPHKernel] = None,
+    ) -> None:
         self.k_neighbors_p2m = int(k_neighbors_p2m)
         self.k_neighbors_m2p = int(k_neighbors_m2p)
+        self.kernel = kernel if kernel is not None else SPHKernel(kernel_type="wendland")
 
     def interpolate_p2m(
         self,
@@ -440,6 +471,7 @@ class OPMISTaylorInterpolator:
         h: float,
         mesh: UnstructuredMesh,
         k_neighbors: Optional[int] = None,
+        conservative: bool = False,
     ) -> np.ndarray:
         """Particle-to-Mesh (P2M) Taylor Interpolation.
 
@@ -526,6 +558,12 @@ class OPMISTaylorInterpolator:
             nbrs = np.atleast_1d(cell_nbr_idxs[c])
             xc = cell_cc[c]
 
+            nbr_vols = vol[nbrs]
+            nbr_pos = pos[nbrs]
+            nbr_dists = np.linalg.norm(xc - nbr_pos, axis=1)
+            nbr_weights = nbr_vols * self.kernel.evaluate(nbr_dists, h, dim)
+            w_sum = float(np.sum(nbr_weights))
+
             reconstructions = []
             for pi in nbrs:
                 dx = xc - pos[pi]  # (dim,)
@@ -534,7 +572,21 @@ class OPMISTaylorInterpolator:
                 val_rec = phi_2d[pi] + (dx @ gradients[pi])  # (d_val,)
                 reconstructions.append(val_rec)
 
-            field_mesh[c] = np.mean(reconstructions, axis=0)
+            rec_arr = np.array(reconstructions)
+            if w_sum > 1e-15:
+                norm_w = nbr_weights / w_sum
+                field_mesh[c] = np.sum(rec_arr * norm_w[:, None], axis=0)
+            else:
+                field_mesh[c] = np.mean(rec_arr, axis=0)
+
+        if conservative:
+            # Enforce exact integral conservation: sum_c V_c phi_c == sum_p V_p phi_p
+            I_p = np.sum(vol[:, None] * phi_2d, axis=0)
+            I_m = np.sum(mesh.cell_volumes[:, None] * field_mesh, axis=0)
+            total_mesh_vol = float(np.sum(mesh.cell_volumes))
+            if total_mesh_vol > 1e-15:
+                delta = (I_p - I_m) / total_mesh_vol
+                field_mesh += delta
 
         if not is_vector:
             return field_mesh[:, 0]
@@ -621,3 +673,60 @@ class OPMISTaylorInterpolator:
         if not is_vector:
             return field_query[:, 0]
         return field_query
+
+
+def compute_fvm_boundary_area_vectors(
+    pos: np.ndarray,
+    h: float,
+    mesh: UnstructuredMesh,
+    kernel: Optional[SPHKernel] = None,
+    support_factor: float = 2.0,
+) -> np.ndarray:
+    """Compute physical SPH-FVM wall boundary area vectors A_iS from FVM geometry:
+
+    A_iS = sum_{f in wall} S_f * W(||x_i - c_f||, h)
+    """
+    pos = np.asarray(pos, dtype=np.float64)
+    n_particles, d = pos.shape
+    if kernel is None:
+        kernel = SPHKernel(kernel_type="wendland")
+    R = support_factor * h
+
+    bnd_faces = np.where(mesh.neighbour < 0)[0]
+    if len(bnd_faces) == 0:
+        return np.zeros_like(pos)
+
+    wall_sf = mesh.face_areas[bnd_faces]
+    wall_cf = mesh.face_centres[bnd_faces]
+    if d == 2:
+        wall_sf = wall_sf[:, :2]
+        wall_cf = wall_cf[:, :2]
+
+    wall_tree = cKDTree(wall_cf)
+    A_iS = np.zeros_like(pos)
+    for i in range(n_particles):
+        nbrs = wall_tree.query_ball_point(pos[i], R)
+        if len(nbrs) > 0:
+            dists = np.linalg.norm(pos[i] - wall_cf[nbrs], axis=1)
+            weights = kernel.evaluate(dists, h, d)
+            A_iS[i] = np.sum(wall_sf[nbrs] * weights[:, None], axis=0)
+
+    return A_iS
+
+
+def interpolate_p2m_conservative(
+    pos: np.ndarray,
+    field_particles: np.ndarray,
+    vol: np.ndarray,
+    h: float,
+    mesh: UnstructuredMesh,
+    kernel: Optional[SPHKernel] = None,
+) -> np.ndarray:
+    """Volume-weighted conservative Particle-to-Mesh (P2M) interpolation.
+
+    Strictly satisfies global conservation:
+        sum_c V_c * phi_c == sum_p V_p * phi_p
+    to numerical precision.
+    """
+    interpolator = OPMISTaylorInterpolator(kernel=kernel)
+    return interpolator.interpolate_p2m(pos, field_particles, vol, h, mesh, conservative=True)

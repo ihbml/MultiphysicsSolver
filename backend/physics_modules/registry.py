@@ -8,6 +8,7 @@ Registriert Standardmodule und erlaubt dynamisches Aktivieren/Deaktivieren.
 from __future__ import annotations
 from typing import Dict, List, Type
 from .base_module import BasePhysicsModule
+from .monolithic_fsi import MonolithicFSIModule
 
 
 class EnergyModule(BasePhysicsModule):
@@ -35,6 +36,36 @@ class EnergyModule(BasePhysicsModule):
             )
         }
 
+    def get_ui_schema(self) -> Dict[str, Any]:
+        return {
+            "module_id": "Energy",
+            "display_name": "Energy & Heat",
+            "ui_category": "thermal",
+            "description": self.description,
+            "variants": ["sensibleEnthalpy", "sensibleInternalEnergy"],
+            "default_variant": "sensibleEnthalpy",
+            "requires_modules": [],
+            "parameters": {
+                "t_ref_k": {
+                    "type": "float",
+                    "label": "Referenztemperatur",
+                    "description": "Thermische Referenztemperatur T_ref",
+                    "default": 298.15,
+                    "min": 0.0,
+                    "max": 5000.0,
+                    "unit_si": "K",
+                    "display_unit_default": "K",
+                },
+                "cht_coupling_mode": {
+                    "type": "select",
+                    "label": "CHT-Kopplungsmodus",
+                    "description": "Thermische Kopplung für Festkörperzonen",
+                    "options": ["none", "conjugate_heat_transfer"],
+                    "default": "none",
+                },
+            },
+        }
+
 
 class ViscousTurbulenceModule(BasePhysicsModule):
     def __init__(self):
@@ -58,6 +89,49 @@ class ViscousTurbulenceModule(BasePhysicsModule):
                 f"simulationType RAS;\nRAS\n{{\n    RASModel {self.config.model_variant};\n"
                 "    turbulence on;\n    printCoeffs on;\n}"
             )
+        }
+
+    def get_ui_schema(self) -> Dict[str, Any]:
+        return {
+            "module_id": "Viscous",
+            "display_name": "Viscous & Turbulence",
+            "ui_category": "flow_turbulence",
+            "description": self.description,
+            "variants": ["Inviscid", "Laminar", "Spalart-Allmaras", "k-epsilon", "k-omega SST", "LES WALE"],
+            "default_variant": "k-omega SST",
+            "requires_modules": [],
+            "parameters": {
+                "turbulence_intensity": {
+                    "type": "float",
+                    "label": "Turbulenzintensität I",
+                    "description": "Freistrom-Turbulenzgrad am Einlass",
+                    "default": 0.05,
+                    "min": 0.001,
+                    "max": 0.50,
+                    "unit_si": "-",
+                    "display_unit_default": "%",
+                    "visible_if": {"variant_not_in": ["Inviscid", "Laminar"]},
+                },
+                "turbulent_length_scale_m": {
+                    "type": "float",
+                    "label": "Turbulentes Längenmaß L",
+                    "description": "Charakteristisches turbulentes Längenmaß",
+                    "default": 0.01,
+                    "min": 1e-6,
+                    "max": 10.0,
+                    "unit_si": "m",
+                    "display_unit_default": "m",
+                    "visible_if": {"variant_not_in": ["Inviscid", "Laminar"]},
+                },
+                "wall_treatment": {
+                    "type": "select",
+                    "label": "Wandbehandlung",
+                    "description": "Auflösung der laminaren Unterschicht vs. Wandfunktionen",
+                    "options": ["lowRe_yPlus1", "nutkWallFunction"],
+                    "default": "lowRe_yPlus1",
+                    "visible_if": {"variant_in": ["k-omega SST", "Spalart-Allmaras", "k-epsilon"]},
+                },
+            },
         }
 
 
@@ -84,28 +158,78 @@ class MultiphaseModule(BasePhysicsModule):
             )
         }
 
+    def get_ui_schema(self) -> Dict[str, Any]:
+        return {
+            "module_id": "Multiphase",
+            "display_name": "Multiphase",
+            "ui_category": "multiphase",
+            "description": self.description,
+            "variants": ["VoF_InterfaceTracking", "Eulerian_Eulerian"],
+            "default_variant": "VoF_InterfaceTracking",
+            "requires_modules": [],
+            "parameters": {
+                "surface_tension_n_m": {
+                    "type": "float",
+                    "label": "Oberflächenspannung sigma",
+                    "default": 0.0728,
+                    "unit_si": "N/m",
+                },
+                "primary_phase": {
+                    "type": "string",
+                    "label": "Primäre Phase",
+                    "default": "water",
+                },
+                "secondary_phase": {
+                    "type": "string",
+                    "label": "Sekundäre Phase",
+                    "default": "air",
+                },
+            },
+        }
+
 
 class SpeciesChemistryModule(BasePhysicsModule):
     def __init__(self):
         super().__init__(
             name="Species & Chemistry",
             category="Reactions",
-            description="Mehrkomponententransport, Finite-Rate-Reaktionskinetik, Wandkatalyse (SMR/WGS) und Verbrennung."
+            description="Mehrkomponententransport, Finite-Rate-Reaktionskinetik, heterogene Oberflächenkatalyse und Verbrennung."
         )
         self.config.model_variant = "finiteRateKinetics"
+        self.config.parameters = {
+            "species": ["Ydefault"],
+            "reaction_model": "finiteRateKinetics",
+            "reactions_file": "constant/reactions",
+            "thermo_file": "constant/thermophysicalProperties",
+        }
 
     def get_supported_solvers(self) -> List[str]:
-        return ["reactingFoam", "chtMultiRegionFoam", "rhoReactingFoam"]
+        return ["reactingFoam", "chtMultiRegionFoam", "rhoReactingFoam", "buoyantReactingFoam"]
 
     def get_required_fields(self) -> List[str]:
-        return ["Ydefault", "CH4", "H2O", "H2", "CO", "CO2", "N2"]
+        species_list = self.config.parameters.get("species", ["Ydefault"])
+        return list(species_list)
 
     def generate_dictionary_entries(self, case_dir: str) -> Dict[str, str]:
+        species_list = self.config.parameters.get("species", ["Ydefault"])
+        specie_names = " ".join(species_list)
         return {
             "constant/chemistryProperties": (
                 "chemistryType\n{\n    method ode;\n    solver EulerImplicit;\n}\n"
                 "chemistry on;\ninitialChemicalTimeStep 1e-07;\n"
-            )
+            ),
+            "constant/thermophysicalProperties": (
+                "thermoType\n{\n"
+                "    type            heRhoThermo;\n"
+                "    mixture         multiComponentMixture;\n"
+                "    transport       sutherland;\n"
+                "    thermo          janaf;\n"
+                "    energy          sensibleEnthalpy;\n"
+                "    equationOfState perfectGas;\n"
+                "    specie          specie;\n"
+                "}\n\n"
+                f"species\n(\n    {specie_names}\n);\n"
+            ),
         }
 
     def validate_dependencies(self, active_modules: Dict[str, BasePhysicsModule]) -> List[str]:
@@ -113,6 +237,38 @@ class SpeciesChemistryModule(BasePhysicsModule):
         if not active_modules.get("Energy", None) or not active_modules["Energy"].config.enabled:
             warnings.append("Species & Chemistry erfordert aktives Energy-Modul zur Enthalpie- und Temperaturberechnung.")
         return warnings
+
+    def get_ui_schema(self) -> Dict[str, Any]:
+        return {
+            "module_id": "Species",
+            "display_name": "Species & Chemistry",
+            "ui_category": "reactions",
+            "description": self.description,
+            "variants": ["Finite-Rate / Eddy-Dissipation", "Surface Heterogeneous Kinetics / Generic Catalysis", "Inert Species Transport"],
+            "default_variant": "Finite-Rate / Eddy-Dissipation",
+            "requires_modules": ["Energy"],
+            "parameters": {
+                "species": {
+                    "type": "list",
+                    "label": "Speziesliste",
+                    "description": "Transportierte chemische Spezies",
+                    "default": ["O2", "N2"],
+                    "unit_si": "-",
+                },
+                "reactions_file": {
+                    "type": "string",
+                    "label": "Reaktionsmechanismus",
+                    "description": "Pfad zur Chemkin- / OpenFOAM-Reaktionsdatei",
+                    "default": "constant/reactions",
+                },
+                "reaction_model": {
+                    "type": "select",
+                    "label": "Reaktionskinetik",
+                    "options": ["laminarArrhenius", "eddyDissipationConcept", "partiallyStirredReactor", "surfaceHeterogeneousKinetics"],
+                    "default": "laminarArrhenius",
+                },
+            },
+        }
 
 
 class DpmLagrangianModule(BasePhysicsModule):
@@ -333,6 +489,7 @@ class ModuleRegistry:
             BatteryThermalModule(),
             MhdPlasmaModule(),
             PorousHexModule(),
+            MonolithicFSIModule(),
         ]
         for m in modules:
             self._modules[m.name] = m
@@ -359,3 +516,20 @@ class ModuleRegistry:
             if mod.config.enabled:
                 warnings.extend(mod.validate_dependencies(self._modules))
         return warnings
+
+    def export_ui_schema(self, module_id: Optional[str] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        """Exportiert das deklarative UI-Schema für das Rust-Frontend (nTop-Block-Stack & Property Inspector).
+
+        Args:
+            module_id: Optionaler Bezeichner für ein einzelnes Modul. Wenn None, werden alle Schemata geliefert.
+
+        Returns:
+            Einzelnes Schema-Dictionary oder Liste aller Modul-Schemata.
+        """
+        if module_id is not None:
+            for mod in self._modules.values():
+                s = mod.get_ui_schema()
+                if s["module_id"] == module_id or mod.name == module_id:
+                    return s
+            raise KeyError(f"Module '{module_id}' not found in registry")
+        return [mod.get_ui_schema() for mod in self._modules.values()]

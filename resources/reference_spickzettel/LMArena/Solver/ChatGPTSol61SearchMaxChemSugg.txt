@@ -1,0 +1,33 @@
+**I’d start with MOOSE (C++) for broad multiphysics, or the Pele suite if your main priority is high-performance reacting-flow simulation.** The deciding question is what you mean by “microscale”: micrometre-scale pores/material structures, or individual atoms and chemical bonds?
+
+## Recommended shortlist
+
+These candidates all have C++ simulation cores, but they target different physics.
+
+| Solver/framework | Where I’d use it | Performance and scale considerations |
+|---|---|---|
+| **MOOSE** | Coupled chemistry, heat transfer, mechanics, porous flow, and material microstructure | Supports MPI and shared-memory parallelism, with PETSc/libMesh underneath. Its physics modules include chemical reactions, geochemistry, phase field, and flow. **My default choice for building a broadly coupled continuum model.** It is a framework, so expect model development rather than a completely turnkey application.  |
+| **PeleC / PeleLMeX** | Combustion and detailed reacting-flow simulations | Adaptive mesh refinement and CPU/GPU parallelism. **PeleC** targets compressible reacting flows; **PeleLMeX** targets low-Mach-number reacting flows. I would prioritize these for evaluation when reactive CFD and GPU execution matter more than general solid-mechanics coupling.  |
+| **OpenFOAM** | Chemical reactors, mixing, multiphase flows, sprays, and heat transfer | Offers reacting-flow models, chemistry integration, mechanism reduction, and tabulation. A good candidate for flow-dominated engineering problems, but you need to check that the particular solver supports your required combination of physics.  |
+| **DuMuX** | Reactive transport through porous materials | Particularly relevant to your macro/micro requirement: it provides Darcy-scale models, pore-network models, free-flow coupling, and advection–diffusion–reaction equations. Supports MPI and shared-memory parallelism for many models. **I’d evaluate it alongside MOOSE for porous-media chemistry.**  |
+| **LAMMPS** | Atomistic chemistry and particle-scale material behavior | A parallel molecular-dynamics engine with CPU/GPU acceleration options. Reactive potentials such as **ReaxFF** model chemical bonding, but require a parameterization appropriate to your material and reactions. I would use it for the atomistic part—not as a drop-in replacement for reactor-scale CFD.  |
+
+## Can one framework cover both scales?
+
+**For continuum-scale microstructure plus macroscale physics, MOOSE is the strongest starting point on my list.** Its phase-field module addresses microstructure evolution and can couple to mechanics and heat transfer. Its **MultiApps** system can connect separate scale-specific simulations and transfer data between them. You still have to define the physical coupling; it does not automatically derive macroscale behavior from a microscopic model. 
+
+**If “micro” means individual atoms**, I would instead propose a multiscale workflow: LAMMPS for selected microscopic calculations, with a continuum solver for the larger system. Treat that as a custom modeling project, not an out-of-the-box integrated solver.
+
+## Chemistry backend and Rust
+
+For a custom C++ solver, **Cantera** is worth considering for thermodynamics, reaction kinetics, and transport properties. It also has reactor-network and one-dimensional reacting-flow solvers, but it is **not by itself a general 3D multiphysics solver**. Do not assume it plugs directly into every framework above. 
+
+If Rust is preferred, my recommendation would be **Rust for orchestration/application logic around a C++ solver core**, rather than implementing the whole numerical stack initially. Rust’s **Diffsol** provides stiff differential-equation solvers, but it is a building block—not a complete spatial multiphysics chemistry package. 
+
+For performance, I would benchmark your actual chemistry mechanism and accuracy requirements before choosing. Sparse Jacobians and preconditioning deserve attention: Cantera, for example, provides sparse preconditioned integration specifically to accelerate large reaction mechanisms. 
+
+**To narrow this to one or two options:**
+1. What chemistry—combustion, aqueous reactions, electrochemistry, polymers, or something else?
+2. Does microscale mean **micrometres**, or **atoms/molecules**?
+3. Do you need the scales **coupled in one run**, or just supported separately?
+4. Will you run on a CPU workstation, GPU, or cluster?

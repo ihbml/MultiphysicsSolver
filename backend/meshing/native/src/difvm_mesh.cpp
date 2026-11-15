@@ -105,15 +105,35 @@ std::vector<std::vector<int64_t>> extractCellFaces(
   size_t nv = cell.size();
 
   if (nv == 8) {
-    out_type = CellType::HEXAHEDRON;
-    // Hexahedron: 6 faces
-    // Vertices: bottom: 0,1,2,3; top: 4,5,6,7
-    faces.push_back({cell[0], cell[3], cell[2], cell[1]}); // bottom (-z)
-    faces.push_back({cell[4], cell[5], cell[6], cell[7]}); // top (+z)
-    faces.push_back({cell[0], cell[1], cell[5], cell[4]}); // front (-y)
-    faces.push_back({cell[1], cell[2], cell[6], cell[5]}); // right (+x)
-    faces.push_back({cell[2], cell[3], cell[7], cell[6]}); // back (+y)
-    faces.push_back({cell[3], cell[0], cell[4], cell[7]}); // left (-x)
+    Vec3 p_min = node_coords[cell[0]];
+    Vec3 p_max = node_coords[cell[0]];
+    for (size_t i = 1; i < nv; ++i) {
+      p_min.x = std::min(p_min.x, node_coords[cell[i]].x);
+      p_min.y = std::min(p_min.y, node_coords[cell[i]].y);
+      p_min.z = std::min(p_min.z, node_coords[cell[i]].z);
+      p_max.x = std::max(p_max.x, node_coords[cell[i]].x);
+      p_max.y = std::max(p_max.y, node_coords[cell[i]].y);
+      p_max.z = std::max(p_max.z, node_coords[cell[i]].z);
+    }
+    Vec3 span = p_max - p_min;
+    double min_span = std::min({span.x, span.y, span.z});
+    double max_span = std::max({span.x, span.y, span.z});
+    if (max_span > 1e-12 && (min_span / max_span) < 1e-5) {
+      out_type = CellType::POLYGON;
+      for (size_t i = 0; i < nv; ++i) {
+        faces.push_back({cell[i], cell[(i + 1) % nv]});
+      }
+    } else {
+      out_type = CellType::HEXAHEDRON;
+      // Hexahedron: 6 faces
+      // Vertices: bottom: 0,1,2,3; top: 4,5,6,7
+      faces.push_back({cell[0], cell[3], cell[2], cell[1]}); // bottom (-z)
+      faces.push_back({cell[4], cell[5], cell[6], cell[7]}); // top (+z)
+      faces.push_back({cell[0], cell[1], cell[5], cell[4]}); // front (-y)
+      faces.push_back({cell[1], cell[2], cell[6], cell[5]}); // right (+x)
+      faces.push_back({cell[2], cell[3], cell[7], cell[6]}); // back (+y)
+      faces.push_back({cell[3], cell[0], cell[4], cell[7]}); // left (-x)
+    }
   } else if (nv == 4) {
     // Discriminate between 2D Quad and 3D Tetrahedron via coplanarity check
     Vec3 p0 = node_coords[cell[0]];
@@ -451,7 +471,8 @@ void DiFVMTraversal::buildTopology(
             Vec3 sf_out = tf.normal_owner * sign;
             double pyr_vol = dot(tf.centre - c_approx, sf_out) / div_factor;
             vol_sum += pyr_vol;
-            Vec3 pyr_c = tf.centre * 0.75 + c_approx * 0.25;
+            Vec3 pyr_c = is_2d_cell ? (tf.centre * (2.0 / 3.0) + c_approx * (1.0 / 3.0))
+                                    : (tf.centre * 0.75 + c_approx * 0.25);
             centroid_weighted += pyr_c * pyr_vol;
         }
 
@@ -676,43 +697,52 @@ void DiFVMTraversal::buildTopology(
         mesh.omega_cell[c] = std::max(0.1, min_beta_per_cell[c]);
     }
 
-    // wsrd_alpha: Berger-Giuliani volume ratio against median positive cell volume
+    // wsrd_alpha: Berger-Giuliani volume ratio against background cell volume
     std::vector<double> pos_vols;
     for (double v : mesh.cell_volumes) {
         if (v > 1e-60) pos_vols.push_back(v);
     }
     double v_target = 1.0;
     if (!pos_vols.empty()) {
-        std::sort(pos_vols.begin(), pos_vols.end());
-        v_target = pos_vols[pos_vols.size() / 2];
+        v_target = *std::max_element(pos_vols.begin(), pos_vols.end());
     }
     for (int64_t c = 0; c < n_cells; ++c) {
         mesh.wsrd_alpha[c] = std::clamp(mesh.cell_volumes[c] / (v_target > 1e-60 ? v_target : 1.0), 0.0, 1.0);
     }
 
-    // 8. Aspect ratio per cell
+    // 8. Aspect ratio per cell: maximum to minimum bounding box span along active coordinate axes
     mesh.aspect_ratio.resize(n_cells, 1.0);
     for (int64_t c = 0; c < n_cells; ++c) {
-        double min_e = 1e30;
-        double max_e = 0.0;
         int64_t off0 = mesh.cell_offsets[c];
         int64_t off1 = mesh.cell_offsets[c + 1];
         int64_t nv = off1 - off0;
+        if (nv == 0) {
+            mesh.aspect_ratio[c] = 1.0;
+            continue;
+        }
+        double min_x = 1e30, max_x = -1e30;
+        double min_y = 1e30, max_y = -1e30;
+        double min_z = 1e30, max_z = -1e30;
         for (int64_t i = 0; i < nv; ++i) {
-            for (int64_t j = i + 1; j < nv; ++j) {
-                int64_t v1 = mesh.cell_nodes[off0 + i];
-                int64_t v2 = mesh.cell_nodes[off0 + j];
-                Vec3 p1(mesh.points[3 * v1], mesh.points[3 * v1 + 1], mesh.points[3 * v1 + 2]);
-                Vec3 p2(mesh.points[3 * v2], mesh.points[3 * v2 + 1], mesh.points[3 * v2 + 2]);
-                double d = (p1 - p2).norm();
-                if (d > 1e-15) {
-                    min_e = std::min(min_e, d);
-                    max_e = std::max(max_e, d);
-                }
+            int64_t vi = mesh.cell_nodes[off0 + i];
+            double px = mesh.points[3 * vi];
+            double py = mesh.points[3 * vi + 1];
+            double pz = mesh.points[3 * vi + 2];
+            min_x = std::min(min_x, px); max_x = std::max(max_x, px);
+            min_y = std::min(min_y, py); max_y = std::max(max_y, py);
+            min_z = std::min(min_z, pz); max_z = std::max(max_z, pz);
+        }
+        double spans[3] = { max_x - min_x, max_y - min_y, max_z - min_z };
+        std::vector<double> valid_spans;
+        for (int d = 0; d < 3; ++d) {
+            if (spans[d] > 1e-12) {
+                valid_spans.push_back(spans[d]);
             }
         }
-        if (min_e < 1e20 && min_e > 1e-15) {
-            mesh.aspect_ratio[c] = std::max(1.0, max_e / min_e);
+        if (valid_spans.size() >= 2) {
+            double s_min = *std::min_element(valid_spans.begin(), valid_spans.end());
+            double s_max = *std::max_element(valid_spans.begin(), valid_spans.end());
+            mesh.aspect_ratio[c] = std::max(1.0, s_max / std::max(s_min, 1e-15));
         } else {
             mesh.aspect_ratio[c] = 1.0;
         }
@@ -772,6 +802,154 @@ double DiFVMTraversal::computeMaxDecompositionError(const NativeMeshData& mesh) 
         }
     }
     return max_err;
+}
+
+double computeNodalScaledJacobian(const Vec3& e1, const Vec3& e2, const Vec3& e3, double max_elem_edge) {
+    double det_j = dot(e1, cross(e2, e3));
+    double denom = max_elem_edge * max_elem_edge * max_elem_edge;
+    return det_j / (denom + 1e-30);
+}
+
+double computeElementNormalizedScaledJacobian(double js_min, CellType type) {
+    double js_opt = (type == CellType::HEXAHEDRON) ? 1.0 :
+                    (type == CellType::WEDGE)      ? 0.8660254037844386 :
+                                                     0.7071067811865476;
+    if (js_min > js_opt) {
+        return (1.0 + js_opt) - js_min;
+    } else if (js_min < -js_opt) {
+        return -(1.0 + js_opt) - js_min;
+    } else {
+        return js_min / js_opt;
+    }
+}
+
+double checkPyramidBaseFictitiousHex(const std::vector<Vec3>& points, const std::vector<int64_t>& base_nodes, const Vec3& apex) {
+    if (base_nodes.size() != 4) return -1.0;
+    const Vec3& b0 = points[base_nodes[0]];
+    const Vec3& b1 = points[base_nodes[1]];
+    const Vec3& b2 = points[base_nodes[2]];
+    const Vec3& b3 = points[base_nodes[3]];
+
+    double l0 = (b1 - b0).norm();
+    double l1 = (b2 - b1).norm();
+    double l2 = (b3 - b2).norm();
+    double l3 = (b0 - b3).norm();
+    double h_bar = 0.25 * (l0 + l1 + l2 + l3);
+
+    Vec3 n_base = cross(b2 - b0, b3 - b1);
+    double n_mag = n_base.norm();
+    if (n_mag < 1e-12) return -1.0;
+    n_base = n_base / n_mag;
+
+    Vec3 center = (b0 + b1 + b2 + b3) * 0.25;
+    if (dot(apex - center, n_base) < 0.0) {
+        n_base = -n_base;
+    }
+
+    std::array<Vec3, 8> hex_pts = {
+        b0, b1, b2, b3,
+        b0 + n_base * h_bar,
+        b1 + n_base * h_bar,
+        b2 + n_base * h_bar,
+        b3 + n_base * h_bar
+    };
+
+    double max_e = std::max({l0, l1, l2, l3, h_bar});
+    for (int k = 0; k < 4; ++k) {
+        max_e = std::max(max_e, (hex_pts[(k + 1) % 4 + 4] - hex_pts[k + 4]).norm());
+    }
+
+    double s0 = computeNodalScaledJacobian(hex_pts[1]-hex_pts[0], hex_pts[3]-hex_pts[0], hex_pts[4]-hex_pts[0], max_e);
+    double s1 = computeNodalScaledJacobian(hex_pts[2]-hex_pts[1], hex_pts[0]-hex_pts[1], hex_pts[5]-hex_pts[1], max_e);
+    double s2 = computeNodalScaledJacobian(hex_pts[3]-hex_pts[2], hex_pts[1]-hex_pts[2], hex_pts[6]-hex_pts[2], max_e);
+    double s3 = computeNodalScaledJacobian(hex_pts[0]-hex_pts[3], hex_pts[2]-hex_pts[3], hex_pts[7]-hex_pts[3], max_e);
+    double s4 = computeNodalScaledJacobian(hex_pts[7]-hex_pts[4], hex_pts[5]-hex_pts[4], hex_pts[0]-hex_pts[4], max_e);
+    double s5 = computeNodalScaledJacobian(hex_pts[4]-hex_pts[5], hex_pts[6]-hex_pts[5], hex_pts[1]-hex_pts[5], max_e);
+    double s6 = computeNodalScaledJacobian(hex_pts[5]-hex_pts[6], hex_pts[7]-hex_pts[6], hex_pts[2]-hex_pts[6], max_e);
+    double s7 = computeNodalScaledJacobian(hex_pts[6]-hex_pts[7], hex_pts[4]-hex_pts[7], hex_pts[3]-hex_pts[7], max_e);
+
+    return std::min({s0, s1, s2, s3, s4, s5, s6, s7});
+}
+
+double computeCellJENS(const std::vector<Vec3>& points, const std::vector<int64_t>& nodes, CellType type) {
+    size_t n = nodes.size();
+    if (type == CellType::HEXAHEDRON && n == 8) {
+        std::array<Vec3, 8> p;
+        for (int i = 0; i < 8; ++i) p[i] = points[nodes[i]];
+        double max_e = 0.0;
+        const int pairs[12][2] = {
+            {0,1}, {1,2}, {2,3}, {3,0}, {4,5}, {5,6}, {6,7}, {7,4}, {0,4}, {1,5}, {2,6}, {3,7}
+        };
+        for (int i = 0; i < 12; ++i) {
+            max_e = std::max(max_e, (p[pairs[i][1]] - p[pairs[i][0]]).norm());
+        }
+        double s0 = computeNodalScaledJacobian(p[1]-p[0], p[3]-p[0], p[4]-p[0], max_e);
+        double s1 = computeNodalScaledJacobian(p[2]-p[1], p[0]-p[1], p[5]-p[1], max_e);
+        double s2 = computeNodalScaledJacobian(p[3]-p[2], p[1]-p[2], p[6]-p[2], max_e);
+        double s3 = computeNodalScaledJacobian(p[0]-p[3], p[2]-p[3], p[7]-p[3], max_e);
+        double s4 = computeNodalScaledJacobian(p[7]-p[4], p[5]-p[4], p[0]-p[4], max_e);
+        double s5 = computeNodalScaledJacobian(p[4]-p[5], p[6]-p[5], p[1]-p[5], max_e);
+        double s6 = computeNodalScaledJacobian(p[5]-p[6], p[7]-p[6], p[2]-p[6], max_e);
+        double s7 = computeNodalScaledJacobian(p[6]-p[7], p[4]-p[7], p[3]-p[7], max_e);
+        double min_sj = std::min({s0, s1, s2, s3, s4, s5, s6, s7});
+        return computeElementNormalizedScaledJacobian(min_sj, CellType::HEXAHEDRON);
+    } else if (type == CellType::WEDGE && n == 6) {
+        std::array<Vec3, 6> p;
+        for (int i = 0; i < 6; ++i) p[i] = points[nodes[i]];
+        double max_e = 0.0;
+        const int pairs[9][2] = {
+            {0,1}, {1,2}, {2,0}, {3,4}, {4,5}, {5,3}, {0,3}, {1,4}, {2,5}
+        };
+        for (int i = 0; i < 9; ++i) {
+            max_e = std::max(max_e, (p[pairs[i][1]] - p[pairs[i][0]]).norm());
+        }
+        double s0 = computeNodalScaledJacobian(p[1]-p[0], p[2]-p[0], p[3]-p[0], max_e);
+        double s1 = computeNodalScaledJacobian(p[2]-p[1], p[0]-p[1], p[4]-p[1], max_e);
+        double s2 = computeNodalScaledJacobian(p[0]-p[2], p[1]-p[2], p[5]-p[2], max_e);
+        double s3 = computeNodalScaledJacobian(p[5]-p[3], p[4]-p[3], p[0]-p[3], max_e);
+        double s4 = computeNodalScaledJacobian(p[3]-p[4], p[5]-p[4], p[1]-p[4], max_e);
+        double s5 = computeNodalScaledJacobian(p[4]-p[5], p[3]-p[5], p[2]-p[5], max_e);
+        double min_sj = std::min({s0, s1, s2, s3, s4, s5});
+        return computeElementNormalizedScaledJacobian(min_sj, CellType::WEDGE);
+    } else if (type == CellType::PYRAMID && n == 5) {
+        std::vector<int64_t> base_nodes(nodes.begin(), nodes.begin() + 4);
+        const Vec3& apex = points[nodes[4]];
+        double base_sj = checkPyramidBaseFictitiousHex(points, base_nodes, apex);
+        if (base_sj <= 0.0) return base_sj;
+
+        std::array<Vec3, 5> p;
+        for (int i = 0; i < 5; ++i) p[i] = points[nodes[i]];
+        double max_e = 0.0;
+        const int pairs[8][2] = {
+            {0,1}, {1,2}, {2,3}, {3,0}, {0,4}, {1,4}, {2,4}, {3,4}
+        };
+        for (int i = 0; i < 8; ++i) {
+            max_e = std::max(max_e, (p[pairs[i][1]] - p[pairs[i][0]]).norm());
+        }
+        double s0 = computeNodalScaledJacobian(p[1]-p[0], p[3]-p[0], p[4]-p[0], max_e);
+        double s1 = computeNodalScaledJacobian(p[2]-p[1], p[0]-p[1], p[4]-p[1], max_e);
+        double s2 = computeNodalScaledJacobian(p[3]-p[2], p[1]-p[2], p[4]-p[2], max_e);
+        double s3 = computeNodalScaledJacobian(p[0]-p[3], p[2]-p[3], p[4]-p[3], max_e);
+        Vec3 e0 = p[0] - apex, e1 = p[1] - apex, e2 = p[2] - apex, e3 = p[3] - apex;
+        double a0 = computeNodalScaledJacobian(e1, e0, e2, max_e);
+        double a1 = computeNodalScaledJacobian(e2, e1, e3, max_e);
+        double a2 = computeNodalScaledJacobian(e3, e2, e0, max_e);
+        double a3 = computeNodalScaledJacobian(e0, e3, e1, max_e);
+        double min_sj = std::min({s0, s1, s2, s3, a0, a1, a2, a3, base_sj});
+        return computeElementNormalizedScaledJacobian(min_sj, CellType::PYRAMID);
+    } else if (type == CellType::TETRA && n == 4) {
+        const Vec3& p0 = points[nodes[0]];
+        const Vec3& p1 = points[nodes[1]];
+        const Vec3& p2 = points[nodes[2]];
+        const Vec3& p3 = points[nodes[3]];
+        double max_e = std::max({
+            (p1 - p0).norm(), (p2 - p0).norm(), (p3 - p0).norm(),
+            (p2 - p1).norm(), (p3 - p1).norm(), (p3 - p2).norm()
+        });
+        double sj = computeNodalScaledJacobian(p1 - p0, p2 - p0, p3 - p0, max_e);
+        return computeElementNormalizedScaledJacobian(sj, CellType::TETRA);
+    }
+    return 1.0;
 }
 
 } // namespace cfd

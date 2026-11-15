@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/cad_core",
+    "crates/cad_plugin_api",
+    "crates/cad_renderer",
+    "crates/cad_addons",
+    "crates/cad_app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["CAD Renderer Contributors"]
+
+[workspace.dependencies]
+wgpu = "30.0.1"
+egui = "0.37.0"
+egui-wgpu = "0.37.0"
+egui-winit = "0.37.0"
+winit = "0.30.13"
+bevy_ecs = "0.20.1"
+rhai = { version = "1.27.0", features = ["sync"] }
+glam = { version = "0.34.3", features = ["serde"] }
+bytemuck = { version = "1.25.2", features = ["derive"] }
+pollster = "0.4"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+stl_io = "0.11.0"
+tobj = "4.0.5"
+gltf = "1.4.1"
+image = "0.25.10"
+
+cad-core = { path = "crates/cad_core" }
+cad-plugin-api = { path = "crates/cad_plugin_api" }
+cad-renderer = { path = "crates/cad_renderer" }
+cad-addons = { path = "crates/cad_addons" }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

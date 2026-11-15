@@ -43,11 +43,21 @@ pub fn read_file_or_gz(path: &Path) -> Result<Vec<u8>, String> {
 pub struct FoamStream<'a> {
     bytes: &'a [u8],
     pos: usize,
+    pub is_binary: bool,
 }
 
 impl<'a> FoamStream<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, pos: 0 }
+        Self {
+            bytes,
+            pos: 0,
+            is_binary: false,
+        }
+    }
+
+    #[inline]
+    pub fn is_binary(&self) -> bool {
+        self.is_binary
     }
 
     #[inline]
@@ -133,7 +143,7 @@ impl<'a> FoamStream<'a> {
         std::str::from_utf8(&self.bytes[start..self.pos]).ok()
     }
 
-    /// Skips past FoamFile header { ... }
+    /// Skips past FoamFile header { ... } and detects format binary;
     pub fn skip_foam_header(&mut self) -> Result<(), String> {
         loop {
             match self.next_token() {
@@ -143,7 +153,6 @@ impl<'a> FoamStream<'a> {
             }
         }
 
-        // Expect '{'
         match self.next_token() {
             Some("{") => {}
             tok => return Err(format!("Expected '{{' after FoamFile, got {:?}", tok)),
@@ -154,6 +163,13 @@ impl<'a> FoamStream<'a> {
             match self.next_token() {
                 Some("{") => depth += 1,
                 Some("}") => depth -= 1,
+                Some("format") => {
+                    if let Some(fmt) = self.next_token() {
+                        if fmt == "binary" {
+                            self.is_binary = true;
+                        }
+                    }
+                }
                 Some(_) => {}
                 None => return Err("Unclosed FoamFile header".to_string()),
             }
@@ -161,27 +177,161 @@ impl<'a> FoamStream<'a> {
 
         Ok(())
     }
+
+    /// Reads count f64 (double precision) binary values in little-endian format.
+    pub fn read_binary_f64_slice(&mut self, count: usize) -> Result<Vec<f64>, String> {
+        self.skip_whitespace_and_comments();
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b'(' {
+            self.pos += 1;
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b'\n' {
+                self.pos += 1;
+            }
+        }
+        let byte_len = count * std::mem::size_of::<f64>();
+        if self.pos + byte_len > self.bytes.len() {
+            return Err(format!(
+                "Unexpected EOF reading {} binary f64 values (need {} bytes, have {})",
+                count,
+                byte_len,
+                self.bytes.len().saturating_sub(self.pos)
+            ));
+        }
+        let slice = &self.bytes[self.pos..self.pos + byte_len];
+        self.pos += byte_len;
+
+        let mut result = Vec::with_capacity(count);
+        for chunk in slice.chunks_exact(8) {
+            let val = f64::from_le_bytes(chunk.try_into().unwrap());
+            result.push(val);
+        }
+
+        self.skip_whitespace_and_comments();
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b')' {
+            self.pos += 1;
+        }
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b';' {
+            self.pos += 1;
+        }
+
+        Ok(result)
+    }
+
+    /// Reads count 3D vectors ([f64; 3]) in binary little-endian format.
+    pub fn read_binary_vector_slice(&mut self, count: usize) -> Result<Vec<[f64; 3]>, String> {
+        self.skip_whitespace_and_comments();
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b'(' {
+            self.pos += 1;
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b'\n' {
+                self.pos += 1;
+            }
+        }
+        let byte_len = count * 3 * std::mem::size_of::<f64>();
+        if self.pos + byte_len > self.bytes.len() {
+            return Err(format!(
+                "Unexpected EOF reading {} binary vectors (need {} bytes, have {})",
+                count,
+                byte_len,
+                self.bytes.len().saturating_sub(self.pos)
+            ));
+        }
+        let slice = &self.bytes[self.pos..self.pos + byte_len];
+        self.pos += byte_len;
+
+        let mut result = Vec::with_capacity(count);
+        for chunk in slice.chunks_exact(24) {
+            let x = f64::from_le_bytes(chunk[0..8].try_into().unwrap());
+            let y = f64::from_le_bytes(chunk[8..16].try_into().unwrap());
+            let z = f64::from_le_bytes(chunk[16..24].try_into().unwrap());
+            result.push([x, y, z]);
+        }
+
+        self.skip_whitespace_and_comments();
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b')' {
+            self.pos += 1;
+        }
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b';' {
+            self.pos += 1;
+        }
+
+        Ok(result)
+    }
+
+    /// Reads count labels (integers) in binary little-endian format (supports 32-bit and 64-bit).
+    pub fn read_binary_label_slice(&mut self, count: usize) -> Result<Vec<usize>, String> {
+        self.skip_whitespace_and_comments();
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b'(' {
+            self.pos += 1;
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b'\n' {
+                self.pos += 1;
+            }
+        }
+        let byte_len_64 = count * 8;
+        let byte_len_32 = count * 4;
+        let is_64 = if self.pos + byte_len_64 <= self.bytes.len() && (self.pos + byte_len_32 > self.bytes.len() || self.bytes.len() - self.pos >= byte_len_64) {
+            self.bytes.len() - self.pos >= byte_len_64
+        } else {
+            false
+        };
+
+        if is_64 {
+            let slice = &self.bytes[self.pos..self.pos + byte_len_64];
+            self.pos += byte_len_64;
+            let mut result = Vec::with_capacity(count);
+            for chunk in slice.chunks_exact(8) {
+                let val = i64::from_le_bytes(chunk.try_into().unwrap()) as usize;
+                result.push(val);
+            }
+            self.skip_whitespace_and_comments();
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b')' {
+                self.pos += 1;
+            }
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b';' {
+                self.pos += 1;
+            }
+            Ok(result)
+        } else {
+            if self.pos + byte_len_32 > self.bytes.len() {
+                return Err(format!("Unexpected EOF reading {} binary labels", count));
+            }
+            let slice = &self.bytes[self.pos..self.pos + byte_len_32];
+            self.pos += byte_len_32;
+            let mut result = Vec::with_capacity(count);
+            for chunk in slice.chunks_exact(4) {
+                let val = i32::from_le_bytes(chunk.try_into().unwrap()) as usize;
+                result.push(val);
+            }
+            self.skip_whitespace_and_comments();
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b')' {
+                self.pos += 1;
+            }
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b';' {
+                self.pos += 1;
+            }
+            Ok(result)
+        }
+    }
 }
 
-/// Parses OpenFOAM `points` file
+/// Parses OpenFOAM `points` file (ASCII and Binary)
 pub fn parse_points(bytes: &[u8]) -> Result<Vec<[f64; 3]>, String> {
     let mut stream = FoamStream::new(bytes);
     stream.skip_foam_header()?;
 
-    // Read points count
     let count_str = stream.next_token().ok_or("Missing points count")?;
     let n_points: usize = count_str
         .parse()
         .map_err(|e| format!("Invalid points count '{}': {}", count_str, e))?;
 
-    // Expect '('
+    if stream.is_binary() {
+        return stream.read_binary_vector_slice(n_points);
+    }
+
     match stream.next_token() {
         Some("(") => {}
         tok => return Err(format!("Expected '(' before points list, got {:?}", tok)),
     }
 
     let mut points = Vec::with_capacity(n_points);
-
     for _ in 0..n_points {
         match stream.next_token() {
             Some("(") => {}
@@ -221,7 +371,7 @@ pub fn parse_faces(bytes: &[u8]) -> Result<(Vec<usize>, Vec<usize>), String> {
 
     for _ in 0..n_faces {
         let tok = stream.next_token().ok_or("Unexpected EOF reading face token")?;
-        
+
         let (n_nodes, has_paren) = if tok.ends_with('(') {
             let num_part = &tok[..tok.len() - 1];
             let count: usize = num_part.parse().map_err(|e| format!("Invalid face node count in '{}': {}", tok, e))?;
@@ -258,7 +408,7 @@ pub fn parse_faces(bytes: &[u8]) -> Result<(Vec<usize>, Vec<usize>), String> {
     Ok((face_offsets, face_nodes))
 }
 
-/// Parses OpenFOAM `owner` or `neighbour` labelList
+/// Parses OpenFOAM `owner` or `neighbour` labelList (ASCII and Binary)
 pub fn parse_label_list(bytes: &[u8]) -> Result<Vec<usize>, String> {
     let mut stream = FoamStream::new(bytes);
     stream.skip_foam_header()?;
@@ -267,6 +417,10 @@ pub fn parse_label_list(bytes: &[u8]) -> Result<Vec<usize>, String> {
     let n_labels: usize = count_str
         .parse()
         .map_err(|e| format!("Invalid label list count '{}': {}", count_str, e))?;
+
+    if stream.is_binary() {
+        return stream.read_binary_label_slice(n_labels);
+    }
 
     match stream.next_token() {
         Some("(") => {}
@@ -334,7 +488,6 @@ pub fn parse_boundary(bytes: &[u8]) -> Result<Vec<FoamBoundaryPatch>, String> {
                     if let Some(";") = stream.next_token() {}
                 }
                 _ => {
-                    // Skip other keys until ';' or nested block
                     let mut tok = stream.next_token();
                     while let Some(t) = tok {
                         if t == ";" {
@@ -382,7 +535,6 @@ pub fn load_poly_mesh(poly_mesh_dir: &Path) -> Result<FoamMesh, String> {
     let neighbour = parse_label_list(&neighbour_raw)?;
     let boundaries = parse_boundary(&boundary_raw)?;
 
-    // Derive cell count from owner and neighbour
     let max_owner = owner.iter().cloned().max().unwrap_or(0);
     let max_neighbour = neighbour.iter().cloned().max().unwrap_or(0);
     let n_cells = max_owner.max(max_neighbour) + 1;

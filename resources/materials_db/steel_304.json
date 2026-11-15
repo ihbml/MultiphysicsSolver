@@ -1,0 +1,8 @@
+{
+  "name": "Steel_1.4301",
+  "category": "solid",
+  "density": 8000.0,
+  "specific_heat": 500.0,
+  "thermal_conductivity": 16.2,
+  "molecular_weight": 55.845
+}

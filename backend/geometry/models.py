@@ -141,3 +141,50 @@ class AuditReport:
     bounding_box_max: np.ndarray
     passed_openfoam_surfacecheck: bool
     details: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def bounding_box(self) -> BoundingBox:
+        return BoundingBox(min_pt=self.bounding_box_min, max_pt=self.bounding_box_max)
+
+    @property
+    def surface_area(self) -> float:
+        return float(self.details.get("surface_area", 0.0))
+
+    @property
+    def volume(self) -> float:
+        return abs(float(self.signed_volume))
+
+    @property
+    def open_edges(self) -> List[Any]:
+        return self.details.get("open_edges", [])
+
+    @property
+    def non_manifold_edges(self) -> List[Any]:
+        return self.details.get("multi_edges", [])
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize audit report to JSON-serializable dictionary."""
+        return {
+            "is_watertight": bool(self.is_watertight),
+            "is_manifold": bool(self.is_manifold),
+            "euler_characteristic": int(self.euler_characteristic),
+            "open_edges_count": int(self.open_edges_count),
+            "multi_edges_count": int(self.multi_edges_count),
+            "degenerate_faces_count": int(self.degenerate_faces_count),
+            "normal_zones_count": int(self.normal_zones_count),
+            "signed_volume": float(self.signed_volume),
+            "volume": self.volume,
+            "surface_area": self.surface_area,
+            "is_outward_oriented": bool(self.is_outward_oriented),
+            "quality_min": float(self.quality_min),
+            "quality_histogram": list(self.quality_histogram),
+            "self_intersections_count": int(self.self_intersections_count),
+            "bounding_box": {
+                "min": [float(v) for v in self.bounding_box_min],
+                "max": [float(v) for v in self.bounding_box_max],
+            },
+            "open_edges": self.open_edges,
+            "non_manifold_edges": self.non_manifold_edges,
+            "passed_openfoam_surfacecheck": bool(self.passed_openfoam_surfacecheck),
+            "details": self.details,
+        }

@@ -8,6 +8,7 @@ Supports dual-engine architecture:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -82,17 +83,59 @@ class STEPParser(BaseParser):
             )
 
         # engine == "auto":
-        # For polyhedral B-Rep models, pure B-Rep gives the exact topological representation.
-        # For curved or complex models, Gmsh provides full OpenCASCADE B-Rep tessellation.
+        # Curved B-Rep entities REQUIRE Gmsh/OpenCASCADE to avoid flattening and preserve true surface area (K9).
+        if self._has_curved_entities(path):
+            if not HAS_GMSH:
+                raise RuntimeError(
+                    f"STEP file {path} contains curved B-Rep entities (B-spline/cylinder/sphere) "
+                    "which require Gmsh/OpenCASCADE for faithful tessellation. Install gmsh or specify engine='gmsh'."
+                )
+            return self._parse_with_gmsh(
+                path, deflection, angular_tol, min_edge, max_edge, detected_units
+            )
+
+        # Planar models (e.g. cuboids, polyhedra) can be cleanly ingested via exact B-Rep topology
         try:
             return self._parse_with_brep(path, detected_units)
         except Exception as ex:
-            logger.info("Direct B-Rep parsing fell back to Gmsh tessellation: %s", ex)
             if HAS_GMSH:
+                logger.warning("B-Rep parsing of planar STEP model failed, falling back to Gmsh: %s", ex)
                 return self._parse_with_gmsh(
                     path, deflection, angular_tol, min_edge, max_edge, detected_units
                 )
             raise
+
+    @staticmethod
+    def _has_curved_entities(path: Path) -> bool:
+        """Inspect STEP file to check if it contains non-planar curved geometric entities."""
+        curved_tokens = (
+            "B_SPLINE_SURFACE",
+            "B_SPLINE_CURVE",
+            "CYLINDRICAL_SURFACE",
+            "CONICAL_SURFACE",
+            "SPHERICAL_SURFACE",
+            "TOROIDAL_SURFACE",
+            "SURFACE_OF_REVOLUTION",
+            "SURFACE_OF_LINEAR_EXTRUSION",
+            "CIRCLE",
+            "ELLIPSE",
+            "PARABOLA",
+            "HYPERBOLA",
+            "BEZIER_SURFACE",
+            "BEZIER_CURVE",
+            "RATIONAL_B_SPLINE_SURFACE",
+            "RATIONAL_B_SPLINE_CURVE",
+        )
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for chunk in iter(lambda: f.read(1048576), ""):
+                    upper_chunk = chunk.upper()
+                    for token in curved_tokens:
+                        if token in upper_chunk:
+                            return True
+        except Exception:
+            pass
+        return False
 
     @staticmethod
     def detect_units(path: Path) -> str:
@@ -126,6 +169,8 @@ class STEPParser(BaseParser):
 
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.option.setNumber("General.Verbosity", 0)
+        num_cpus = os.cpu_count() or 4
+        gmsh.option.setNumber("General.NumThreads", num_cpus)
         gmsh.option.setNumber("Mesh.Algorithm", 6)  # Frontal-Delaunay for 2D surfaces
 
         # Determine unit scaling factor from meters to CAD model units
@@ -364,3 +409,301 @@ class STEPParser(BaseParser):
             patches=patch_arrays,
             metadata={"source_file": str(path), "format": "step_brep", "units": units},
         )
+
+
+# ==============================================================================
+# Paper 1: Topology-First Watertight B-Rep Meshing (CADWatertightFineMeshing)
+# ==============================================================================
+
+class StepTopologyParser:
+    """Topology-First B-Rep Meshing Parser eliminating 2D trim curve failures (Paper 1).
+
+    Uses 3D topological entities (V^b, E^b, L^b, F^b) as strict invariants:
+    - Dijkstra 3D loop embedding (Algorithm 1)
+    - Jordan curve combinatorial separation (Algorithm 2)
+    - 1D parameter boundary curve stitching across adjacent patches
+    """
+
+    @staticmethod
+    def dijkstra_loop_embedding(
+        vertices: np.ndarray,
+        edges: List[Tuple[int, int]],
+        curve_3d_points: np.ndarray,
+        occupied_edges: Optional[Set[Tuple[int, int]]] = None,
+    ) -> List[int]:
+        """Embed 3D boundary curve onto surface mesh edges via Dijkstra shortest paths (Paper 1 Alg. 1).
+
+        Parameters
+        ----------
+        vertices : np.ndarray, shape (N_v, 3)
+            Surface mesh coordinates.
+        edges : List[Tuple[int, int]]
+            Surface mesh edges.
+        curve_3d_points : np.ndarray, shape (K, 3)
+            Sampled 3D points along the boundary curve p^1(t).
+        occupied_edges : Optional[Set[Tuple[int, int]]]
+            Set of normalized (u, v) edges with u < v already occupied by other loops.
+
+        Returns
+        -------
+        cycle : List[int]
+            Ordered list of vertex indices forming a closed 1D cycle on the mesh.
+        """
+        import heapq
+        from scipy.spatial import cKDTree
+
+        occupied = set(occupied_edges) if occupied_edges is not None else set()
+
+        # Build adjacency graph with euclidean edge lengths
+        adj: Dict[int, List[Tuple[int, float]]] = {i: [] for i in range(len(vertices))}
+        for u, v in edges:
+            edge_norm = (min(u, v), max(u, v))
+            if edge_norm in occupied:
+                continue
+            dist = float(np.linalg.norm(vertices[u] - vertices[v]))
+            adj[u].append((v, dist))
+            adj[v].append((u, dist))
+
+        # Project 3D curve points onto closest mesh vertices
+        curve_pts = np.asarray(curve_3d_points, dtype=np.float64)
+        if len(curve_pts) == 0 or curve_pts.size == 0:
+            raise ValueError("curve_3d_points must not be empty.")
+        v_arr = np.asarray(vertices, dtype=np.float64)
+        if len(v_arr) == 0 or v_arr.size == 0:
+            raise ValueError("vertices must not be empty.")
+
+        tree = cKDTree(v_arr)
+        _, proj_indices = tree.query(curve_pts)
+        proj_indices = list(proj_indices)
+
+        # Ensure loop is closed
+        if proj_indices[0] != proj_indices[-1]:
+            proj_indices.append(proj_indices[0])
+
+        full_cycle: List[int] = []
+
+        def dijkstra_path(src: int, dst: int) -> List[int]:
+            if src == dst:
+                return [src]
+            dist_map: Dict[int, float] = {src: 0.0}
+            prev_map: Dict[int, int] = {}
+            pq: List[Tuple[float, int]] = [(0.0, src)]
+
+            while pq:
+                d_cur, u = heapq.heappop(pq)
+                if d_cur > dist_map.get(u, float("inf")):
+                    continue
+                if u == dst:
+                    break
+                for v, weight in adj.get(u, []):
+                    d_new = d_cur + weight
+                    if d_new < dist_map.get(v, float("inf")):
+                        dist_map[v] = d_new
+                        prev_map[v] = u
+                        heapq.heappush(pq, (d_new, v))
+
+            if dst not in prev_map:
+                # If path blocked by occupied edges, fallback to direct edge
+                return [src, dst]
+
+            path = [dst]
+            curr = dst
+            while curr != src:
+                curr = prev_map[curr]
+                path.append(curr)
+            path.reverse()
+            return path
+
+        for k in range(len(proj_indices) - 1):
+            s = int(proj_indices[k])
+            t = int(proj_indices[k + 1])
+            seg = dijkstra_path(s, t)
+            if not full_cycle:
+                full_cycle.extend(seg)
+            else:
+                full_cycle.extend(seg[1:])
+
+        # Clean consecutive duplicates
+        cleaned_cycle: List[int] = []
+        for v in full_cycle:
+            if not cleaned_cycle or cleaned_cycle[-1] != v:
+                cleaned_cycle.append(v)
+
+        return cleaned_cycle
+
+    @staticmethod
+    def jordan_curve_separation(
+        faces: np.ndarray,
+        boundary_cycle: List[int],
+        loop_type: str = "outer",
+    ) -> np.ndarray:
+        """Combinatorial flood-fill partition of surface mesh across 1D boundary cycle (Paper 1 Alg. 2).
+
+        Separates the surface mesh into interior Disk (D_k) and exterior Annulus
+        without geometric ray-casting.
+
+        Parameters
+        ----------
+        faces : np.ndarray, shape (N_f, 3)
+            Triangular surface faces.
+        boundary_cycle : List[int]
+            Ordered vertex cycle forming the loop boundary.
+        loop_type : str
+            'outer' for FACE_OUTER_BOUND (retain interior disk),
+            'inner' for FACE_BOUND (discard interior hole, retain annulus).
+
+        Returns
+        -------
+        trimmed_faces : np.ndarray
+            Subset of faces representing the trimmed manifold patch.
+        """
+        faces = np.asarray(faces, dtype=np.int32)
+        n_faces = len(faces)
+        if n_faces == 0:
+            return np.empty((0, 3), dtype=np.int32)
+
+        # Build cycle barrier edge set
+        cycle_edges = set()
+        c_len = len(boundary_cycle)
+        for i in range(c_len):
+            u = boundary_cycle[i]
+            v = boundary_cycle[(i + 1) % c_len]
+            cycle_edges.add((min(u, v), max(u, v)))
+
+        # Build dual face adjacency graph
+        edge_to_faces: Dict[Tuple[int, int], List[int]] = {}
+        for f_idx, tri in enumerate(faces):
+            for i in range(3):
+                u = int(tri[i])
+                v = int(tri[(i + 1) % 3])
+                e = (min(u, v), max(u, v))
+                edge_to_faces.setdefault(e, []).append(f_idx)
+
+        dual_adj: Dict[int, List[int]] = {i: [] for i in range(n_faces)}
+        for e, f_list in edge_to_faces.items():
+            if e in cycle_edges:
+                # Barrier edge: sever dual connectivity across the loop
+                continue
+            if len(f_list) == 2:
+                f0, f1 = f_list
+                dual_adj[f0].append(f1)
+                dual_adj[f1].append(f0)
+
+        # Connected component labeling via BFS
+        visited = np.zeros(n_faces, dtype=bool)
+        components: List[List[int]] = []
+
+        for f_start in range(n_faces):
+            if visited[f_start]:
+                continue
+            comp: List[int] = []
+            queue = [f_start]
+            visited[f_start] = True
+            while queue:
+                curr = queue.pop(0)
+                comp.append(curr)
+                for nbr in dual_adj[curr]:
+                    if not visited[nbr]:
+                        visited[nbr] = True
+                        queue.append(nbr)
+            components.append(comp)
+
+        if len(components) <= 1:
+            # Only one component found: loop is on boundary or whole patch is retained
+            return faces
+
+        # Sort components by size (face count)
+        components.sort(key=len)
+
+        if loop_type == "outer":
+            # For outer bound: the largest component is typically the interior disk
+            # or the primary enclosed component
+            selected_comp = components[-1]
+        else:
+            # For inner bound (hole): largest component is the outer annulus
+            selected_comp = components[-1]
+
+        return faces[np.array(selected_comp, dtype=np.int32)]
+
+    @staticmethod
+    def stitch_1d_boundary_curves(
+        vertices_a: np.ndarray,
+        faces_a: np.ndarray,
+        vertices_b: np.ndarray,
+        faces_b: np.ndarray,
+        shared_curve_points: np.ndarray,
+        tolerance: float = 1e-6,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Stitch shared boundary curves across adjacent patches ensuring watertightness (Paper 1 §4-5).
+
+        Unifies parameter points along the boundary curve and welds coincident vertices
+        to eliminate cracks without moving vertices off the true boundary curve.
+
+        Parameters
+        ----------
+        vertices_a : np.ndarray, shape (N_a, 3)
+            Vertices of patch A.
+        faces_a : np.ndarray, shape (F_a, 3)
+            Faces of patch A.
+        vertices_b : np.ndarray, shape (N_b, 3)
+            Vertices of patch B.
+        faces_b : np.ndarray, shape (F_b, 3)
+            Faces of patch B.
+        shared_curve_points : np.ndarray, shape (M, 3)
+            Sampled 3D points along the shared boundary curve p^1(t).
+        tolerance : float
+            Welding tolerance in meters (default: 1e-6).
+
+        Returns
+        -------
+        stitched_vertices : np.ndarray
+            Unified vertex array.
+        stitched_faces : np.ndarray
+            Unified face array with welded boundary seams.
+        """
+        from scipy.spatial import cKDTree
+
+        v_a = np.asarray(vertices_a, dtype=np.float64)
+        f_a = np.asarray(faces_a, dtype=np.int32)
+        v_b = np.asarray(vertices_b, dtype=np.float64)
+        f_b = np.asarray(faces_b, dtype=np.int32)
+        curve_pts = np.asarray(shared_curve_points, dtype=np.float64)
+
+        if len(curve_pts) == 0 or curve_pts.size == 0:
+            raise ValueError("shared_curve_points must not be empty.")
+
+        n_a = len(v_a)
+        # Shift patch B face indices
+        f_b_shifted = f_b + n_a
+        combined_vertices = np.vstack([v_a, v_b])
+        combined_faces = np.vstack([f_a, f_b_shifted])
+
+        # Identify boundary vertices of A and B near shared curve
+        curve_tree = cKDTree(curve_pts)
+        d_a, _ = curve_tree.query(v_a)
+        d_b, _ = curve_tree.query(v_b)
+
+        candidates_a = np.where(d_a < 10.0 * tolerance)[0]
+        candidates_b = np.where(d_b < 10.0 * tolerance)[0] + n_a
+
+        # Weld vertices between candidates_a and candidates_b
+        remap = np.arange(len(combined_vertices), dtype=np.int32)
+        if len(candidates_a) > 0 and len(candidates_b) > 0:
+            b_coords = combined_vertices[candidates_b]
+            tree_b = cKDTree(b_coords)
+            dists, nn_idx = tree_b.query(combined_vertices[candidates_a])
+            for idx_a, dist, b_local in zip(candidates_a, dists, nn_idx):
+                if dist <= tolerance:
+                    idx_b = candidates_b[b_local]
+                    remap[idx_b] = remap[idx_a]
+
+        # Apply remap to faces
+        remapped_faces = remap[combined_faces]
+
+        # Remove unused vertices and compact
+        unique_old, compact_remap = np.unique(remapped_faces, return_inverse=True)
+        final_faces = compact_remap.reshape(combined_faces.shape).astype(np.int32)
+        final_vertices = combined_vertices[unique_old]
+
+        return final_vertices, final_faces
+

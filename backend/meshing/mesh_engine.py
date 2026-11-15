@@ -34,6 +34,7 @@ from backend.meshing.difvm_topology import (
     compute_difvm_topology,
     generate_hexcore_native,
     get_native_dll,
+    get_native_load_error,
 )
 from backend.meshing.distmesh_core import (
     _orient2d_py,
@@ -57,6 +58,43 @@ from backend.meshing.models import (
 )
 
 
+def compute_farfield_bounding_box(
+    body_bbox: Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+    upstream: float = 5.0,
+    downstream: float = 10.0,
+    lateral_y: float = 5.0,
+    lateral_z: float = 5.0,
+    ground_plane: bool = False,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """Compute standard aerodynamic farfield domain extents from body bounding box."""
+    b_min = np.asarray(body_bbox[0], dtype=np.float64)
+    b_max = np.asarray(body_bbox[1], dtype=np.float64)
+    span = b_max - b_min
+    if np.any(span < 0):
+        raise ValueError(f"Inverted body bounding box: min={b_min}, max={b_max}")
+    if span[2] < 1e-12:
+        raise ValueError("Planar geometry provided to 3D farfield mesher; use 2D mesher instead.")
+
+    l_ref = float(span[0]) if span[0] > 1e-6 else float(np.max(span))
+
+    ff_min = np.array([
+        b_min[0] - upstream * l_ref,
+        b_min[1] - lateral_y * l_ref,
+        b_min[2] if ground_plane else b_min[2] - lateral_z * l_ref,
+    ], dtype=np.float64)
+
+    ff_max = np.array([
+        b_max[0] + downstream * l_ref,
+        b_max[1] + lateral_y * l_ref,
+        b_max[2] + lateral_z * l_ref,
+    ], dtype=np.float64)
+
+    return (
+        (float(ff_min[0]), float(ff_min[1]), float(ff_min[2])),
+        (float(ff_max[0]), float(ff_max[1]), float(ff_max[2])),
+    )
+
+
 class MeshEngine:
     """Unified in-memory mesher facade supporting both native C++20 and pure-Python execution."""
 
@@ -69,7 +107,12 @@ class MeshEngine:
         self.use_native = use_native
         self.config = config
         self.strict_native = strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
-        self._native_dll = get_native_dll() if use_native else None
+        if self.strict_native and not use_native:
+            raise RuntimeError("strict_native=True requires use_native=True.")
+        self._native_dll = get_native_dll(strict_native=self.strict_native) if use_native else None
+        if self.strict_native and self._native_dll is None:
+            load_err = get_native_load_error()
+            raise RuntimeError(f"Strict native mode enabled but native mesher DLL could not be loaded: {load_err}")
 
     @property
     def has_native_core(self) -> bool:
@@ -82,6 +125,7 @@ class MeshEngine:
         h0: float = 0.05,
         scale: float = 1.0,
         config: Optional[MeshingConfig] = None,
+        domain_mode: Optional[str] = None,
     ) -> UnstructuredMesh:
         """Ingest, filter, and mesh a CAD geometry file (.stp, .stl, .obj, .prt).
 
@@ -95,6 +139,8 @@ class MeshEngine:
             Coordinate scaling factor (e.g. 0.001 to convert mm to m).
         config : Optional[MeshingConfig]
             Meshing configuration overrides.
+        domain_mode : Optional[str]
+            Optional domain mode override ('external_fluid', 'solid_only', etc.).
 
         Returns
         -------
@@ -106,6 +152,8 @@ class MeshEngine:
             raise FileNotFoundError(f"CAD file not found: {path}")
 
         active_cfg = config if config is not None else (self.config if self.config is not None else MeshingConfig())
+        if domain_mode is not None:
+            active_cfg = MeshingConfig.from_dict({**active_cfg.to_dict(), "domain_mode": domain_mode})
 
         # If path is a directory (such as snappyMultiRegionHeater), process as multi-region CHT mesh
         if path.is_dir():
@@ -121,10 +169,8 @@ class MeshEngine:
         verts = sm.vertices * scale
         faces = sm.faces
 
-        # Backward Compatibility Shield:
-        # When both config is None and self.config is None, or active_cfg.domain_mode == "solid_only",
-        # mesh_cad_file preserves solid body interior meshing so that existing tests pass without regression.
-        is_solid_only = (config is None and self.config is None) or (active_cfg.domain_mode == "solid_only")
+        # Domain mode evaluation: honor declarative config domain_mode directly
+        is_solid_only = (active_cfg.domain_mode == "solid_only")
 
         if not is_solid_only:
             clean_mesh = SurfaceMesh(
@@ -209,6 +255,16 @@ class MeshEngine:
             patches=dict(surface.patches) if surface.patches else {},
         )
         effective_domain_mode = active_cfg.domain_mode if active_cfg.domain_mode else domain_mode
+        if effective_domain_mode == "external_fluid" and farfield_bbox is None:
+            padding = active_cfg.farfield_padding if active_cfg.farfield_padding is not None else FarfieldPadding()
+            bmin = np.min(scaled_surf.vertices, axis=0)
+            bmax = np.max(scaled_surf.vertices, axis=0)
+            ff_min, ff_max = self._compute_farfield_bounds(bmin, bmax, active_cfg)
+            farfield_bbox = (
+                float(ff_min[0]), float(ff_max[0]),
+                float(ff_min[1]), float(ff_max[1]),
+                float(ff_min[2]), float(ff_max[2]),
+            )
         is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
         if self.use_native and self.has_native_core and len(scaled_surf.faces) > 0:
             try:
@@ -226,9 +282,12 @@ class MeshEngine:
             except Exception as exc:
                 if is_strict:
                     raise RuntimeError(f"Strict native mode enabled and generate_hexcore_native failed: {exc}") from exc
-                logger.warning(f"Native hexcore failed, falling back to Python: {exc}")
+                logger.error(f"Native hexcore failed, falling back to Python: {exc}", exc_info=True)
         elif is_strict:
-            raise RuntimeError("Strict native mode enabled but native mesher core is unavailable or surface is empty.")
+            load_err = get_native_load_error()
+            raise RuntimeError(
+                f"Strict native mode enabled but native mesher core is unavailable or surface is empty (error: {load_err})."
+            )
 
         if effective_domain_mode == "cht_coupled":
             return self._mesh_cht_coupled(surface, scale=scale, h0=h0, active_cfg=active_cfg)
@@ -288,6 +347,37 @@ class MeshEngine:
         if np.linalg.det(R) < 0:
             u2 = -u2
             R = np.column_stack([u0, u1, u2])
+
+        # Check volume consistency: surface divergence volume must match oriented bounding box volume
+        P = verts @ R
+        p_min = np.min(P, axis=0)
+        p_max = np.max(P, axis=0)
+        L = p_max - p_min
+        bbox_vol = float(L[0] * L[1] * L[2])
+        if bbox_vol <= 1e-15:
+            return None
+
+        # Closed surface volume via divergence theorem
+        v0 = verts[faces[:, 0]]
+        v1 = verts[faces[:, 1]]
+        v2 = verts[faces[:, 2]]
+        c_f = (v0 + v1 + v2) / 3.0
+        s_f = 0.5 * np.cross(v1 - v0, v2 - v0)
+        surf_vol = abs(float(np.sum(np.sum(c_f * s_f, axis=1))) / 3.0)
+
+        # Non-box geometries (e.g. L-profile: vol 3.0 vs bbox 4.0) deviate by > 0.1%
+        if abs(surf_vol - bbox_vol) / bbox_vol > 1e-3:
+            return None
+
+        # Verify face count and directional clusters: a rectangular box has exactly 6 planar faces
+        # (each axis must have both positive and negative normal faces, giving 6 distinct directions)
+        dir_clusters = 0
+        for axis in [u0, -u0, u1, -u1, u2, -u2]:
+            if np.any(np.dot(normals, axis) > 0.99):
+                dir_clusters += 1
+        if dir_clusters != 6:
+            return None
+
         return R
 
     def _mesh_oriented_box(
@@ -313,23 +403,14 @@ class MeshEngine:
         ny = max(2, int(np.round(L[1] / h0)))
         nz = max(2, int(np.round(L[2] / h0)))
 
-        # Safety guard for RAM protection (~95% RAM utilization in environment):
-        # If requested cells exceed 500,000 (e.g. from unit mismatch between mm and m),
-        # issue an explicit warning and scale down to protect against OOM crashes.
-        max_cells_limit = 500_000
+        # Resolution limit check: fail fast on excessive resolution rather than silently coarsening
+        max_cells_limit = int(getattr(active_cfg, "max_cells", 2_000_000))
         total_cells = nx * ny * nz
         if total_cells > max_cells_limit:
-            scale_fac = (max_cells_limit / total_cells) ** (1.0 / 3.0)
-            new_nx = max(2, int(nx * scale_fac))
-            new_ny = max(2, int(ny * scale_fac))
-            new_nz = max(2, int(nz * scale_fac))
-            warnings.warn(
-                f"Requested resolution ({nx}x{ny}x{nz} = {total_cells} cells) exceeds safety limit ({max_cells_limit}); "
-                f"scaling to ({new_nx}x{new_ny}x{new_nz} = {new_nx*new_ny*new_nz} cells) to protect system memory.",
-                UserWarning,
-                stacklevel=2,
+            raise ValueError(
+                f"Requested resolution ({nx}x{ny}x{nz} = {total_cells} cells) exceeds "
+                f"configured limit ({max_cells_limit}). Increase h0 or adjust active_cfg.max_cells."
             )
-            nx, ny, nz = new_nx, new_ny, new_nz
 
         grid_nodes: List[np.ndarray] = []
         for k in range(nz + 1):
@@ -473,9 +554,12 @@ class MeshEngine:
             except Exception as exc:
                 if is_strict:
                     raise RuntimeError(f"Strict native mode enabled and native hexcore mesher failed: {exc}") from exc
-                logger.warning(f"Native hexcore mesher failed, falling back to Python: {exc}")
+                logger.error(f"Native hexcore mesher failed, falling back to Python: {exc}", exc_info=True)
         elif is_strict:
-            raise RuntimeError("Strict native mode enabled but native mesher core is unavailable or surface is empty.")
+            load_err = get_native_load_error()
+            raise RuntimeError(
+                f"Strict native mode enabled but native mesher core is unavailable or surface is empty (error: {load_err})."
+            )
 
         ff_span = ff_max - ff_min
 
@@ -932,12 +1016,10 @@ class MeshEngine:
 
         span = np.maximum(bmax - bmin, 1e-6)
 
-        # Scale-invariant element sizes derived from h0:
-        # Thin aerofoils with large spanwise aspect ratio require higher in-plane resolution
-        aspect = span[2] / max(span[0], span[1])
-        dx = h0 / 3.0 if aspect > 2.0 else h0
-        dy = h0 / 3.0 if aspect > 2.0 else h0
-        dz = h0
+        # Isotropic element sizes derived directly from h0:
+        dx = float(h0)
+        dy = float(h0)
+        dz = float(h0)
 
         nx = max(2, int(np.ceil(span[0] / dx)))
         ny = max(2, int(np.ceil(span[1] / dy)))
@@ -976,14 +1058,12 @@ class MeshEngine:
         c_arr = np.array(c_list, dtype=np.float64)
         phi_c, _ = sdf.evaluate(c_arr)
 
-        # In level-set discretization of thin aerodynamic geometries, cells straddling
-        # the zero level-set (phi <= 0) are captured within the physical narrow band:
-        h_min = min(dx, dy, dz)
-        threshold = 0.11 * h_min  # Physical level-set interface narrow-band fraction (0.39% error)
+        # Solid body level-set criterion: cell centroid lies within solid boundary (phi <= 0)
+        threshold = float(getattr(active_cfg, "levelset_threshold", 0.0))
 
         active_cells = []
         for idx, (i, j, k) in enumerate(ijk_list):
-            if phi_c[idx] < threshold:
+            if phi_c[idx] <= threshold:
                 c_nodes = np.array([
                     node_id(i, j, k),
                     node_id(i + 1, j, k),
@@ -1071,6 +1151,7 @@ class MeshEngine:
             h0 = active_cfg.sizing.h_min * 2.0
 
         # Try native DLL if available
+        is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
         if self.use_native and self._native_dll is not None:
             m_ptr = self._native_dll.cfd_mesher_create()
             if m_ptr:
@@ -1181,10 +1262,21 @@ class MeshEngine:
                             },
                             metadata={"engine": "native_cpp20_2d"},
                         )
+                        return mesh
+                    else:
+                        msg = f"cfd_mesher_generate_2d_polygon returned non-zero code {res}"
+                        if is_strict:
+                            raise RuntimeError(f"Strict native mode enabled and {msg}")
+                        logger.error(f"Native 2D mesher failed: {msg}")
                 except Exception as e:
-                    logger.warning("Native 2D mesher execution failed: %s, falling back to pure Python", e)
+                    if is_strict:
+                        raise RuntimeError(f"Strict native mode enabled and native 2D mesher execution failed: {e}") from e
+                    logger.error("Native 2D mesher execution failed: %s, falling back to pure Python", e, exc_info=True)
                 finally:
                     self._native_dll.cfd_mesher_free(m_ptr)
+        elif is_strict:
+            load_err = get_native_load_error()
+            raise RuntimeError(f"Strict native mode enabled but native mesher core is unavailable (error: {load_err}).")
 
         # Pure-Python fallback: Robust 2D mesher (Ear-Clipping & Constrained DistMesh)
         if h0 > 0.0:
@@ -1274,4 +1366,156 @@ class MeshEngine:
             nominal_normal=nominal_normal,
             clearances=clearances,
         )
+
+
+# ==============================================================================
+# Paper 3: Continuous Mesh Framework & L^p-Metric Tensor Sizing
+# ==============================================================================
+
+def compute_lp_metric_tensor(
+    H_u: np.ndarray,
+    target_cell_count: int,
+    p: int = 2,
+    cell_volumes: Optional[np.ndarray] = None,
+    h_min: Optional[float] = None,
+    h_max: Optional[float] = None,
+) -> np.ndarray:
+    """Evaluate optimal L^p Riemannian metric tensor field M_{L^p}(x) (Paper 3 Thm. 2.1).
+
+    Computes:
+        M_{L^p}(x) = D_{L^p} * det(|H_u(x)|)^{-1 / (2p + 3)} * |H_u(x)|
+    with global normalization constant:
+        D_{L^p} = N^{2/3} * (int_Omega det(|H_u(x)|)^{p / (2p + 3)} dx)^{-2/3}
+
+    Parameters
+    ----------
+    H_u : np.ndarray, shape (3, 3) or (N_cells, 3, 3)
+        Hessian field of solution scalar u.
+    target_cell_count : int
+        Target mesh cell count N.
+    p : int
+        Norm exponent p in {1, 2}.
+        p = 1: Acoustics, wake vortices, entropy layers (exponent -0.20)
+        p = 2: Viscous flows, Navier-Stokes shear (exponent -1/7 = -0.142857)
+    cell_volumes : Optional[np.ndarray], shape (N_cells,)
+        Cell volumes for spatial integral quadrature. Defaults to uniform.
+    h_min : Optional[float]
+        Optional physical minimum step size (eigenvalue upper bound h_min^-2).
+    h_max : Optional[float]
+        Optional physical maximum step size (eigenvalue lower bound h_max^-2).
+
+    Returns
+    -------
+    M_Lp : np.ndarray, shape (3, 3) or (N_cells, 3, 3)
+        SPD Riemannian metric tensor field.
+    """
+    H_u = np.asarray(H_u, dtype=np.float64)
+    is_single = (H_u.ndim == 2)
+    if is_single:
+        H_u = H_u.reshape(1, 3, 3)
+
+    N_cells = len(H_u)
+    if target_cell_count <= 0:
+        raise ValueError(f"target_cell_count must be positive, got {target_cell_count}")
+    if p not in (1, 2):
+        raise ValueError(f"Supported L^p exponents are p=1 and p=2, got p={p}")
+
+    vols = np.asarray(cell_volumes, dtype=np.float64) if cell_volumes is not None else np.ones(N_cells, dtype=np.float64)
+    if len(vols) != N_cells:
+        raise ValueError(f"cell_volumes length {len(vols)} does not match Hessian count {N_cells}")
+
+    # Exponents from Paper 3 (Eq. 2.10)
+    det_exp_point = -1.0 / (2.0 * p + 3.0)
+    det_exp_integral = float(p) / (2.0 * p + 3.0)
+
+    # 1. Compute absolute Hessian |H_u| and det(|H_u|) per cell
+    abs_H = np.zeros_like(H_u)
+    dets = np.zeros(N_cells, dtype=np.float64)
+    eps_reg = 1e-14
+
+    for i in range(N_cells):
+        H_sym = 0.5 * (H_u[i] + H_u[i].T)
+        eigvals, eigvecs = np.linalg.eigh(H_sym)
+        abs_eigvals = np.abs(eigvals)
+        abs_H[i] = eigvecs @ np.diag(abs_eigvals) @ eigvecs.T
+        det_val = float(np.prod(abs_eigvals))
+        dets[i] = max(det_val, eps_reg)
+
+    # 2. Quadrature integral over domain Omega
+    integral_val = float(np.sum(vols * np.power(dets, det_exp_integral)))
+    if integral_val <= 0.0 or not np.isfinite(integral_val):
+        # Degenerate Hessian (e.g. constant field): revert to isotropic background metric
+        bg_h = h_max if h_max is not None and h_max > 0.0 else 1.0
+        bg_M = (1.0 / (bg_h ** 2)) * np.eye(3, dtype=np.float64)
+        result = np.tile(bg_M, (N_cells, 1, 1))
+        return result[0] if is_single else result
+
+    D_Lp = (float(target_cell_count) ** (2.0 / 3.0)) * (integral_val ** (-2.0 / 3.0))
+
+    # 3. Assemble metric tensor M_{L^p} = D_{L^p} * det(|H|)^exp * |H|
+    M_out = np.zeros_like(abs_H)
+    for i in range(N_cells):
+        factor = D_Lp * (dets[i] ** det_exp_point)
+        M_cell = factor * abs_H[i]
+        # Regularize to guarantee positive definiteness
+        M_sym = 0.5 * (M_cell + M_cell.T)
+        eigvals, eigvecs = np.linalg.eigh(M_sym)
+        min_ev = 1.0 / (h_max ** 2) if (h_max is not None and h_max > 0.0) else 1e-8
+        max_ev = 1.0 / (h_min ** 2) if (h_min is not None and h_min > 0.0) else 1e8
+        eigvals = np.clip(eigvals, min_ev, max_ev)
+        M_out[i] = eigvecs @ np.diag(eigvals) @ eigvecs.T
+
+    return M_out[0] if is_single else M_out
+
+
+def reconstruct_p2_edge_midpoints(
+    node_coords: np.ndarray,
+    node_values: np.ndarray,
+    edges: np.ndarray,
+    nodal_gradients: np.ndarray,
+) -> np.ndarray:
+    """Noise-free P2 edge midpoint value reconstruction (Paper 3 §3.1).
+
+    Computes midpoint scalar values:
+        u_h(m_e) = (u_h(p) + u_h(q)) / 2 + ((grad_R u_h(p) - grad_R u_h(q)) / 8) . (p - q)
+    eliminating O(h^-2) discrete noise amplification.
+
+    Parameters
+    ----------
+    node_coords : np.ndarray, shape (N_nodes, 3)
+        Coordinates of mesh nodes.
+    node_values : np.ndarray, shape (N_nodes,)
+        Field values u_h at nodes.
+    edges : np.ndarray, shape (N_edges, 2)
+        Edge connectivity node index pairs (p, q).
+    nodal_gradients : np.ndarray, shape (N_nodes, 3)
+        Volume-weighted projected gradients grad_R u_h at nodes.
+
+    Returns
+    -------
+    midpoint_values : np.ndarray, shape (N_edges,)
+        Cubic-Hermite reconstructed scalar values at edge midpoints.
+    """
+    coords = np.asarray(node_coords, dtype=np.float64)
+    vals = np.asarray(node_values, dtype=np.float64)
+    edg = np.asarray(edges, dtype=np.int64)
+    grads = np.asarray(nodal_gradients, dtype=np.float64)
+
+    N_edges = len(edg)
+    mid_vals = np.zeros(N_edges, dtype=np.float64)
+
+    for e_idx in range(N_edges):
+        p, q = edg[e_idx]
+        xp, xq = coords[p], coords[q]
+        up, uq = vals[p], vals[q]
+        gp, gq = grads[p], grads[q]
+
+        # Directed edge vector q - p
+        dx = xq - xp
+        # Hermite midpoint reconstruction
+        u_mid = 0.5 * (up + uq) + (1.0 / 8.0) * float(np.dot(gp - gq, dx))
+        mid_vals[e_idx] = u_mid
+
+    return mid_vals
+
 

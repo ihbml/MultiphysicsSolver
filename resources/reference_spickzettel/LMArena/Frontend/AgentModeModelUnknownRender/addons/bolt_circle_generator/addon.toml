@@ -1,0 +1,7 @@
+id = "rhai.bolt_circle"
+name = "Parametric Bolt-Circle Generator"
+version = "1.0.0"
+author = "CAD Addon SDK"
+description = "Generates parametric flanged bolt circles & spur gears at runtime via Rhai scripting."
+entry = "main.rhai"
+enabled = true

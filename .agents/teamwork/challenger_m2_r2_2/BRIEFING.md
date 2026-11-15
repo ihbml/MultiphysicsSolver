@@ -1,59 +1,55 @@
-# BRIEFING — 2026-10-28T05:58:30Z
+# BRIEFING — 2026-11-07T05:22:00Z
 
 ## Mission
-Empirically verify and stress-test remediation of 5 Gate 1 failure areas for M2 CAD Stress, Boundary Layer & Cyclic Symmetry.
+Milestone M2 Iteration 2 Certification of CFDSolver Audit Remediation: Empirically verify the resolution of 3 defects (gci.py:115, difvm_topology.py:508-575, mesh_engine.py:129) and certify via test execution.
 
 ## 🔒 My Identity
-- Archetype: empirical-challenger
+- Archetype: teamwork_challenger
 - Roles: critic, specialist
-- Working directory: G:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_2
-- Original parent: 3e8c9327-d904-45bd-a4e2-64ef970ab34d
-- Milestone: M2
-- Instance: 2 of 2 (round 2)
+- Working directory: g:\Datein\Projects\CFDSolver\.agents\teamwork\challenger_m2_r2_2\
+- Original parent: 0e9d9a36-56a7-4f1c-8222-640d7206b910
+- Milestone: M2 Iteration 2
+- Instance: 2 of 2
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
-- Empirical verification: write and execute tests, verify numerical behavior directly
-- Do NOT trust worker claims or logs without empirical reproduction
-- Strict verdict required: APPROVE or REQUEST_CHANGES
+- Concurrency Guard R13: Ansys Fluent running (~95% RAM); $env:OMP_NUM_THREADS = "8", sequential execution, no pytest -n or xdist
+- Empirical verification mandatory: run code, verify numbers, test boundary conditions
 
 ## Current Parent
-- Conversation ID: 3e8c9327-d904-45bd-a4e2-64ef970ab34d
-- Updated: 2026-10-28T05:52:42Z
+- Conversation ID: 0e9d9a36-56a7-4f1c-8222-640d7206b910
+- Updated: 2026-11-07T05:29:00Z
 
 ## Review Scope
 - **Files to review**:
-  - `src/mesher.c`, `src/cfd_mesher.h`, `cfd_mesher.dll`
-  - `cfd/mesh/boundary_layer.py`, `cfd/mesh/cad_stress.py`, `cfd/mesh/cht_interface.py`, `cfd/mesh/cyclic_symmetry.py`
-  - `backend/meshing/native/src/inflation.cpp`, `difvm_mesh.cpp`, `cht_cyclic.cpp`
-  - `tests/test_challenger_m2_2_adversarial.py`, `tests/test_challenger_m2_r2_gate2.py`
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`
-- **Review criteria**:
-  1. Feature 23 Corner Pinching: turning angle actively alters mesh coordinates (diff > 0.0) -> VERIFIED PASS
-  2. Element inversion handling: negative signed volume not masked by abs() -> VERIFIED PASS
-  3. Collapsed clearance handling: zero clearance evaluates to 0.0, no fallback to 1.0 -> VERIFIED PASS
-  4. Feature 21 CHT Interfaces: conformal twin boundary faces ($S_{f_F} = -S_{f_S}$), AMI area weighting ($\sum w_{ij} = 1.0$) -> VERIFIED PASS
-  5. Feature 22 Cyclic Pairing: `cfd_mesher_extract_cyclic_pairs` exported in DLL and `mesh.cyclic_pairs` populated -> VERIFIED PASS
+  - `backend/meshing/gci.py` (Defect 1)
+  - `backend/meshing/difvm_topology.py` (Defect 2)
+  - `backend/meshing/mesh_engine.py` (Defect 3)
+  - `tests/test_challenger_m2_audit_2.py`
+  - `tests/test_challenger_m2_audit_2_deep_stress.py`
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
+- **Review criteria**: Genuine and complete defect remediation, mathematical exactness, non-regression
+
+## Key Decisions Made
+- [Initial turn: Initialized BRIEFING.md and DISPATCH.md]
+- [Verification turn: Executed tests/test_challenger_m2_audit_2.py - 13/13 passed]
+- [Stress test turn: Authored and executed tests/test_challenger_m2_audit_2_deep_stress.py with 1000 Monte Carlo trials for WSRD, full dispatch permutation matrix, and GCI type/boundary edge cases - 4/4 passed]
+- [Regression turn: Ran all affected regression suites (169 tests total) - 100% pass]
+- [Final Verdict: APPROVE]
+
+## Artifact Index
+- `.agents/teamwork/challenger_m2_r2_2/DISPATCH.md` — Inbound task dispatch
+- `.agents/teamwork/challenger_m2_r2_2/progress.md` — Liveness and execution tracking
+- `.agents/teamwork/challenger_m2_r2_2/handoff.md` — Final certification report
+- `tests/test_challenger_m2_audit_2_deep_stress.py` — Adversarial Monte Carlo & permutation harness
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - H1: Did corner turning angle computation produce real coordinate modification? CONFIRMED: diff = 6.434672e-03 > 0, 90 deg corner gives exact 0.750000 factor.
-  - H2: Does native DLL or Python fallback still mask negative volumes via abs()? CONFIRMED: abs() removed; vol < -1e-15 is preserved and caught by validate().
-  - H3: Does zero or sub-epsilon clearance still fall back to 1.0 m^3? CONFIRMED: evaluates to 0.000000e+00.
-  - H4: Are CHT interfaces twin boundary faces with S_fF = -S_fS? CONFIRMED: ||S_fF + S_fS|| < 1e-12, neighbour == -1.
-  - H5: Does compute_ami_weights satisfy partition of unity? CONFIRMED: sum_j w_ij = 1.0 +/- 1e-12.
-  - H6: Is cfd_mesher_extract_cyclic_pairs exported in DLL C-ABI? CONFIRMED: exported and callable, extracts valid cyclic pairs.
-- **Vulnerabilities found**: None. All 5 Gate 1 defects have been resolved with high mathematical rigor.
-- **Untested angles**: SPH-FVM coupling & ALE moving mesh (explicitly scoped for Milestone M3).
+  - Defect 1: Does `topological_dim = None`, missing, float, or string raise TypeError or produce non-3D scaling? (Result: Fully robust, falls back to 3D $h=2.0$).
+  - Defect 2: Does cut-cell WSRD pairing violate partition of unity $\sum w = 1.0$ under randomized topologies or donate to smaller cells when regular cells exist? (Result: Tested across 1000 randomized Monte Carlo meshes; partition of unity holds to $< 10^{-14}$; donor cut-cells donate strictly to larger regular fluid cells).
+  - Defect 3: Does calling `mesh_cad_file(cube_stl, config=None)` ignore instance `self.config`? (Result: Tested all permutations of engine vs call config; instance config is preserved while preserving backward compatibility for legacy calls).
+- **Vulnerabilities found**: None. All 3 defects are completely and genuinely remediated.
+- **Untested angles**: None within M2 audit remediation scope.
 
 ## Loaded Skills
-- None
-
-## Key Decisions Made
-- Authored and executed dedicated stress test suite `tests/test_challenger_m2_r2_gate2.py` (8 tests passed).
-- Executed `tests/test_challenger_m2_2_adversarial.py` (8 tests passed).
-- Executed mesher unit and invariant regression suites (70 passed, 5 skipped).
-- Determined verdict: APPROVE.
-
-## Artifact Index
-- handoff.md — Verification report, numerical measurements, and verdict
+- None requested or loaded

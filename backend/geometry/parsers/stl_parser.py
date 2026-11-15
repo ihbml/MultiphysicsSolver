@@ -46,6 +46,41 @@ class STLParser(BaseParser):
         weld_tol = kwargs.get("weld_tolerance", self.weld_tolerance)
         rel_weld = kwargs.get("relative_weld", self.relative_weld)
 
+        is_gz = path.name.lower().endswith(".gz")
+        if is_gz:
+            import gzip
+            import io
+            with gzip.open(path, "rb") as gz:
+                raw_bytes = gz.read()
+            file_size = len(raw_bytes)
+            if file_size < 84:
+                raise ValueError(f"STL file is too small ({file_size} bytes, min 84 bytes expected): {path}")
+
+            num_facets = struct.unpack("<I", raw_bytes[80:84])[0]
+            expected_binary_size = 84 + 50 * num_facets
+
+            if file_size == expected_binary_size:
+                return self._parse_binary_buffer(path, raw_bytes[84:], num_facets, weld_tol, rel_weld)
+
+            # Check if ASCII
+            is_ascii = False
+            try:
+                head_sample = raw_bytes[:500].decode("utf-8", errors="replace").strip().lower()
+                if head_sample.startswith("solid"):
+                    is_ascii = True
+            except Exception:
+                is_ascii = False
+
+            if is_ascii:
+                text_stream = io.StringIO(raw_bytes.decode("utf-8", errors="replace"))
+                return self._parse_ascii_lines(path, text_stream, weld_tol, rel_weld)
+
+            raise ValueError(
+                f"Corrupted or invalid STL file '{path}': decompressed size {file_size} does not match "
+                f"binary header count {num_facets} (expected {expected_binary_size} bytes), "
+                f"and file does not begin with ASCII 'solid'."
+            )
+
         file_size = path.stat().st_size
         if file_size < 84:
             raise ValueError(f"STL file is too small ({file_size} bytes, min 84 bytes expected): {path}")
@@ -81,6 +116,38 @@ class STLParser(BaseParser):
             f"binary header count {num_facets} (expected {expected_binary_size} bytes), "
             f"and file does not begin with ASCII 'solid'."
         )
+
+    def _parse_binary_buffer(
+        self, path: Path, payload: bytes, num_facets: int, weld_tol: float, rel_weld: bool
+    ) -> SurfaceMesh:
+        """Parse binary STL format directly from decompressed in-memory bytes."""
+        facet_dtype = np.dtype(
+            [
+                ("normal", "<f4", (3,)),
+                ("vertices", "<f4", (3, 3)),
+                ("attr", "<u2"),
+            ]
+        )
+        data = np.frombuffer(payload, dtype=facet_dtype, count=num_facets)
+        if len(data) != num_facets:
+            raise ValueError(
+                f"Binary STL read error in '{path}': expected {num_facets} facets, read {len(data)}"
+            )
+
+        normals = data["normal"].astype(np.float64)
+        raw_triangles = data["vertices"].astype(np.float64)
+
+        flat_vertices = raw_triangles.reshape(-1, 3)
+        vertices, faces = self.weld_vertices(flat_vertices, weld_tol, rel_weld)
+
+        mesh = SurfaceMesh(
+            vertices=vertices,
+            faces=faces,
+            normals=normals if np.any(np.abs(normals) > 1e-12) else None,
+            patches={"solid": np.arange(len(faces), dtype=np.int32)},
+            metadata={"source_file": str(path), "format": "stl_binary_gz"},
+        )
+        return mesh
 
     def _parse_binary(
         self, path: Path, num_facets: int, weld_tol: float, rel_weld: bool
@@ -122,6 +189,11 @@ class STLParser(BaseParser):
 
     def _parse_ascii(self, path: Path, weld_tol: float, rel_weld: bool) -> SurfaceMesh:
         """Parse ASCII STL format with support for multiple named solids."""
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return self._parse_ascii_lines(path, f, weld_tol, rel_weld)
+
+    def _parse_ascii_lines(self, path: Path, lines_iterable: Any, weld_tol: float, rel_weld: bool) -> SurfaceMesh:
+        """Parse ASCII STL format lines from any iterable (file, StringIO, or gzip stream)."""
         triangles: List[List[List[float]]] = []
         face_normals: List[List[float]] = []
         patches: Dict[str, List[int]] = {}
@@ -131,38 +203,37 @@ class STLParser(BaseParser):
         current_verts: List[List[float]] = []
         face_index = 0
 
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                line_clean = line.strip()
-                if not line_clean:
-                    continue
-                tokens = line_clean.split()
-                first = tokens[0].lower()
+        for line in lines_iterable:
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+            tokens = line_clean.split()
+            first = tokens[0].lower()
 
-                if first == "solid":
-                    current_solid = tokens[1] if len(tokens) > 1 else "solid"
-                    if current_solid not in patches:
-                        patches[current_solid] = []
-                elif first == "facet":
-                    # facet normal ni nj nk
-                    if len(tokens) >= 5 and tokens[1].lower() == "normal":
-                        current_normal = [float(tokens[2]), float(tokens[3]), float(tokens[4])]
-                    else:
-                        current_normal = [0.0, 0.0, 0.0]
-                    current_verts = []
-                elif first == "vertex":
-                    if len(tokens) >= 4:
-                        current_verts.append([float(tokens[1]), float(tokens[2]), float(tokens[3])])
-                elif first == "endfacet":
-                    if len(current_verts) == 3:
-                        triangles.append(current_verts)
-                        face_normals.append(current_normal if current_normal else [0.0, 0.0, 0.0])
-                        patches.setdefault(current_solid, []).append(face_index)
-                        face_index += 1
-                    current_verts = []
-                    current_normal = None
-                elif first == "endsolid":
-                    pass
+            if first == "solid":
+                current_solid = tokens[1] if len(tokens) > 1 else "solid"
+                if current_solid not in patches:
+                    patches[current_solid] = []
+            elif first == "facet":
+                # facet normal ni nj nk
+                if len(tokens) >= 5 and tokens[1].lower() == "normal":
+                    current_normal = [float(tokens[2]), float(tokens[3]), float(tokens[4])]
+                else:
+                    current_normal = [0.0, 0.0, 0.0]
+                current_verts = []
+            elif first == "vertex":
+                if len(tokens) >= 4:
+                    current_verts.append([float(tokens[1]), float(tokens[2]), float(tokens[3])])
+            elif first == "endfacet":
+                if len(current_verts) == 3:
+                    triangles.append(current_verts)
+                    face_normals.append(current_normal if current_normal else [0.0, 0.0, 0.0])
+                    patches.setdefault(current_solid, []).append(face_index)
+                    face_index += 1
+                current_verts = []
+                current_normal = None
+            elif first == "endsolid":
+                pass
 
         if not triangles:
             raise ValueError(f"No valid facets found in ASCII STL file: {path}")
@@ -176,12 +247,13 @@ class STLParser(BaseParser):
         raw_normals = np.array(face_normals, dtype=np.float64)
         use_normals = raw_normals if np.any(np.abs(raw_normals) > 1e-12) else None
 
+        is_gz = path.name.lower().endswith(".gz")
         return SurfaceMesh(
             vertices=vertices,
             faces=faces,
             normals=use_normals,
             patches=patch_arrays,
-            metadata={"source_file": str(path), "format": "stl_ascii"},
+            metadata={"source_file": str(path), "format": "stl_ascii_gz" if is_gz else "stl_ascii"},
         )
 
     @staticmethod

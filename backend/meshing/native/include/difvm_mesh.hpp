@@ -157,6 +157,12 @@ public:
     static double computeMaxDecompositionError(const NativeMeshData& mesh);
 };
 
+// Stromberg (2023) Scaled Jacobian, J_ENS & Pyramid Check
+double computeNodalScaledJacobian(const Vec3& e1, const Vec3& e2, const Vec3& e3, double max_elem_edge);
+double computeElementNormalizedScaledJacobian(double js_min, CellType type);
+double checkPyramidBaseFictitiousHex(const std::vector<Vec3>& points, const std::vector<int64_t>& base_nodes, const Vec3& apex);
+double computeCellJENS(const std::vector<Vec3>& points, const std::vector<int64_t>& nodes, CellType type);
+
 } // namespace cfd
 
 struct CfdNativeMesh {

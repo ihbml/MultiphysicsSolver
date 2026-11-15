@@ -40,7 +40,14 @@ class OBJParser(BaseParser):
         patches: Dict[str, List[int]] = {}
         current_patch = "default"
 
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        is_gz = path.name.lower().endswith(".gz")
+        if is_gz:
+            import gzip
+            open_stream = gzip.open(path, "rt", encoding="utf-8", errors="replace")
+        else:
+            open_stream = open(path, "r", encoding="utf-8", errors="replace")
+
+        with open_stream as f:
             for line_num, line in enumerate(f, start=1):
                 line_clean = line.strip()
                 if not line_clean or line_clean.startswith("#"):
@@ -156,5 +163,5 @@ class OBJParser(BaseParser):
             faces=f_array,
             normals=fn_array,
             patches=patch_arrays,
-            metadata={"source_file": str(path), "format": "obj"},
+            metadata={"source_file": str(path), "format": "obj_gz" if is_gz else "obj"},
         )
