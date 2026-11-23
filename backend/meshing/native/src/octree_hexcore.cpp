@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <queue>
 #include <set>
 #include <stdexcept>
@@ -17,21 +18,33 @@
 #include <omp.h>
 #endif
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace cfd {
 
 namespace {
 
 size_t getMaxOctreeNodes() {
-  constexpr size_t kDefaultMaxNodes = 24000000ULL;
 #ifdef _MSC_VER
   char* env_val = nullptr;
   size_t env_len = 0;
   if (_dupenv_s(&env_val, &env_len, "CFD_MAX_OCTREE_NODES") == 0 && env_val != nullptr) {
     char* end_ptr = nullptr;
     unsigned long long parsed = std::strtoull(env_val, &end_ptr, 10);
-    bool ok = (env_val[0] != '\0' && end_ptr != nullptr && *end_ptr == '\0' && parsed > 0ULL);
+    bool ok = (env_val[0] != '\0' && end_ptr != nullptr && *end_ptr == '\0');
     std::free(env_val);
     if (ok) {
+      if (parsed == 0ULL) {
+        return (std::numeric_limits<size_t>::max)();
+      }
       return static_cast<size_t>(parsed);
     }
   }
@@ -40,12 +53,29 @@ size_t getMaxOctreeNodes() {
   if (env_val != nullptr && env_val[0] != '\0') {
     char* end_ptr = nullptr;
     unsigned long long parsed = std::strtoull(env_val, &end_ptr, 10);
-    if (end_ptr != nullptr && *end_ptr == '\0' && parsed > 0ULL) {
+    if (end_ptr != nullptr && *end_ptr == '\0') {
+      if (parsed == 0ULL) {
+        return (std::numeric_limits<size_t>::max)();
+      }
       return static_cast<size_t>(parsed);
     }
   }
 #endif
-  return kDefaultMaxNodes;
+#ifdef _WIN32
+  MEMORYSTATUSEX ms{};
+  ms.dwLength = sizeof(ms);
+  if (GlobalMemoryStatusEx(&ms)) {
+    const uint64_t commit_budget = (static_cast<uint64_t>(ms.ullAvailPageFile) * 60ULL) / 100ULL;
+    const uint64_t phys_budget = (static_cast<uint64_t>(ms.ullTotalPhys) * 125ULL) / 100ULL;
+    const uint64_t avail_budget_bytes = (commit_budget < phys_budget) ? commit_budget : phys_budget;
+    const uint64_t est_nodes = avail_budget_bytes / 320ULL;
+    constexpr uint64_t kMinFloorNodes = 24000000ULL;
+    return static_cast<size_t>((est_nodes > kMinFloorNodes) ? est_nodes : kMinFloorNodes);
+  }
+  return 24000000ULL;
+#else
+  return 64000000ULL;
+#endif
 }
 
 // Quantized 3D coordinate for deduplicating vertices with machine precision
@@ -100,22 +130,55 @@ double computeTetAMIPS(const Vec3& v0, const Vec3& v1, const Vec3& v2, const Vec
   return std::cbrt(ratio);
 }
 
-// Internal Octree Node representation (64-bit indices)
+// Compact Octree Node representation (72 bytes, 64-bit indices)
 struct OctreeNode {
   Vec3 bmin;
   Vec3 bmax;
-  Vec3 center;
-  Vec3 size;
+  int64_t first_child = -1;
+  int64_t cell_index = -1;
   int32_t level = 0;
-  int64_t parent = -1;
-  int64_t children[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
-  bool is_leaf = true;
-  bool is_active = false;
-  int32_t region = 0;       // 0 = fluid, 1 = solid
-  int64_t cell_index = -1;  // Indexed among active leaves
-  double phi_c = 0.0;
-  Vec3 grad_c = Vec3(0, 0, 1);
-  double v_bg = 0.0;
+  int16_t region = 0;       // 0 = fluid, 1 = solid
+  uint8_t is_leaf = 1;
+  uint8_t is_active = 0;
+
+  inline Vec3 center() const noexcept { return (bmin + bmax) * 0.5; }
+  inline Vec3 size() const noexcept { return bmax - bmin; }
+  inline double v_bg() const noexcept {
+    const Vec3 s = bmax - bmin;
+    return s.x * s.y * s.z;
+  }
+};
+static_assert(sizeof(OctreeNode) <= 80, "OctreeNode must remain compact (<= 80 bytes)");
+
+// Chunked block allocator eliminating 2x vector reallocation copy spikes under large/pagefile workloads
+class ChunkedNodePool {
+ public:
+  static constexpr size_t kChunkShift = 16;  // 65,536 nodes/chunk (~4.7 MB)
+  static constexpr size_t kChunkSize = size_t{1} << kChunkShift;
+  static constexpr size_t kChunkMask = kChunkSize - 1;
+
+  size_t size() const noexcept { return size_; }
+  bool empty() const noexcept { return size_ == 0; }
+
+  void resize(size_t new_size) {
+    const size_t needed_chunks = (new_size == 0) ? 0 : (((new_size - 1) >> kChunkShift) + 1);
+    while (chunks_.size() < needed_chunks) {
+      chunks_.push_back(std::make_unique<OctreeNode[]>(kChunkSize));
+    }
+    size_ = new_size;
+  }
+
+  OctreeNode& operator[](size_t idx) noexcept {
+    return chunks_[idx >> kChunkShift][idx & kChunkMask];
+  }
+
+  const OctreeNode& operator[](size_t idx) const noexcept {
+    return chunks_[idx >> kChunkShift][idx & kChunkMask];
+  }
+
+ private:
+  std::vector<std::unique_ptr<OctreeNode[]>> chunks_;
+  size_t size_ = 0;
 };
 
 struct RawQuad {
@@ -621,9 +684,7 @@ int32_t OctreeHexcore::generate(
     return -12;
   }
   size_t n_root = n_xy * sz;
-  std::vector<OctreeNode> nodes;
-  const size_t reserve_count = (n_root <= max_octree_nodes / 4) ? (n_root * 4) : max_octree_nodes;
-  nodes.reserve(reserve_count);
+  ChunkedNodePool nodes;
   nodes.resize(n_root);
 
 #ifdef _OPENMP
@@ -637,12 +698,12 @@ int32_t OctreeHexcore::generate(
     OctreeNode& node = nodes[static_cast<size_t>(idx)];
     node.bmin = Vec3(x_coords[i], y_coords[j], z_coords[k]);
     node.bmax = Vec3(x_coords[i + 1], y_coords[j + 1], z_coords[k + 1]);
-    node.center = (node.bmin + node.bmax) * 0.5;
-    node.size = node.bmax - node.bmin;
+    node.first_child = -1;
+    node.cell_index = -1;
     node.level = 0;
-    node.parent = -1;
-    node.is_leaf = true;
-    node.v_bg = node.size.x * node.size.y * node.size.z;
+    node.region = 0;
+    node.is_leaf = 1;
+    node.is_active = 0;
   }
 
   auto find_axis_idx = [](const std::vector<double>& coords, double val, int64_t n) -> int64_t {
@@ -665,13 +726,14 @@ int32_t OctreeHexcore::generate(
     int64_t curr = (k * ny + j) * nx + i;
     int64_t n_nodes_sz = static_cast<int64_t>(nodes.size());
     while (curr >= 0 && curr < n_nodes_sz && !nodes[static_cast<size_t>(curr)].is_leaf) {
-      int cx = (p.x >= nodes[static_cast<size_t>(curr)].center.x) ? 1 : 0;
-      int cy = (p.y >= nodes[static_cast<size_t>(curr)].center.y) ? 1 : 0;
-      int cz = (p.z >= nodes[static_cast<size_t>(curr)].center.z) ? 1 : 0;
+      const OctreeNode& cur_node = nodes[static_cast<size_t>(curr)];
+      const Vec3 c = cur_node.center();
+      int cx = (p.x >= c.x) ? 1 : 0;
+      int cy = (p.y >= c.y) ? 1 : 0;
+      int cz = (p.z >= c.z) ? 1 : 0;
       int child_slot = cz * 4 + cy * 2 + cx;
-      int64_t child = nodes[static_cast<size_t>(curr)].children[child_slot];
-      if (child < 0) break;
-      curr = child;
+      if (cur_node.first_child < 0) break;
+      curr = cur_node.first_child + child_slot;
     }
     return (curr >= 0 && curr < n_nodes_sz && nodes[static_cast<size_t>(curr)].is_leaf) ? curr : -1;
   };
@@ -681,7 +743,11 @@ int32_t OctreeHexcore::generate(
     const size_t n_split = split_ids.size();
     out_children.clear();
     if (n_split == 0) return true;
-    if (nodes.size() > max_octree_nodes || n_split > (max_octree_nodes - nodes.size()) / 8) {
+    if (max_octree_nodes < (std::numeric_limits<size_t>::max)()) {
+      if (nodes.size() > max_octree_nodes || n_split > (max_octree_nodes - nodes.size()) / 8) {
+        return false;
+      }
+    } else if (n_split > ((std::numeric_limits<size_t>::max)() - nodes.size()) / 8) {
       return false;
     }
     const size_t old_n = nodes.size();
@@ -693,10 +759,14 @@ int32_t OctreeHexcore::generate(
 #endif
     for (int64_t s = 0; s < static_cast<int64_t>(n_split); ++s) {
       const int64_t parent_idx = split_ids[static_cast<size_t>(s)];
-      const int32_t parent_level = nodes[static_cast<size_t>(parent_idx)].level;
-      const Vec3 mid = nodes[static_cast<size_t>(parent_idx)].center;
-      const Vec3 pmin = nodes[static_cast<size_t>(parent_idx)].bmin;
-      const Vec3 pmax = nodes[static_cast<size_t>(parent_idx)].bmax;
+      OctreeNode& pnode = nodes[static_cast<size_t>(parent_idx)];
+      const int32_t parent_level = pnode.level;
+      const Vec3 pmin = pnode.bmin;
+      const Vec3 pmax = pnode.bmax;
+      const Vec3 mid = (pmin + pmax) * 0.5;
+      const size_t first_child_slot = old_n + static_cast<size_t>(s) * 8;
+      pnode.first_child = static_cast<int64_t>(first_child_slot);
+      pnode.is_leaf = 0;
 
       const std::array<std::pair<Vec3, Vec3>, 8> octants = {{
           {{pmin.x, pmin.y, pmin.z}, {mid.x, mid.y, mid.z}},
@@ -709,20 +779,18 @@ int32_t OctreeHexcore::generate(
           {{mid.x, mid.y, mid.z}, {pmax.x, pmax.y, pmax.z}},
       }};
 
-      nodes[static_cast<size_t>(parent_idx)].is_leaf = false;
       for (int c = 0; c < 8; ++c) {
-        const size_t child_slot_idx = old_n + static_cast<size_t>(s) * 8 + static_cast<size_t>(c);
+        const size_t child_slot_idx = first_child_slot + static_cast<size_t>(c);
         const int64_t child_idx = static_cast<int64_t>(child_slot_idx);
         OctreeNode& child = nodes[child_slot_idx];
         child.bmin = octants[static_cast<size_t>(c)].first;
         child.bmax = octants[static_cast<size_t>(c)].second;
-        child.center = (child.bmin + child.bmax) * 0.5;
-        child.size = child.bmax - child.bmin;
+        child.first_child = -1;
+        child.cell_index = -1;
         child.level = parent_level + 1;
-        child.parent = parent_idx;
-        child.is_leaf = true;
-        child.v_bg = child.size.x * child.size.y * child.size.z;
-        nodes[static_cast<size_t>(parent_idx)].children[c] = child_idx;
+        child.region = 0;
+        child.is_leaf = 1;
+        child.is_active = 0;
         out_children[static_cast<size_t>(s) * 8 + static_cast<size_t>(c)] = child_idx;
       }
     }
@@ -745,7 +813,7 @@ int32_t OctreeHexcore::generate(
 #pragma omp parallel for schedule(static)
 #endif
     for (int64_t k = 0; k < static_cast<int64_t>(n_eval); ++k) {
-      const Vec3& c = nodes[static_cast<size_t>(frontier[static_cast<size_t>(k)])].center;
+      const Vec3 c = nodes[static_cast<size_t>(frontier[static_cast<size_t>(k)])].center();
       leaf_centers[3 * k + 0] = c.x;
       leaf_centers[3 * k + 1] = c.y;
       leaf_centers[3 * k + 2] = c.z;
@@ -760,7 +828,7 @@ int32_t OctreeHexcore::generate(
 #endif
     for (int64_t k = 0; k < static_cast<int64_t>(n_eval); ++k) {
       int64_t idx = frontier[static_cast<size_t>(k)];
-      const Vec3& nsz = nodes[static_cast<size_t>(idx)].size;
+      const Vec3 nsz = nodes[static_cast<size_t>(idx)].size();
       double max_edge = std::max({nsz.x, nsz.y, nsz.z});
       if (options.h_min > 0.0 && max_edge * 0.5 < 0.48 * options.h_min) {
         continue;
@@ -815,8 +883,8 @@ int32_t OctreeHexcore::generate(
         int64_t node_i = leaves[static_cast<size_t>(li)];
         if (!nodes[static_cast<size_t>(node_i)].is_leaf) continue;
         int32_t lev_a = nodes[static_cast<size_t>(node_i)].level;
-        Vec3 c = nodes[static_cast<size_t>(node_i)].center;
-        Vec3 h = nodes[static_cast<size_t>(node_i)].size * 0.5;
+        Vec3 c = nodes[static_cast<size_t>(node_i)].center();
+        Vec3 h = nodes[static_cast<size_t>(node_i)].size() * 0.5;
 
         for (int di = -1; di <= 1; ++di) {
           for (int dj = -1; dj <= 1; ++dj) {
@@ -845,8 +913,8 @@ int32_t OctreeHexcore::generate(
         int64_t node_i = leaves[li];
         if (!nodes[static_cast<size_t>(node_i)].is_leaf) continue;
         int32_t lev_a = nodes[static_cast<size_t>(node_i)].level;
-        Vec3 c = nodes[static_cast<size_t>(node_i)].center;
-        Vec3 h = nodes[static_cast<size_t>(node_i)].size * 0.5;
+        Vec3 c = nodes[static_cast<size_t>(node_i)].center();
+        Vec3 h = nodes[static_cast<size_t>(node_i)].size() * 0.5;
         for (int di = -1; di <= 1; ++di) {
           for (int dj = -1; dj <= 1; ++dj) {
             for (int dk = -1; dk <= 1; ++dk) {
@@ -913,7 +981,7 @@ int32_t OctreeHexcore::generate(
 #pragma omp parallel for schedule(static)
 #endif
   for (int64_t k = 0; k < n_leaves; ++k) {
-    const Vec3& c = nodes[static_cast<size_t>(all_leaves[static_cast<size_t>(k)])].center;
+    const Vec3 c = nodes[static_cast<size_t>(all_leaves[static_cast<size_t>(k)])].center();
     leaf_centers[3 * k + 0] = c.x;
     leaf_centers[3 * k + 1] = c.y;
     leaf_centers[3 * k + 2] = c.z;
@@ -967,14 +1035,16 @@ int32_t OctreeHexcore::generate(
     wn_pts.reserve(static_cast<size_t>(n_leaves) * 3);
     for (int64_t k = 0; k < n_leaves; ++k) {
       const OctreeNode& ln = nodes[static_cast<size_t>(all_leaves[static_cast<size_t>(k)])];
-      double pad = ln.size.norm();
-      if (ln.center.x >= s_min.x - pad && ln.center.x <= s_max.x + pad &&
-          ln.center.y >= s_min.y - pad && ln.center.y <= s_max.y + pad &&
-          ln.center.z >= s_min.z - pad && ln.center.z <= s_max.z + pad) {
+      const Vec3 ln_size = ln.size();
+      const Vec3 ln_center = ln.center();
+      double pad = ln_size.norm();
+      if (ln_center.x >= s_min.x - pad && ln_center.x <= s_max.x + pad &&
+          ln_center.y >= s_min.y - pad && ln_center.y <= s_max.y + pad &&
+          ln_center.z >= s_min.z - pad && ln_center.z <= s_max.z + pad) {
         wn_leaf_pos.push_back(k);
-        wn_pts.push_back(ln.center.x);
-        wn_pts.push_back(ln.center.y);
-        wn_pts.push_back(ln.center.z);
+        wn_pts.push_back(ln_center.x);
+        wn_pts.push_back(ln_center.y);
+        wn_pts.push_back(ln_center.z);
       }
     }
     if (!wn_leaf_pos.empty()) {
@@ -1008,11 +1078,9 @@ int32_t OctreeHexcore::generate(
   for (int64_t k = 0; k < n_leaves; ++k) {
     OctreeNode& ln = nodes[static_cast<size_t>(all_leaves[static_cast<size_t>(k)])];
     double phi = leaf_phis[static_cast<size_t>(k)];
-    ln.phi_c = phi;
-    ln.grad_c = Vec3(leaf_grads[3 * k + 0], leaf_grads[3 * k + 1], leaf_grads[3 * k + 2]);
-    double diag = ln.size.norm();
+    double diag = ln.size().norm();
     bool active = false;
-    int32_t reg = 0;
+    int16_t reg = 0;
 
     if (options.domain_mode == 0) {
       if (phi >= -0.15 * diag) {
@@ -1033,19 +1101,29 @@ int32_t OctreeHexcore::generate(
         reg = 0;
       }
     }
-    ln.is_active = active;
+    ln.is_active = active ? 1 : 0;
     ln.region = reg;
   }
 
   std::vector<int64_t> active_leaves;
+  std::vector<Vec3> active_grad_c;
   active_leaves.reserve(static_cast<size_t>(n_leaves));
+  active_grad_c.reserve(static_cast<size_t>(n_leaves));
   for (int64_t k = 0; k < n_leaves; ++k) {
     int64_t node_i = all_leaves[static_cast<size_t>(k)];
     if (nodes[static_cast<size_t>(node_i)].is_active) {
       nodes[static_cast<size_t>(node_i)].cell_index = static_cast<int64_t>(active_leaves.size());
       active_leaves.push_back(node_i);
+      active_grad_c.emplace_back(
+          leaf_grads[3 * k + 0], leaf_grads[3 * k + 1], leaf_grads[3 * k + 2]);
     }
   }
+  leaf_centers.clear();
+  leaf_centers.shrink_to_fit();
+  leaf_phis.clear();
+  leaf_phis.shrink_to_fit();
+  leaf_grads.clear();
+  leaf_grads.shrink_to_fit();
 
   int64_t n_active_cells = static_cast<int64_t>(active_leaves.size());
   if (n_active_cells == 0) {
@@ -1334,7 +1412,7 @@ int32_t OctreeHexcore::generate(
       }
       cell_approx_center[static_cast<size_t>(c)] =
           (count > 0) ? (c_approx / static_cast<double>(count))
-                      : nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(c)])].center;
+                      : nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(c)])].center();
     }
 
     std::unordered_set<int64_t> wall_vertices;
@@ -1429,23 +1507,25 @@ int32_t OctreeHexcore::generate(
           if (it_cells != node_to_cells.end()) {
             for (int64_t cell_idx : it_cells->second) {
               const OctreeNode& onode = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(cell_idx)])];
-              int cx = (pos.x >= onode.center.x) ? 1 : 0;
-              int cy = (pos.y >= onode.center.y) ? 1 : 0;
-              int cz = (pos.z >= onode.center.z) ? 1 : 0;
+              const Vec3 onode_center = onode.center();
+              const Vec3 onode_size = onode.size();
+              int cx = (pos.x >= onode_center.x) ? 1 : 0;
+              int cy = (pos.y >= onode_center.y) ? 1 : 0;
+              int cz = (pos.z >= onode_center.z) ? 1 : 0;
 
               Vec3 v_corner(cx == 0 ? onode.bmin.x : onode.bmax.x,
                             cy == 0 ? onode.bmin.y : onode.bmax.y,
                             cz == 0 ? onode.bmin.z : onode.bmax.z);
 
-              if (std::abs(pos.x - v_corner.x) > 1e-4 * onode.size.x ||
-                  std::abs(pos.y - v_corner.y) > 1e-4 * onode.size.y ||
-                  std::abs(pos.z - v_corner.z) > 1e-4 * onode.size.z) {
+              if (std::abs(pos.x - v_corner.x) > 1e-4 * onode_size.x ||
+                  std::abs(pos.y - v_corner.y) > 1e-4 * onode_size.y ||
+                  std::abs(pos.z - v_corner.z) > 1e-4 * onode_size.z) {
                 continue;
               }
 
-              Vec3 vx = v_corner + Vec3((1 - 2 * cx) * onode.size.x, 0, 0);
-              Vec3 vy = v_corner + Vec3(0, (1 - 2 * cy) * onode.size.y, 0);
-              Vec3 vz = v_corner + Vec3(0, 0, (1 - 2 * cz) * onode.size.z);
+              Vec3 vx = v_corner + Vec3((1 - 2 * cx) * onode_size.x, 0, 0);
+              Vec3 vy = v_corner + Vec3(0, (1 - 2 * cy) * onode_size.y, 0);
+              Vec3 vz = v_corner + Vec3(0, 0, (1 - 2 * cz) * onode_size.z);
 
               int s = (1 - 2 * cx) * (1 - 2 * cy) * (1 - 2 * cz);
               Vec3 v1 = (s > 0) ? vx : vy;
@@ -1473,7 +1553,7 @@ int32_t OctreeHexcore::generate(
                   const OctreeNode& onode = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(o)])];
                   Vec3 ref_c = cell_approx_center[static_cast<size_t>(o)];
                   double pyr_vol = dot(cf_new - ref_c, sf_new) / 3.0;
-                  if (pyr_vol <= 1e-15 * onode.v_bg) {
+                  if (pyr_vol <= 1e-15 * onode.v_bg()) {
                     valid = false;
                     break;
                   }
@@ -1484,7 +1564,7 @@ int32_t OctreeHexcore::generate(
                   const OctreeNode& onode = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(nb)])];
                   Vec3 ref_c = cell_approx_center[static_cast<size_t>(nb)];
                   double pyr_vol = dot(cf_new - ref_c, -sf_new) / 3.0;
-                  if (pyr_vol <= 1e-15 * onode.v_bg) {
+                  if (pyr_vol <= 1e-15 * onode.v_bg()) {
                     valid = false;
                     break;
                   }
@@ -1660,7 +1740,7 @@ int32_t OctreeHexcore::generate(
     }
     cell_approx_center[static_cast<size_t>(c)] =
         (count > 0) ? (c_approx / static_cast<double>(count))
-                    : nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(c)])].center;
+                    : nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(c)])].center();
   }
 
   // 10. Compute Cell Volumes & Centroids via reference-point pyramid decomposition (OpenMP)
@@ -1713,11 +1793,11 @@ int32_t OctreeHexcore::generate(
 
   if (options.merge_small_cells) {
     for (int64_t c = 0; c < n_active_cells; ++c) {
-      double v_bg = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(c)])].v_bg;
+      double v_bg = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(c)])].v_bg();
       double alpha = cell_vols[static_cast<size_t>(c)] / (v_bg + 1e-30);
 
       if (alpha < options.small_cell_ratio && alpha > 0.0) {
-        Vec3 grad = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(c)])].grad_c;
+        Vec3 grad = active_grad_c[static_cast<size_t>(c)];
         int64_t best_nb = -1;
         double max_align = -1e30;
 
@@ -2331,7 +2411,7 @@ int32_t OctreeHexcore::generate(
     }
 
     int64_t old_c = new_to_old_active[static_cast<size_t>(new_c)];
-    double v_bg = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(old_c)])].v_bg;
+    double v_bg = nodes[static_cast<size_t>(active_leaves[static_cast<size_t>(old_c)])].v_bg();
     double alpha = std::clamp(cell_vols[static_cast<size_t>(old_c)] / (v_bg + 1e-30), 0.0, 1.0);
     mesh.wsrd_alpha[static_cast<size_t>(new_c)] = alpha;
   }

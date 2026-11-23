@@ -1093,7 +1093,8 @@ def generate_hexcore_native(
         if res == -12:
             raise MemoryError(
                 "Native octree_hexcore exceeded configured node/memory safety limit "
-                "(CFD_MAX_OCTREE_NODES). Check CAD unit scale or h0."
+                "(CFD_MAX_OCTREE_NODES; set CFD_MAX_OCTREE_NODES=0 to allow unlimited RAM/pagefile). "
+                "Check CAD unit scale or h0."
             )
         if res != 0:
             raise RuntimeError(f"Native cfd_mesher_generate_hexcore failed with code {res}")
