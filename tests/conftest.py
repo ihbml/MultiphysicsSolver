@@ -168,7 +168,8 @@ def create_t_junction_non_manifold_arrays() -> Tuple[np.ndarray, np.ndarray]:
     # Merge unique vertices
     all_v = np.vstack([v1, v2_shifted])
     all_f = np.vstack([f1, f2 + len(v1)])
-    return all_v, all_f
+    unique_v, inv = np.unique(np.round(all_v, 6), axis=0, return_inverse=True)
+    return unique_v, inv[all_f].astype(np.int32)
 
 
 def create_degenerate_face_arrays() -> Tuple[np.ndarray, np.ndarray]:

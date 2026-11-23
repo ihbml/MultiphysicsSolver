@@ -55,6 +55,7 @@ class WslSimulationRunner:
 
     def __init__(self, bashrc_path: str = "/usr/lib/openfoam/openfoam/etc/bashrc"):
         self.bashrc_path = bashrc_path
+        self._default_bashrc = "/usr/lib/openfoam/openfoam/etc/bashrc"
 
     @staticmethod
     def to_wsl_path(win_path: Union[str, Path]) -> str:
@@ -118,7 +119,17 @@ class WslSimulationRunner:
             RuntimeError: Wenn der Meshing-Befehl fehlschlägt und check=True ist.
         """
         wsl_case = self.to_wsl_path(case_dir)
-        cmd = self.build_command(wsl_case, mesh_command)
+        if self.bashrc_path == self._default_bashrc:
+            quoted_dir = shlex.quote(wsl_case)
+            cmd = (
+                "for rc in /usr/lib/openfoam/openfoam*/etc/bashrc "
+                "/opt/openfoam*/etc/bashrc \"$HOME\"/OpenFOAM/*/etc/bashrc; do "
+                "if [ -f \"$rc\" ]; then source \"$rc\" >/dev/null 2>&1 || true; break; fi; "
+                "done; "
+                f"cd {quoted_dir} && {mesh_command}"
+            )
+        else:
+            cmd = self.build_command(wsl_case, mesh_command)
         proc = subprocess.run(["wsl", "bash", "-c", cmd], capture_output=True, text=True)
         if check and proc.returncode != 0:
             raise RuntimeError(

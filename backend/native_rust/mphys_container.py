@@ -429,6 +429,21 @@ class MPhysWriter:
         self._file.close()
         self._is_closed = True
 
+    def __enter__(self) -> "MPhysWriter":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+
+class _FieldStepResult(tuple):
+    """2-tuple (step_meta, fields) that also supports string dict-key field lookup."""
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            return self[1][key]
+        return super().__getitem__(key)
+
 
 class MPhysReader:
     """High-speed container reader with O(1) sub-millisecond open time."""
@@ -508,10 +523,18 @@ class MPhysReader:
         """Return spatial AABBs and Morton ranges for all mesh chunks."""
         return self.schema.get("mesh_chunks", [])
 
-    def find_chunks_intersecting_aabb(self, query_aabb: Sequence[float]) -> List[int]:
-        """Spatial space skipping: find chunks intersecting a 3D query box [xmin, ymin, zmin, xmax, ymax, zmax]."""
-        q_min = np.array(query_aabb[:3], dtype=np.float64)
-        q_max = np.array(query_aabb[3:], dtype=np.float64)
+    def find_chunks_intersecting_aabb(
+        self,
+        query_aabb: Sequence[float],
+        query_max: Optional[Sequence[float]] = None,
+    ) -> List[int]:
+        """Spatial space skipping: find chunks intersecting a 3D query box."""
+        if query_max is not None:
+            q_min = np.asarray(query_aabb, dtype=np.float64)
+            q_max = np.asarray(query_max, dtype=np.float64)
+        else:
+            q_min = np.array(query_aabb[:3], dtype=np.float64)
+            q_max = np.array(query_aabb[3:], dtype=np.float64)
         intersecting = []
 
         for ch in self.schema.get("mesh_chunks", []):
@@ -603,7 +626,7 @@ class MPhysReader:
         for name in step_meta["field_names"]:
             fields[name] = np.load(bio)
 
-        return step_meta, fields
+        return _FieldStepResult((step_meta, fields))
 
     def close(self) -> None:
         if self._file and not self._file.closed:

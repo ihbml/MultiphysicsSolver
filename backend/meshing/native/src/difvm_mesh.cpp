@@ -104,7 +104,7 @@ std::vector<std::vector<int64_t>> extractCellFaces(
   std::vector<std::vector<int64_t>> faces;
   size_t nv = cell.size();
 
-  if (nv == 8) {
+  if (out_type != CellType::POLYHEDRON && nv == 8) {
     Vec3 p_min = node_coords[cell[0]];
     Vec3 p_max = node_coords[cell[0]];
     for (size_t i = 1; i < nv; ++i) {
@@ -134,7 +134,7 @@ std::vector<std::vector<int64_t>> extractCellFaces(
       faces.push_back({cell[2], cell[3], cell[7], cell[6]}); // back (+y)
       faces.push_back({cell[3], cell[0], cell[4], cell[7]}); // left (-x)
     }
-  } else if (nv == 4) {
+  } else if (out_type != CellType::POLYHEDRON && nv == 4) {
     // Discriminate between 2D Quad and 3D Tetrahedron via coplanarity check
     Vec3 p0 = node_coords[cell[0]];
     Vec3 p1 = node_coords[cell[1]];
@@ -160,7 +160,7 @@ std::vector<std::vector<int64_t>> extractCellFaces(
       faces.push_back({cell[1], cell[2], cell[3]});
       faces.push_back({cell[2], cell[0], cell[3]});
     }
-  } else if (nv == 6) {
+  } else if (out_type != CellType::POLYHEDRON && nv == 6) {
     out_type = CellType::WEDGE;
     // Wedge / Triangular prism: 5 faces
     faces.push_back({cell[0], cell[2], cell[1]});
@@ -168,7 +168,7 @@ std::vector<std::vector<int64_t>> extractCellFaces(
     faces.push_back({cell[0], cell[1], cell[4], cell[3]});
     faces.push_back({cell[1], cell[2], cell[5], cell[4]});
     faces.push_back({cell[2], cell[0], cell[3], cell[5]});
-  } else if (nv == 5) {
+  } else if (out_type != CellType::POLYHEDRON && nv == 5) {
     out_type = CellType::PYRAMID;
     // Pyramid: 5 faces
     faces.push_back({cell[0], cell[3], cell[2], cell[1]});
@@ -176,7 +176,7 @@ std::vector<std::vector<int64_t>> extractCellFaces(
     faces.push_back({cell[1], cell[2], cell[4]});
     faces.push_back({cell[2], cell[3], cell[4]});
     faces.push_back({cell[3], cell[0], cell[4]});
-  } else if (nv == 3) {
+  } else if (out_type != CellType::POLYHEDRON && nv == 3) {
     out_type = CellType::TRIANGLE;
     // 2D Triangle: 3 edge faces
     faces.push_back({cell[0], cell[1]});
@@ -871,6 +871,71 @@ double checkPyramidBaseFictitiousHex(const std::vector<Vec3>& points, const std:
     return std::min({s0, s1, s2, s3, s4, s5, s6, s7});
 }
 
+double prismJacobianBound(const std::vector<Vec3>& points, const std::array<int64_t, 6>& v) {
+    const Vec3 a = points[static_cast<size_t>(v[1])] - points[static_cast<size_t>(v[0])];
+    const Vec3 b = points[static_cast<size_t>(v[2])] - points[static_cast<size_t>(v[0])];
+    const Vec3 at = points[static_cast<size_t>(v[4])] - points[static_cast<size_t>(v[3])];
+    const Vec3 bt = points[static_cast<size_t>(v[5])] - points[static_cast<size_t>(v[3])];
+    const Vec3 da = at - a;
+    const Vec3 db = bt - b;
+    const double max_a = std::max(a.norm(), at.norm());
+    const double max_b = std::max(b.norm(), bt.norm());
+    auto det3 = [](const Vec3& u, const Vec3& vv, const Vec3& w) -> double {
+        return dot(u, cross(vv, w));
+    };
+    double result = 1.0;
+    for (int i = 0; i < 3; ++i) {
+        const Vec3 d = points[static_cast<size_t>(v[static_cast<size_t>(i + 3)])] -
+                       points[static_cast<size_t>(v[static_cast<size_t>(i)])];
+        const double A = det3(da, db, d);
+        const double B = det3(da, b, d) + det3(a, db, d);
+        const double C = det3(a, b, d);
+        double m = std::min(C, A + B + C);
+        if (A > 0.0) {
+            const double t = -B / (2.0 * A);
+            if (t > 0.0 && t < 1.0) {
+                m = std::min(m, (A * t + B) * t + C);
+            }
+        }
+        const double denom = max_a * max_b * d.norm();
+        result = std::min(result, (denom > 0.0) ? (m / denom) : -1.0);
+    }
+    return result;
+}
+
+bool checkPyramidBaseConvexity(
+    const std::vector<Vec3>& points,
+    const std::vector<int64_t>& base_nodes,
+    const Vec3& apex
+) {
+    if (base_nodes.size() != 4) return false;
+    const std::array<Vec3, 4> base = {
+        points[static_cast<size_t>(base_nodes[0])],
+        points[static_cast<size_t>(base_nodes[1])],
+        points[static_cast<size_t>(base_nodes[2])],
+        points[static_cast<size_t>(base_nodes[3])],
+    };
+    Vec3 n_base = cross(base[2] - base[0], base[3] - base[1]);
+    const double n_mag = n_base.norm();
+    if (n_mag <= 1e-12) return false;
+    n_base = n_base / n_mag;
+    const Vec3 center = (base[0] + base[1] + base[2] + base[3]) * 0.25;
+    if (dot(apex - center, n_base) < 0.0) {
+        n_base = -n_base;
+    }
+    for (int k = 0; k < 4; ++k) {
+        const Vec3& curr = base[static_cast<size_t>(k)];
+        const Vec3& nxt = base[static_cast<size_t>((k + 1) % 4)];
+        const Vec3& prv = base[static_cast<size_t>((k + 3) % 4)];
+        if (dot(cross(nxt - curr, prv - curr), n_base) < 0.0) {
+            return false;
+        }
+    }
+    const double tet1_vol = dot(cross(base[1] - base[0], base[2] - base[0]), apex - base[0]);
+    const double tet2_vol = dot(cross(base[2] - base[0], base[3] - base[0]), apex - base[0]);
+    return (tet1_vol > 0.0) && (tet2_vol > 0.0);
+}
+
 double computeCellJENS(const std::vector<Vec3>& points, const std::vector<int64_t>& nodes, CellType type) {
     size_t n = nodes.size();
     if (type == CellType::HEXAHEDRON && n == 8) {
@@ -947,9 +1012,391 @@ double computeCellJENS(const std::vector<Vec3>& points, const std::vector<int64_
             (p2 - p1).norm(), (p3 - p1).norm(), (p3 - p2).norm()
         });
         double sj = computeNodalScaledJacobian(p1 - p0, p2 - p0, p3 - p0, max_e);
-        return computeElementNormalizedScaledJacobian(sj, CellType::TETRA);
+    return computeElementNormalizedScaledJacobian(sj, CellType::TETRA);
+  } else if (type == CellType::POLYHEDRON) {
+    return computeCellJENS(points, nodes, type, {});
+  }
+  return 1.0;
+}
+
+namespace {
+
+struct Tri3D {
+  Vec3 a;
+  Vec3 b;
+  Vec3 c;
+};
+
+double orient2dNorm(double ax, double ay, double bx, double by, double cx, double cy) {
+  return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+}
+
+void triangulateFace3D(
+    const std::vector<Vec3>& points,
+    const std::vector<int64_t>& face,
+    std::vector<Tri3D>& out_tris,
+    Vec3& out_sf
+) {
+  out_tris.clear();
+  out_sf = Vec3(0, 0, 0);
+  size_t m = face.size();
+  if (m < 3) return;
+
+  if (m == 3) {
+    const Vec3& a = points[face[0]];
+    const Vec3& b = points[face[1]];
+    const Vec3& c = points[face[2]];
+    out_sf = cross(b - a, c - a) * 0.5;
+    out_tris.push_back({a, b, c});
+    return;
+  }
+
+  Vec3 p_bar(0, 0, 0);
+  for (int64_t vid : face) {
+    p_bar += points[vid];
+  }
+  p_bar /= static_cast<double>(m);
+
+  Vec3 sf_raw(0, 0, 0);
+  for (size_t i = 0; i < m; ++i) {
+    const Vec3& pi = points[face[i]];
+    const Vec3& pj = points[face[(i + 1) % m]];
+    sf_raw += cross(pi - p_bar, pj - p_bar) * 0.5;
+  }
+  double area_raw = sf_raw.norm();
+  if (area_raw <= 1e-30) {
+    return;
+  }
+  Vec3 n_hat = sf_raw / area_raw;
+
+  // Check if face is star-shaped around p_bar
+  bool star_shaped = true;
+  for (size_t i = 0; i < m; ++i) {
+    const Vec3& pi = points[face[i]];
+    const Vec3& pj = points[face[(i + 1) % m]];
+    Vec3 sub_sf = cross(pi - p_bar, pj - p_bar) * 0.5;
+    if (dot(sub_sf, n_hat) <= 1e-12 * area_raw) {
+      star_shaped = false;
+      break;
     }
-    return 1.0;
+  }
+
+  if (star_shaped) {
+    out_sf = sf_raw;
+    out_tris.reserve(m);
+    for (size_t i = 0; i < m; ++i) {
+      out_tris.push_back({p_bar, points[face[i]], points[face[(i + 1) % m]]});
+    }
+    return;
+  }
+
+  // Fallback for non-convex faces (e.g., L-shaped merged faces):
+  // Project onto orthonormal 2D face frame (u, v, n_hat) and ear-clip.
+  const Vec3& p0 = points[face[0]];
+  Vec3 best_edge(0, 0, 0);
+  double best_len2 = -1.0;
+  for (size_t i = 0; i < m; ++i) {
+    Vec3 e = points[face[(i + 1) % m]] - points[face[i]];
+    Vec3 e_proj = e - n_hat * dot(e, n_hat);
+    double l2 = e_proj.norm2();
+    if (l2 > best_len2) {
+      best_len2 = l2;
+      best_edge = e_proj;
+    }
+  }
+  Vec3 u_ax;
+  if (best_len2 > 1e-30) {
+    u_ax = best_edge / std::sqrt(best_len2);
+  } else {
+    Vec3 cand = (std::abs(n_hat.x) < 0.9) ? Vec3(1, 0, 0) : Vec3(0, 1, 0);
+    u_ax = cross(n_hat, cand).normalized();
+  }
+  Vec3 v_ax = cross(n_hat, u_ax);
+
+  std::vector<double> px(m), py(m);
+  double max_r = 1e-15;
+  for (size_t i = 0; i < m; ++i) {
+    Vec3 d = points[face[i]] - p0;
+    px[i] = dot(d, u_ax);
+    py[i] = dot(d, v_ax);
+    max_r = std::max(max_r, std::sqrt(px[i] * px[i] + py[i] * py[i]));
+  }
+  double inv_r = 1.0 / max_r;
+  for (size_t i = 0; i < m; ++i) {
+    px[i] *= inv_r;
+    py[i] *= inv_r;
+  }
+
+  double area2 = 0.0;
+  for (size_t i = 0; i < m; ++i) {
+    size_t j = (i + 1) % m;
+    area2 += px[i] * py[j] - px[j] * py[i];
+  }
+  bool reversed = (area2 < 0.0);
+  if (reversed) {
+    std::reverse(px.begin(), px.end());
+    std::reverse(py.begin(), py.end());
+  }
+
+  std::vector<size_t> rem(m);
+  for (size_t i = 0; i < m; ++i) rem[i] = i;
+
+  auto point_in_tri = [&](double tx, double ty, size_t ia, size_t ib, size_t ic) -> bool {
+    double d0 = orient2dNorm(px[ia], py[ia], px[ib], py[ib], tx, ty);
+    double d1 = orient2dNorm(px[ib], py[ib], px[ic], py[ic], tx, ty);
+    double d2 = orient2dNorm(px[ic], py[ic], px[ia], py[ia], tx, ty);
+    return (d0 >= -1e-12 && d1 >= -1e-12 && d2 >= -1e-12);
+  };
+
+  std::vector<std::array<size_t, 3>> local_tris;
+  local_tris.reserve(m - 2);
+  size_t max_iters = m * m;
+  size_t iters = 0;
+  while (rem.size() > 3 && iters < max_iters) {
+    ++iters;
+    size_t cur_m = rem.size();
+    bool found = false;
+    for (size_t i = 0; i < cur_m; ++i) {
+      size_t prev_i = rem[(i + cur_m - 1) % cur_m];
+      size_t curr_i = rem[i];
+      size_t next_i = rem[(i + 1) % cur_m];
+      double det = orient2dNorm(px[prev_i], py[prev_i], px[curr_i], py[curr_i], px[next_i], py[next_i]);
+      if (det <= 1e-12) continue;
+
+      bool is_ear = true;
+      for (size_t j = 0; j < cur_m; ++j) {
+        size_t k = rem[j];
+        if (k == prev_i || k == curr_i || k == next_i) continue;
+        if (point_in_tri(px[k], py[k], prev_i, curr_i, next_i)) {
+          is_ear = false;
+          break;
+        }
+      }
+      if (is_ear) {
+        local_tris.push_back({prev_i, curr_i, next_i});
+        rem.erase(rem.begin() + static_cast<ptrdiff_t>(i));
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      size_t best_pos = 0;
+      double best_det = -1e30;
+      for (size_t i = 0; i < cur_m; ++i) {
+        size_t prev_i = rem[(i + cur_m - 1) % cur_m];
+        size_t curr_i = rem[i];
+        size_t next_i = rem[(i + 1) % cur_m];
+        double det = orient2dNorm(px[prev_i], py[prev_i], px[curr_i], py[curr_i], px[next_i], py[next_i]);
+        if (det > best_det) {
+          best_det = det;
+          best_pos = i;
+        }
+      }
+      size_t prev_i = rem[(best_pos + cur_m - 1) % cur_m];
+      size_t curr_i = rem[best_pos];
+      size_t next_i = rem[(best_pos + 1) % cur_m];
+      local_tris.push_back({prev_i, curr_i, next_i});
+      rem.erase(rem.begin() + static_cast<ptrdiff_t>(best_pos));
+    }
+  }
+  if (rem.size() == 3) {
+    local_tris.push_back({rem[0], rem[1], rem[2]});
+  }
+
+  out_tris.reserve(local_tris.size());
+  for (const auto& t : local_tris) {
+    size_t i0 = reversed ? (m - 1 - t[0]) : t[0];
+    size_t i1 = reversed ? (m - 1 - t[2]) : t[1];
+    size_t i2 = reversed ? (m - 1 - t[1]) : t[2];
+    const Vec3& a = points[face[i0]];
+    const Vec3& b = points[face[i1]];
+    const Vec3& c = points[face[i2]];
+    out_sf += cross(b - a, c - a) * 0.5;
+    out_tris.push_back({a, b, c});
+  }
+}
+
+}  // namespace
+
+double computeCellJENS(
+    const std::vector<Vec3>& points,
+    const std::vector<int64_t>& nodes,
+    CellType type,
+    const std::vector<std::vector<int64_t>>& cell_faces
+) {
+  if (type != CellType::POLYHEDRON) {
+    return computeCellJENS(points, nodes, type);
+  }
+  if (nodes.size() < 4) {
+    return 0.0;
+  }
+
+  std::vector<std::vector<int64_t>> faces_storage;
+  const std::vector<std::vector<int64_t>>* faces_ptr = &cell_faces;
+
+  if (cell_faces.empty()) {
+    // Deduplicate nodes preserving order
+    std::vector<int64_t> uniq_nodes;
+    uniq_nodes.reserve(nodes.size());
+    for (int64_t v : nodes) {
+      if (std::find(uniq_nodes.begin(), uniq_nodes.end(), v) == uniq_nodes.end()) {
+        uniq_nodes.push_back(v);
+      }
+    }
+    if (uniq_nodes.size() < 4) return 0.0;
+
+    CellType tmp_type = CellType::POLYHEDRON;
+    bool inv = false;
+    faces_storage = extractCellFaces(uniq_nodes, points, tmp_type, &inv);
+    if (inv) {
+      for (auto& f : faces_storage) {
+        std::reverse(f.begin(), f.end());
+      }
+    }
+    faces_ptr = &faces_storage;
+  }
+
+  const auto& faces = *faces_ptr;
+  if (faces.size() < 4) {
+    return 0.0;
+  }
+
+  // Translation-invariant reference point
+  Vec3 p_ref(0, 0, 0);
+  size_t ref_count = 0;
+  for (const auto& f : faces) {
+    for (int64_t v : f) {
+      p_ref += points[v];
+      ++ref_count;
+    }
+  }
+  if (ref_count == 0) return 0.0;
+  p_ref /= static_cast<double>(ref_count);
+
+  std::vector<Tri3D> all_tris;
+  all_tris.reserve(faces.size() * 4);
+  std::vector<Tri3D> face_tris;
+  Vec3 r_close(0, 0, 0);
+  double a_tot = 0.0;
+  double v_p = 0.0;
+  Vec3 c_p_num(0, 0, 0);
+
+  for (const auto& f : faces) {
+    Vec3 sf_f(0, 0, 0);
+    triangulateFace3D(points, f, face_tris, sf_f);
+    double af = sf_f.norm();
+    a_tot += af;
+    r_close += sf_f;
+    for (const auto& t : face_tris) {
+      all_tris.push_back(t);
+      Vec3 da = t.a - p_ref;
+      Vec3 db = t.b - p_ref;
+      Vec3 dc = t.c - p_ref;
+      double vt_ref = dot(da, cross(db, dc)) / 6.0;
+      v_p += vt_ref;
+      c_p_num += ((da + db + dc) * 0.25) * vt_ref;
+    }
+  }
+
+  if (all_tris.empty() || a_tot <= 1e-30 || std::abs(v_p) <= 1e-30 ||
+      std::abs(v_p) <= 1e-14 * std::pow(a_tot, 1.5)) {
+    return 0.0;
+  }
+
+  Vec3 c_p = p_ref + (c_p_num / v_p);
+
+  std::vector<double> j_ens_tets;
+  std::vector<double> v_tets;
+  j_ens_tets.reserve(all_tris.size());
+  v_tets.reserve(all_tris.size());
+
+  bool all_pos = true;
+  bool has_pos = false;
+  double min_j_all = 1.0;
+  double min_j_pos = 1.0;
+  double sum_abs_v = 0.0;
+
+  for (const auto& t : all_tris) {
+    Vec3 e1 = t.a - c_p;
+    Vec3 e2 = t.b - c_p;
+    Vec3 e3 = t.c - c_p;
+    double l_max = std::max({
+        e1.norm(), e2.norm(), e3.norm(),
+        (t.b - t.a).norm(), (t.c - t.b).norm(), (t.a - t.c).norm()
+    });
+    double det_t = dot(e1, cross(e2, e3));
+    double vt = det_t / 6.0;
+    double js_t = det_t / (l_max * l_max * l_max + 1e-30);
+    double j_ens_t = computeElementNormalizedScaledJacobian(js_t, CellType::TETRA);
+
+    j_ens_tets.push_back(j_ens_t);
+    v_tets.push_back(vt);
+    sum_abs_v += std::abs(vt);
+
+    if (vt <= 0.0) {
+      all_pos = false;
+    } else {
+      has_pos = true;
+      min_j_pos = std::min(min_j_pos, j_ens_t);
+    }
+    min_j_all = std::min(min_j_all, j_ens_t);
+  }
+
+  if (v_p < 0.0) {
+    return std::max(-1.0, min_j_all);
+  }
+
+  bool is_closed = (r_close.norm() <= 1e-3 * a_tot);
+  if (all_pos) {
+    return min_j_pos;
+  }
+  if (is_closed && has_pos) {
+    double convexity_ratio = v_p / (sum_abs_v + 1e-30);
+    return min_j_pos * convexity_ratio;
+  }
+  return std::max(-1.0, min_j_all);
+}
+
+std::vector<double> computeMeshJENS(const NativeMeshData& mesh) {
+  int64_t n_cells = mesh.n_cells();
+  int64_t n_pts = mesh.n_points();
+  std::vector<double> j_ens(n_cells, 1.0);
+  if (n_cells == 0 || n_pts == 0) return j_ens;
+
+  std::vector<Vec3> pts(n_pts);
+  for (int64_t i = 0; i < n_pts; ++i) {
+    pts[i] = Vec3(mesh.points[3 * i], mesh.points[3 * i + 1], mesh.points[3 * i + 2]);
+  }
+
+  int64_t n_faces = mesh.n_faces();
+  std::vector<std::vector<std::vector<int64_t>>> cell_faces_map(n_cells);
+  if (n_faces > 0 && mesh.face_offsets.size() == static_cast<size_t>(n_faces + 1)) {
+    for (int64_t f = 0; f < n_faces; ++f) {
+      int64_t off0 = mesh.face_offsets[f];
+      int64_t off1 = mesh.face_offsets[f + 1];
+      std::vector<int64_t> fn(mesh.face_nodes.begin() + off0, mesh.face_nodes.begin() + off1);
+      int64_t o = mesh.owner[f];
+      if (o >= 0 && o < n_cells) {
+        cell_faces_map[o].push_back(fn);
+      }
+      int64_t nb = mesh.neighbour[f];
+      if (nb >= 0 && nb < n_cells) {
+        std::reverse(fn.begin(), fn.end());
+        cell_faces_map[nb].push_back(std::move(fn));
+      }
+    }
+  }
+
+  for (int64_t c = 0; c < n_cells; ++c) {
+    int64_t off0 = mesh.cell_offsets[c];
+    int64_t off1 = mesh.cell_offsets[c + 1];
+    std::vector<int64_t> cnodes(mesh.cell_nodes.begin() + off0, mesh.cell_nodes.begin() + off1);
+    CellType ctype = (static_cast<size_t>(c) < mesh.cell_types.size())
+                         ? static_cast<CellType>(mesh.cell_types[c])
+                         : CellType::POLYHEDRON;
+    j_ens[c] = computeCellJENS(pts, cnodes, ctype, cell_faces_map[c]);
+  }
+  return j_ens;
 }
 
 } // namespace cfd

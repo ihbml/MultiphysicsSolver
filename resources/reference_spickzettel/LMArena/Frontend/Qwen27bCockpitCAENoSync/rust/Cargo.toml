@@ -1,0 +1,26 @@
+[package]
+name = "hydrocore-cockpit"
+version = "0.9.1"
+edition = "2021"
+description = "Multiphysics CFD cockpit — wgpu/egui frontend over foam_fast_io + NDJSON RPC backend"
+
+[dependencies]
+wgpu = "0.20"
+eframe = "0.28"
+egui = "0.28"
+egui_extras = "0.28"
+winit = "0.29"
+glam = "0.28"
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ndjson-line = "0.7"
+anyhow = "1"
+thiserror = "1"
+log = "0.4"
+env_logger = "0.11"
+pollster = "0.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

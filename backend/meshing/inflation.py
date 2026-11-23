@@ -84,6 +84,44 @@ class BoundaryLayerGenerator:
         else:
             nominal_normal = np.array([0, 0, 1.0])
 
+        if not has_explicit_nominal and len(wall_faces) > 1:
+            face_list = [np.asarray(f, dtype=np.int64).copy() for f in wall_faces]
+            undir_edges = {}
+            for f_idx, f_arr in enumerate(face_list):
+                m = len(f_arr)
+                if m < 3:
+                    continue
+                for e_idx in range(m):
+                    u = int(f_arr[e_idx])
+                    v = int(f_arr[(e_idx + 1) % m])
+                    key = (u, v) if u < v else (v, u)
+                    undir_edges.setdefault(key, []).append((f_idx, u, v))
+
+            visited = np.zeros(len(face_list), dtype=bool)
+            for seed in range(len(face_list)):
+                if visited[seed] or len(face_list[seed]) < 3:
+                    continue
+                visited[seed] = True
+                queue = [seed]
+                q_head = 0
+                while q_head < len(queue):
+                    cur = queue[q_head]
+                    q_head += 1
+                    f_cur = face_list[cur]
+                    m_cur = len(f_cur)
+                    for e_idx in range(m_cur):
+                        u = int(f_cur[e_idx])
+                        v = int(f_cur[(e_idx + 1) % m_cur])
+                        key = (u, v) if u < v else (v, u)
+                        for nbr, nu, nv in undir_edges.get(key, ()):
+                            if visited[nbr]:
+                                continue
+                            visited[nbr] = True
+                            if nu == u and nv == v:
+                                face_list[nbr] = face_list[nbr][::-1]
+                            queue.append(nbr)
+            wall_faces = face_list
+
         # 1. Compute vertex normals and corner dihedral turning angles
         vert_normals = np.zeros((n_base, 3), dtype=np.float64)
         corner_max_angles = np.zeros(n_base, dtype=np.float64)
@@ -148,7 +186,9 @@ class BoundaryLayerGenerator:
                 # Clearance reduction: smooth tapering to 0 at narrow / zero clearance
                 if clearances is not None and i < len(clearances):
                     d_clear = max(0.0, float(clearances[i]))
-                    factor *= np.tanh(d_clear / (2.0 * total_thickness))
+                    if total_thickness > 0.0:
+                        factor *= np.tanh(d_clear / (2.0 * total_thickness))
+                        factor = min(factor, 0.90 * d_clear / total_thickness)
 
                 pinch_factors[i] = factor
 
@@ -196,6 +236,120 @@ class BoundaryLayerGenerator:
                         off_top + f_arr[2],
                     ], dtype=np.int64)
                     all_cells.append(wedge_nodes)
+
+        # 4b. Jacobian/volume-guarded damping loop for concave corners and narrow gaps
+        if len(all_cells) > 0:
+            from .models import compute_prism_jacobian_bound
+
+            def _split_tet_dets(pts_arr, cell_nodes):
+                n_nodes = len(cell_nodes)
+                if n_nodes == 6:
+                    p0, p1, p2, q0, q1, q2 = cell_nodes
+                    tets = (
+                        (p0, p1, p2, q0),
+                        (p1, p2, q0, q1),
+                        (p2, q0, q1, q2),
+                    )
+                elif n_nodes == 8:
+                    p0, p1, p2, p3, q0, q1, q2, q3 = cell_nodes
+                    tets = (
+                        (p0, p1, p3, q0),
+                        (p2, p3, p1, q2),
+                        (q1, q0, q2, p1),
+                        (q3, q2, q0, p3),
+                        (p1, p3, q0, q2),
+                    )
+                else:
+                    return []
+                dets = []
+                for a, b, c, d in tets:
+                    pa = pts_arr[a]
+                    pb = pts_arr[b]
+                    pc = pts_arr[c]
+                    pd = pts_arr[d]
+                    ax, ay, az = pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]
+                    bx, by, bz = pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]
+                    cx, cy, cz = pd[0] - pa[0], pd[1] - pa[1], pd[2] - pa[2]
+                    det = float(
+                        ax * (by * cz - bz * cy)
+                        - ay * (bx * cz - bz * cx)
+                        + az * (bx * cy - by * cx)
+                    )
+                    dets.append(det)
+                return dets
+
+            eps_ref = (1e-4 * float(total_thickness)) if total_thickness > 0.0 else 1e-6
+            ref_points = np.zeros_like(all_points)
+            ref_points[:n_base] = pts
+            for k_layer in range(n_layers):
+                layer_offset = (k_layer + 1) * n_base
+                ref_dist = eps_ref * (float(k_layer + 1) / float(max(n_layers, 1)))
+                ref_points[layer_offset : layer_offset + n_base] = pts + vert_normals * ref_dist
+
+            cell_ref_signs = []
+            cell_ref_bound_pos = []
+            base_vert_cells = {}
+            for c_idx, cell in enumerate(all_cells):
+                ref_dets = _split_tet_dets(ref_points, cell)
+                s_ref = 1.0 if sum(ref_dets) >= 0.0 else -1.0
+                cell_ref_signs.append(s_ref)
+                if len(cell) == 6:
+                    ref_b = float(compute_prism_jacobian_bound(ref_points, cell))
+                    cell_ref_bound_pos.append(ref_b >= 0.0)
+                else:
+                    cell_ref_bound_pos.append(True)
+                seen_bv = set()
+                for v in cell:
+                    bv = int(v % n_base)
+                    if bv not in seen_bv:
+                        seen_bv.add(bv)
+                        base_vert_cells.setdefault(bv, []).append(c_idx)
+
+            candidate_c_indices = range(len(all_cells))
+            for _damp_it in range(24):
+                bad_base_verts = set()
+                for c_idx in candidate_c_indices:
+                    cell = all_cells[c_idx]
+                    dets = _split_tet_dets(all_points, cell)
+                    if not dets:
+                        continue
+                    s_ref = cell_ref_signs[c_idx]
+                    signed_dets = [s_ref * d for d in dets]
+                    vol = sum(signed_dets) / 6.0
+                    has_zero_pinch = any(pinch_factors[v % n_base] <= 0.0 for v in cell)
+                    is_bad = (vol <= 0.0) or any(
+                        (sd < -1e-18) if has_zero_pinch else (sd <= 0.0)
+                        for sd in signed_dets
+                    )
+                    if not is_bad and len(cell) == 6:
+                        bound = float(compute_prism_jacobian_bound(all_points, cell))
+                        if not cell_ref_bound_pos[c_idx]:
+                            bound = -bound
+                        if has_zero_pinch:
+                            if bound < -1e-6:
+                                is_bad = True
+                        elif bound <= 1e-6:
+                            is_bad = True
+                    if is_bad:
+                        for v in cell:
+                            bv = int(v % n_base)
+                            if pinch_factors[bv] > 0.0:
+                                bad_base_verts.add(bv)
+
+                if not bad_base_verts:
+                    break
+
+                next_candidates = set()
+                for bv in bad_base_verts:
+                    pinch_factors[bv] *= 0.5
+                    for ci in base_vert_cells.get(bv, ()):
+                        next_candidates.add(ci)
+                for k_layer in range(n_layers):
+                    layer_offset = (k_layer + 1) * n_base
+                    dist_k = cumulative_dist[k_layer]
+                    for bv in bad_base_verts:
+                        all_points[layer_offset + bv] = pts[bv] + vert_normals[bv] * (dist_k * pinch_factors[bv])
+                candidate_c_indices = next_candidates
 
         # 5. Build topology via DiFVM engine
         mesh = compute_difvm_topology(all_points, all_cells)

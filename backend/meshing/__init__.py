@@ -12,6 +12,8 @@ from backend.meshing.models import (
     compute_nodal_scaled_jacobian,
     compute_element_normalized_scaled_jacobian,
     check_pyramid_base_fictitious_hex,
+    compute_prism_jacobian_bound,
+    check_pyramid_base_convexity,
     compute_cell_j_ens,
     compute_mesh_j_ens,
 )
@@ -67,9 +69,33 @@ from backend.meshing.coupling import (
     SPHKernel,
     SPHFVMCoupler,
     OPMISTaylorInterpolator,
+    FaMesh,
 )
 from backend.meshing.moving_mesh import (
     ALEMeshMover,
+)
+from backend.meshing.fluent_io import (
+    read_fluent_msh_h5_summary,
+    read_fluent_msh_h5_metrics,
+    extract_fluent_reference_metrics,
+    compare_mesh_to_fluent_reference,
+    evaluate_fluent_parity,
+    compare_fluent_parity,
+)
+from backend.meshing.mesh_bridge_io import (
+    export_gmsh_msh,
+    import_gmsh_msh,
+    export_cgns,
+    import_cgns,
+)
+from backend.meshing.spatial_query_bc import (
+    SpatialQueryConflictError,
+    SpatialQueryRule,
+    SpatialQuerySelector,
+)
+from backend.meshing.crash_replay import (
+    amips_tet,
+    write_crash_replay,
 )
 
 __all__ = [
@@ -112,10 +138,13 @@ __all__ = [
     "SPHKernel",
     "SPHFVMCoupler",
     "OPMISTaylorInterpolator",
+    "FaMesh",
     "ALEMeshMover",
     "compute_nodal_scaled_jacobian",
     "compute_element_normalized_scaled_jacobian",
     "check_pyramid_base_fictitious_hex",
+    "compute_prism_jacobian_bound",
+    "check_pyramid_base_convexity",
     "compute_cell_j_ens",
     "compute_mesh_j_ens",
     "CANDIDATE_NODES",
@@ -126,4 +155,19 @@ __all__ = [
     "precursor_majority_node_voting",
     "TopDownEntityMapper",
     "NodeDOF",
+    "read_fluent_msh_h5_summary",
+    "read_fluent_msh_h5_metrics",
+    "extract_fluent_reference_metrics",
+    "compare_mesh_to_fluent_reference",
+    "evaluate_fluent_parity",
+    "compare_fluent_parity",
+    "export_gmsh_msh",
+    "import_gmsh_msh",
+    "export_cgns",
+    "import_cgns",
+    "SpatialQueryConflictError",
+    "SpatialQueryRule",
+    "SpatialQuerySelector",
+    "amips_tet",
+    "write_crash_replay",
 ]

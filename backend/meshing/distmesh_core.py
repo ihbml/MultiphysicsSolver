@@ -18,8 +18,13 @@ from backend.meshing.difvm_topology import compute_difvm_topology
 from backend.meshing.models import UnstructuredMesh
 
 
-def compute_bandwidth(owner: np.ndarray, neighbour: np.ndarray) -> int:
+def compute_bandwidth(
+    owner: np.ndarray,
+    neighbour: np.ndarray,
+    num_cells: Optional[int] = None,
+) -> int:
     """Compute matrix profile bandwidth beta = max_{f in internal} |owner[f] - neighbour[f]|."""
+    _ = num_cells
     internal = neighbour >= 0
     if not np.any(internal):
         return 0

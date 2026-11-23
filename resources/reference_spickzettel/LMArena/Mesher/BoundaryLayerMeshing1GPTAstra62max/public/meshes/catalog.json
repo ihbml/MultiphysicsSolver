@@ -1,0 +1,114 @@
+[
+  {
+    "geometry": 0,
+    "id": "6a50704a",
+    "stats": {
+      "hangingNodes": 0,
+      "coarseParents": 76,
+      "coarseHexes": 8,
+      "cells": 59694,
+      "vertices": 29137,
+      "faces": 150842,
+      "wallFaces": 5792,
+      "minJ": 0.25062869998979337,
+      "meanJ": 0.737421012608949,
+      "minVolume": 0.08399041212882143,
+      "maxClosure": 3.623553813768259e-15,
+      "negative": 0,
+      "unmatched": 0,
+      "nonmanifold": 0,
+      "minVisibility": 0.4226182624996203,
+      "minPrism": 0.1514013014210446,
+      "minStar": 0.005244958208178811,
+      "clearanceRatio": 0.074375,
+      "volume": 62463.9999999996,
+      "expectedVolume": 62464,
+      "elapsedMs": 579.066333,
+      "squeezed": 2898,
+      "retries": 3,
+      "counts": [
+        0,
+        0,
+        0,
+        0,
+        7200,
+        13120,
+        34752,
+        0,
+        4622
+      ],
+      "dofs": [
+        12,
+        318,
+        2568,
+        6435
+      ]
+    },
+    "params": {
+      "layers": 6,
+      "first": 0.18,
+      "growth": 1.22
+    },
+    "extent": [
+      80,
+      32,
+      40
+    ]
+  },
+  {
+    "geometry": 1,
+    "id": "2e8fe419",
+    "stats": {
+      "hangingNodes": 0,
+      "coarseParents": 0,
+      "coarseHexes": 0,
+      "cells": 32504,
+      "vertices": 15361,
+      "faces": 81792,
+      "wallFaces": 3456,
+      "minJ": 0.273196786370421,
+      "meanJ": 0.6820690341835569,
+      "minVolume": 0.03475277965006557,
+      "maxClosure": 3.8754666589694625e-15,
+      "negative": 0,
+      "unmatched": 0,
+      "nonmanifold": 0,
+      "minVisibility": 0.43550265524420584,
+      "minPrism": 0.17269822773590326,
+      "minStar": 0.002943091636952906,
+      "clearanceRatio": 0.10412499999999998,
+      "volume": 12800.00000000014,
+      "expectedVolume": 12800,
+      "elapsedMs": 267.223225,
+      "squeezed": 1730,
+      "retries": 2,
+      "counts": [
+        0,
+        0,
+        0,
+        0,
+        3456,
+        7248,
+        20736,
+        0,
+        1064
+      ],
+      "dofs": [
+        8,
+        228,
+        1494,
+        1755
+      ]
+    },
+    "params": {
+      "layers": 6,
+      "first": 0.18,
+      "growth": 1.22
+    },
+    "extent": [
+      80,
+      32,
+      5
+    ]
+  }
+]

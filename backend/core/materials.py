@@ -162,8 +162,8 @@ class Material:
     """
 
     name: str
-    category: str  # "fluid", "gas", "solid", "liquid"
-    density: float  # [kg/m^3]
+    category: str = "solid"  # "fluid", "gas", "solid", "liquid"
+    density: Optional[float] = None  # [kg/m^3]
     specific_heat: float = 1000.0  # [J/(kg*K)]
     thermal_conductivity: float = 0.025  # [W/(m*K)]
     viscosity: Optional[float] = None  # Dynamic viscosity [Pa*s]
@@ -543,6 +543,8 @@ class MaterialDatabase:
             Added Material instance.
         """
         if isinstance(material, dict):
+            if "name" not in material:
+                raise TypeError("Expected Material instance or valid material dict with 'name' key")
             mat = Material.from_dict(material)
         elif isinstance(material, Material):
             mat = material

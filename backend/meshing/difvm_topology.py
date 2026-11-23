@@ -670,62 +670,78 @@ def compute_wsrd_redistribution_map(
     (preferring regular cells alpha_nb >= wsrd_target_alpha, or weighted by relative volume).
     Self weight is computed via smooth sin^2 function, and partition of unity sum(w) = 1.0 is preserved.
     """
-    redist_map = {}
+    redist_map: Dict[int, Dict[str, Any]] = {}
     a_small = float(small_cell_ratio)
     a_target = float(wsrd_target_alpha)
-    for c in range(n_cells):
+    if n_cells <= 0 or n_faces <= 0:
+        return redist_map
+
+    cut_mask = (wsrd_alpha >= a_small) & (wsrd_alpha < a_target)
+    if not np.any(cut_mask):
+        return redist_map
+
+    cut_cells = np.where(cut_mask)[0]
+    safe_nb = np.maximum(neighbour, 0)
+    rel_mask = (neighbour >= 0) & (cut_mask[owner] | cut_mask[safe_nb])
+    rel_faces = np.where(rel_mask)[0]
+
+    adj: Dict[int, List[int]] = {int(c): [] for c in cut_cells}
+    for f_idx in rel_faces:
+        o = int(owner[f_idx])
+        nb = int(neighbour[f_idx])
+        if cut_mask[o]:
+            adj[o].append(nb)
+        if cut_mask[nb]:
+            adj[nb].append(o)
+
+    for c_arr in cut_cells:
+        c = int(c_arr)
         a_c = float(wsrd_alpha[c])
-        if a_small <= a_c < a_target:
-            nb_indices = []
-            for f_idx in range(n_faces):
-                if owner[f_idx] == c and neighbour[f_idx] >= 0:
-                    nb_indices.append(int(neighbour[f_idx]))
-                elif neighbour[f_idx] == c:
-                    nb_indices.append(int(owner[f_idx]))
-            if not nb_indices:
-                continue
+        nb_indices = adj[c]
+        if not nb_indices:
+            continue
 
-            # Unique internal neighbors in order of encounter
-            unique_nbs = list(dict.fromkeys(nb_indices))
+        # Unique internal neighbors in order of encounter
+        unique_nbs = list(dict.fromkeys(nb_indices))
 
-            # Compute self-weight via Berger & Giuliani (2024) smooth sin^2 formulation
-            if a_target > a_small:
-                scaled = (a_c - a_small) / (a_target - a_small)
-                w_self = float(np.sin(0.5 * np.pi * scaled) ** 2)
-            else:
-                w_self = 0.0
-            w_donate = float(1.0 - w_self)
+        # Compute self-weight via Berger & Giuliani (2024) smooth sin^2 formulation
+        if a_target > a_small:
+            scaled = (a_c - a_small) / (a_target - a_small)
+            w_self = float(np.sin(0.5 * np.pi * scaled) ** 2)
+        else:
+            w_self = 0.0
+        w_donate = float(1.0 - w_self)
 
-            # Donor-receiver pairing: donate to larger internal neighbors (alpha_nb > a_c)
-            # preferring regular cells (alpha_nb >= a_target)
-            regular_larger = [nb for nb in unique_nbs if float(wsrd_alpha[nb]) >= a_target]
-            larger_nbs = [nb for nb in unique_nbs if float(wsrd_alpha[nb]) > a_c]
+        # Donor-receiver pairing: donate to larger internal neighbors (alpha_nb > a_c)
+        # preferring regular cells (alpha_nb >= a_target)
+        regular_larger = [nb for nb in unique_nbs if float(wsrd_alpha[nb]) >= a_target]
+        larger_nbs = [nb for nb in unique_nbs if float(wsrd_alpha[nb]) > a_c]
 
-            if regular_larger:
-                receivers = regular_larger
-                v = {nb: max(1e-15, float(wsrd_alpha[nb]) - a_c) for nb in receivers}
-            elif larger_nbs:
-                receivers = larger_nbs
-                v = {nb: max(1e-15, float(wsrd_alpha[nb]) - a_c) for nb in receivers}
-            else:
-                # If no larger neighbor exists, redistribute equally among available internal neighbors
-                receivers = unique_nbs
-                v = {nb: 1.0 for nb in receivers}
+        if regular_larger:
+            receivers = regular_larger
+            v = {nb: max(1e-15, float(wsrd_alpha[nb]) - a_c) for nb in receivers}
+        elif larger_nbs:
+            receivers = larger_nbs
+            v = {nb: max(1e-15, float(wsrd_alpha[nb]) - a_c) for nb in receivers}
+        else:
+            # If no larger neighbor exists, redistribute equally among available internal neighbors
+            receivers = unique_nbs
+            v = {nb: 1.0 for nb in receivers}
 
-            sum_v = sum(v.values())
-            w_nbs = {nb: 0.0 for nb in unique_nbs}
-            if sum_v > 0.0 and len(receivers) > 0:
-                allocated = 0.0
-                for i, r_idx in enumerate(receivers):
-                    if i == len(receivers) - 1:
-                        # Guarantee exact partition of unity to machine precision
-                        weight = float(w_donate - allocated)
-                    else:
-                        weight = float(w_donate * (v[r_idx] / sum_v))
-                        allocated += weight
-                    w_nbs[r_idx] = weight
+        sum_v = sum(v.values())
+        w_nbs = {nb: 0.0 for nb in unique_nbs}
+        if sum_v > 0.0 and len(receivers) > 0:
+            allocated = 0.0
+            for i, r_idx in enumerate(receivers):
+                if i == len(receivers) - 1:
+                    # Guarantee exact partition of unity to machine precision
+                    weight = float(w_donate - allocated)
+                else:
+                    weight = float(w_donate * (v[r_idx] / sum_v))
+                    allocated += weight
+                w_nbs[r_idx] = weight
 
-            redist_map[c] = {"self": w_self, "neighbors": w_nbs}
+        redist_map[c] = {"self": w_self, "neighbors": w_nbs}
     return redist_map
 
 
@@ -933,7 +949,7 @@ def compute_difvm_topology_native(
                 for p_idx in range(n_patches):
                     patch = BoundaryPatchC()
                     dll.cfd_mesher_get_boundary_patch(mesh_handle, p_idx, ctypes.byref(patch))
-                    p_name = patch.name.decode("utf-8", errors="ignore")
+                    p_name = patch.name.decode("utf-8", errors="ignore").strip() or "wall"
                     boundaries[p_name] = (int(patch.start_face), int(patch.num_faces))
                     if b"coupledWall" in patch.patch_type:
                         baffles.append({
@@ -1074,6 +1090,11 @@ def generate_hexcore_native(
             float(h0),
             cfg_ptr,
         )
+        if res == -12:
+            raise MemoryError(
+                "Native octree_hexcore exceeded configured node/memory safety limit "
+                "(CFD_MAX_OCTREE_NODES). Check CAD unit scale or h0."
+            )
         if res != 0:
             raise RuntimeError(f"Native cfd_mesher_generate_hexcore failed with code {res}")
 
@@ -1210,7 +1231,7 @@ def generate_hexcore_native(
         for p_idx in range(n_patches):
             patch = BoundaryPatchC()
             dll.cfd_mesher_get_boundary_patch(mesh_handle, p_idx, ctypes.byref(patch))
-            p_name = patch.name.decode("utf-8", errors="ignore")
+            p_name = patch.name.decode("utf-8", errors="ignore").strip() or "wall"
             boundaries[p_name] = (int(patch.start_face), int(patch.num_faces))
             if b"coupledWall" in patch.patch_type:
                 baffles.append({
@@ -1271,6 +1292,7 @@ def generate_hexcore_native(
                 "engine": "native_cpp20_hexcore",
                 "wsrd_weights": wsrd_weights,
                 "wsrd_redistribution": wsrd_redist_map,
+                "rcm_reordered": bool(config is None or config.rcm_reorder),
             },
         )
         if len(np.unique(cell_regions)) > 1:
@@ -1291,6 +1313,7 @@ def compute_difvm_topology_python(
     topological_dim: Optional[int] = None,
     config: Optional[MeshingConfig] = None,
     v_bg: Optional[Union[float, np.ndarray]] = None,
+    explicit_faces: Optional[Any] = None,
 ) -> UnstructuredMesh:
     """Pure-Python / NumPy fallback implementation of DiFVM topology constructor."""
     pts = np.ascontiguousarray(points, dtype=np.float64)
@@ -1303,6 +1326,21 @@ def compute_difvm_topology_python(
         if regions is not None
         else np.zeros(n_cells, dtype=np.int32)
     )
+
+    per_cell_explicit_faces: Optional[List[Optional[List[np.ndarray]]]] = None
+    if explicit_faces is not None and len(explicit_faces) > 0:
+        first_ef = explicit_faces[0]
+        is_nested_per_cell = (
+            len(first_ef) > 0
+            and isinstance(first_ef[0], (list, tuple, np.ndarray))
+        )
+        if not is_nested_per_cell and n_cells == 1:
+            per_cell_explicit_faces = [[np.asarray(f, dtype=np.int64) for f in explicit_faces]]
+        elif is_nested_per_cell and len(explicit_faces) == n_cells:
+            per_cell_explicit_faces = [
+                [np.asarray(f, dtype=np.int64) for f in cf] if cf is not None else None
+                for cf in explicit_faces
+            ]
 
     # Classify cell types and determine topological dimension
     if cell_types is None:
@@ -1326,7 +1364,11 @@ def compute_difvm_topology_python(
 
     for c_idx, cell in enumerate(cells):
         cell_arr = np.asarray(cell, dtype=np.int64)
-        cfaces = _extract_cell_faces_py(cell_arr, pts)
+        cfaces = (
+            per_cell_explicit_faces[c_idx]
+            if per_cell_explicit_faces is not None and per_cell_explicit_faces[c_idx] is not None
+            else _extract_cell_faces_py(cell_arr, pts)
+        )
         for fnodes in cfaces:
             canonical_key = tuple(sorted(fnodes))
             if canonical_key not in face_map:
@@ -1378,7 +1420,11 @@ def compute_difvm_topology_python(
         div_factor = 2.0 if is_cell_2d else 3.0
 
         # Check natural cell volume to preserve negative volume on inverted elements
-        raw_faces = _extract_cell_faces_py(cell_arr, pts)
+        raw_faces = (
+            per_cell_explicit_faces[c_idx]
+            if per_cell_explicit_faces is not None and per_cell_explicit_faces[c_idx] is not None
+            else _extract_cell_faces_py(cell_arr, pts)
+        )
         natural_vol = 0.0
         for fn in raw_faces:
             n_raw, c_raw = _compute_polygon_normal_and_centroid_py(fn, pts)
@@ -1789,8 +1835,7 @@ def extract_cht_twin_faces(mesh: UnstructuredMesh) -> UnstructuredMesh:
     has_faces = mesh.faces is not None
     faces_clean = [mesh.faces[f] for f in clean_internal] if has_faces else []
     faces_orig_bnd = [mesh.faces[f] for f in original_boundary] if has_faces else []
-    faces_coupled_a: List[np.ndarray] = []
-    faces_coupled_b: List[np.ndarray] = []
+    faces_coupled: List[np.ndarray] = []
 
     # Block 1: Clean internal faces
     for i, f in enumerate(clean_internal):
@@ -1835,6 +1880,8 @@ def extract_cht_twin_faces(mesh: UnstructuredMesh) -> UnstructuredMesh:
         new_boundaries[patch_name_b] = (start_b, n_p)
 
         twin_pairs_p = []
+        faces_pair_a: List[np.ndarray] = []
+        faces_pair_b: List[np.ndarray] = []
         for i, f in enumerate(pair_faces):
             fa = start_a + i
             fb = start_b + i
@@ -1869,7 +1916,7 @@ def extract_cht_twin_faces(mesh: UnstructuredMesh) -> UnstructuredMesh:
             new_delta_f[fa] = cf - mesh.cell_centres[cell_a]
             new_k_f[fa] = np.zeros(3, dtype=np.float64)
             if has_faces:
-                faces_coupled_a.append(fn_a)
+                faces_pair_a.append(fn_a)
 
             # Patch B: outward normal from cell_b pointing into region A (sf_b == -sf_a)
             new_owner[fb] = cell_b
@@ -1879,7 +1926,11 @@ def extract_cht_twin_faces(mesh: UnstructuredMesh) -> UnstructuredMesh:
             new_delta_f[fb] = cf - mesh.cell_centres[cell_b]
             new_k_f[fb] = np.zeros(3, dtype=np.float64)
             if has_faces:
-                faces_coupled_b.append(fn_b)
+                faces_pair_b.append(fn_b)
+
+        if has_faces:
+            faces_coupled.extend(faces_pair_a)
+            faces_coupled.extend(faces_pair_b)
 
         baffles.append({
             "name": patch_name_a,
@@ -1894,7 +1945,7 @@ def extract_cht_twin_faces(mesh: UnstructuredMesh) -> UnstructuredMesh:
         current_bnd_offset += 2 * n_p
 
     new_faces: Optional[List[np.ndarray]] = (
-        faces_clean + faces_orig_bnd + faces_coupled_a + faces_coupled_b
+        faces_clean + faces_orig_bnd + faces_coupled
         if has_faces
         else None
     )
@@ -2180,6 +2231,7 @@ def compute_difvm_topology(
     topological_dim: Optional[int] = None,
     config: Optional[MeshingConfig] = None,
     v_bg: Optional[Union[float, np.ndarray]] = None,
+    explicit_faces: Optional[Any] = None,
 ) -> UnstructuredMesh:
     """Build UnstructuredMesh in Structure of Arrays (SoA) layout.
 
@@ -2193,7 +2245,7 @@ def compute_difvm_topology(
     mesh = None
     dll = get_native_dll(strict_native=is_strict) if use_native else None
 
-    if use_native and dll is not None and boundary_patches is None and face_patch_ids is None:
+    if use_native and dll is not None and boundary_patches is None and face_patch_ids is None and explicit_faces is None:
         try:
             mesh = compute_difvm_topology_native(points, cells, regions=regions, config=config)
             if cell_types is not None:
@@ -2230,6 +2282,7 @@ def compute_difvm_topology(
             topological_dim=topological_dim,
             config=config,
             v_bg=v_bg,
+            explicit_faces=explicit_faces,
         )
 
     if cyclic_angle_rad > 0.0:

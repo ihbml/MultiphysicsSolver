@@ -56,6 +56,7 @@ typedef struct {
 // Core Lifecycle Functions
 CFD_EXPORT CfdNativeMesh* cfd_mesher_create(void);
 CFD_EXPORT void cfd_mesher_free(CfdNativeMesh* mesh);
+CFD_EXPORT void cfd_mesher_free_mesh(CfdNativeMesh* mesh);
 
 // Generation Entry Points
 CFD_EXPORT int32_t cfd_mesher_generate_from_surface(

@@ -22,24 +22,48 @@ class IterationEvent:
     dt: float = 1e-4
     co_mean: float = 0.0
     co_max: float = 0.0
+    courant_max: Optional[float] = None
     wall_s: float = 0.0
     residuals: Dict[str, float] = field(default_factory=dict)
     monitors: Dict[str, Any] = field(default_factory=lambda: {"n_nan_cells": 0})
 
+    def __post_init__(self) -> None:
+        if self.courant_max is not None:
+            self.co_max = float(self.courant_max)
+        else:
+            self.courant_max = self.co_max
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize iteration event to a structured dictionary."""
+        payload = json.loads(self.to_ndjson())
+        payload["courant_max"] = payload.get("co_max")
+        return payload
+
     def to_ndjson(self) -> str:
         """Serializes event to a single compact NDJSON line."""
+        def _extract_residual_float(v: Any) -> float:
+            if hasattr(v, "final_residual"):
+                return float(v.final_residual)
+            if hasattr(v, "initial_residual"):
+                return float(v.initial_residual)
+            return float(v)
+
         # Replace non-finite floats with None or sentinel to ensure valid JSON
         safe_residuals: Dict[str, Optional[float]] = {}
         for k, v in self.residuals.items():
-            if math.isnan(v) or math.isinf(v):
+            fv = _extract_residual_float(v)
+            if math.isnan(fv) or math.isinf(fv):
                 safe_residuals[k] = None
             else:
-                safe_residuals[k] = v
+                safe_residuals[k] = fv
 
         safe_monitors = dict(self.monitors)
         if "n_nan_cells" not in safe_monitors:
             # Check if any residual was NaN/None
-            n_nan = sum(1 for v in self.residuals.values() if math.isnan(v) or math.isinf(v))
+            n_nan = sum(
+                1 for v in self.residuals.values()
+                if math.isnan(_extract_residual_float(v)) or math.isinf(_extract_residual_float(v))
+            )
             safe_monitors["n_nan_cells"] = n_nan
 
         payload = {

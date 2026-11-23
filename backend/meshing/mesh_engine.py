@@ -12,6 +12,7 @@ Implements the MeshEngine facade orchestrating:
 
 from __future__ import annotations
 
+import copy
 import ctypes
 import gzip
 import logging
@@ -32,6 +33,7 @@ from backend.geometry.pipeline import CADGeometryEngine
 from backend.meshing.difvm_topology import (
     MeshingConfigC,
     compute_difvm_topology,
+    extract_cht_twin_faces,
     generate_hexcore_native,
     get_native_dll,
     get_native_load_error,
@@ -58,8 +60,123 @@ from backend.meshing.models import (
 )
 
 
+def _connected_face_components(
+    faces: np.ndarray,
+    subset_indices: Optional[np.ndarray] = None,
+) -> List[np.ndarray]:
+    """Find connected surface face components via shared vertex indices."""
+    if subset_indices is None:
+        subset_indices = np.arange(len(faces), dtype=np.int64)
+    n_sub = len(subset_indices)
+    if n_sub == 0:
+        return []
+    vert_to_local: Dict[int, List[int]] = {}
+    for l_idx, g_idx in enumerate(subset_indices):
+        for v in faces[g_idx]:
+            vert_to_local.setdefault(int(v), []).append(l_idx)
+    visited = np.zeros(n_sub, dtype=bool)
+    comps: List[np.ndarray] = []
+    for seed in range(n_sub):
+        if visited[seed]:
+            continue
+        visited[seed] = True
+        queue = [seed]
+        q_head = 0
+        while q_head < len(queue):
+            cur = queue[q_head]
+            q_head += 1
+            for v in faces[subset_indices[cur]]:
+                for nbr in vert_to_local.get(int(v), ()):
+                    if not visited[nbr]:
+                        visited[nbr] = True
+                        queue.append(nbr)
+        comps.append(subset_indices[np.asarray(queue, dtype=np.int64)])
+    return comps
+
+
+def _decompose_cht_shell_zones(surface: SurfaceMesh) -> List[Tuple[str, np.ndarray]]:
+    """Decompose a CHT shell assembly into solid body and internal/protruding passage zones."""
+    verts = np.asarray(surface.vertices, dtype=np.float64)
+    faces = np.asarray(surface.faces, dtype=np.int64)
+    if len(faces) == 0 or len(verts) == 0:
+        return []
+    comps = _connected_face_components(faces)
+    if len(comps) < 2:
+        return [("solid_0", np.arange(len(faces), dtype=np.int64))]
+
+    solid_idx = max(range(len(comps)), key=lambda idx: len(comps[idx]))
+    solid_faces = comps[solid_idx]
+    solid_verts = verts[np.unique(faces[solid_faces].ravel())]
+    bmin = solid_verts.min(axis=0)
+    bmax = solid_verts.max(axis=0)
+    bspan = np.maximum(bmax - bmin, 1e-12)
+
+    zones: List[Tuple[str, np.ndarray]] = [(f"solid_{solid_idx}", solid_faces)]
+    chamber_count = 0
+    duct_count = 0
+
+    for c_idx, comp_f_idx in enumerate(comps):
+        if c_idx == solid_idx or len(comp_f_idx) < 10:
+            continue
+        comp_tris = faces[comp_f_idx]
+        fc = verts[comp_tris].mean(axis=1)
+        tol_vec = np.maximum(1e-3 * bspan, 1e-4)
+        out_bbox_mask = np.any((fc < (bmin - tol_vec)) | (fc > (bmax + tol_vec)), axis=1)
+        if not np.any(out_bbox_mask):
+            zones.append((f"chamber_{chamber_count}", comp_f_idx))
+            chamber_count += 1
+            continue
+
+        cmin = fc.min(axis=0)
+        cmax = fc.max(axis=0)
+        cspan = np.maximum(cmax - cmin, 1e-12)
+        ofc = fc[out_bbox_mask]
+        omin = ofc.min(axis=0)
+        omax = ofc.max(axis=0)
+
+        best_margin = 0.05
+        best_cut: Optional[Tuple[int, bool, float]] = None
+        for ax in range(3):
+            low_margin = float(cmax[ax] - omax[ax]) / float(cspan[ax])
+            if low_margin > best_margin:
+                best_margin = low_margin
+                best_cut = (ax, True, float(omax[ax]) + 1e-4)
+            high_margin = float(omin[ax] - cmin[ax]) / float(cspan[ax])
+            if high_margin > best_margin:
+                best_margin = high_margin
+                best_cut = (ax, False, float(omin[ax]) - 1e-4)
+
+        if best_cut is None:
+            zones.append((f"chamber_{chamber_count}", comp_f_idx))
+            chamber_count += 1
+            continue
+
+        ax, is_low, split_coord = best_cut
+        if is_low:
+            out_mask = fc[:, ax] <= split_coord
+        else:
+            out_mask = fc[:, ax] >= split_coord
+        in_mask = ~out_mask
+
+        in_comps = [c for c in _connected_face_components(faces, comp_f_idx[in_mask]) if len(c) >= 10]
+        out_comps = [c for c in _connected_face_components(faces, comp_f_idx[out_mask]) if len(c) >= 10]
+
+        if in_comps and out_comps:
+            for sc in in_comps:
+                zones.append((f"chamber_{chamber_count}", sc))
+                chamber_count += 1
+            for sc in out_comps:
+                zones.append((f"duct_{duct_count}", sc))
+                duct_count += 1
+        else:
+            zones.append((f"chamber_{chamber_count}", comp_f_idx))
+            chamber_count += 1
+
+    return zones
+
+
 def compute_farfield_bounding_box(
-    body_bbox: Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+    body_bbox: Union[Any, Tuple[Tuple[float, float, float], Tuple[float, float, float]]],
     upstream: float = 5.0,
     downstream: float = 10.0,
     lateral_y: float = 5.0,
@@ -67,8 +184,12 @@ def compute_farfield_bounding_box(
     ground_plane: bool = False,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
     """Compute standard aerodynamic farfield domain extents from body bounding box."""
-    b_min = np.asarray(body_bbox[0], dtype=np.float64)
-    b_max = np.asarray(body_bbox[1], dtype=np.float64)
+    if hasattr(body_bbox, "min_pt") and hasattr(body_bbox, "max_pt"):
+        b_min = np.asarray(body_bbox.min_pt, dtype=np.float64)
+        b_max = np.asarray(body_bbox.max_pt, dtype=np.float64)
+    else:
+        b_min = np.asarray(body_bbox[0], dtype=np.float64)
+        b_max = np.asarray(body_bbox[1], dtype=np.float64)
     span = b_max - b_min
     if np.any(span < 0):
         raise ValueError(f"Inverted body bounding box: min={b_min}, max={b_max}")
@@ -182,13 +303,26 @@ class MeshEngine:
             effective_h0 = float(h0)
             return self.mesh_hexcore(clean_mesh, scale=1.0, h0=effective_h0, config=active_cfg)
 
-        # 2. Case A: Check if geometry is a rectangular cuboid / box via rigorous normal-axis auditing
-        R = self._detect_oriented_box_axes(verts, faces)
-        if R is not None:
-            return self._mesh_oriented_box(verts, R, h0=h0, active_cfg=active_cfg)
+        # 2. Case A: Oriented cuboid pure-Python fast-path (only when native octree+cut-cell core is disabled)
+        if not (self.use_native and self.has_native_core):
+            R = self._detect_oriented_box_axes(verts, faces)
+            if R is not None:
+                return self._mesh_oriented_box(verts, R, h0=h0, active_cfg=active_cfg)
 
-        # 3. Case B: Complex 3D aerofoil / turbine blade (like BladeRev1CFD / BladeFullRev1CFD)
-        return self._mesh_complex_surface(sm, scale=scale, h0=h0, active_cfg=active_cfg)
+        # 3. Case B: Route solid_only through Octree + Cut-Cells for clean thin-wall & rotated resolution
+        clean_mesh = SurfaceMesh(
+            vertices=verts,
+            faces=faces.copy(),
+            normals=sm.normals.copy() if sm.normals is not None else None,
+            patches=dict(sm.patches) if sm.patches else {},
+        )
+        return self.mesh_hexcore(
+            clean_mesh,
+            scale=1.0,
+            h0=float(h0),
+            domain_mode="solid_only",
+            config=active_cfg,
+        )
 
     def generate_gci_hierarchy(
         self,
@@ -268,6 +402,43 @@ class MeshEngine:
         is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
         if self.use_native and self.has_native_core and len(scaled_surf.faces) > 0:
             try:
+                if effective_domain_mode == "cht_coupled":
+                    cht_zones = _decompose_cht_shell_zones(scaled_surf)
+                    if len(cht_zones) >= 2:
+                        solid_cfg = copy.copy(active_cfg)
+                        solid_cfg.rcm_reorder = False
+                        native_mesh = generate_hexcore_native(
+                            surf_points=scaled_surf.vertices,
+                            surf_faces=scaled_surf.faces,
+                            h0=h0,
+                            domain_mode="solid_only",
+                            farfield_bbox=farfield_bbox,
+                            config=solid_cfg,
+                        )
+                        from scipy.spatial import cKDTree
+
+                        verts_arr = np.asarray(scaled_surf.vertices, dtype=np.float64)
+                        faces_arr = np.asarray(scaled_surf.faces, dtype=np.int64)
+                        tri_centres_list = []
+                        tri_region_list = []
+                        for reg_id, (_z_name, z_f_idx) in enumerate(cht_zones):
+                            if len(z_f_idx) == 0:
+                                continue
+                            z_fc = verts_arr[faces_arr[z_f_idx]].mean(axis=1)
+                            tri_centres_list.append(z_fc)
+                            tri_region_list.append(np.full(len(z_fc), reg_id, dtype=np.int32))
+                        if native_mesh.num_cells > 0 and tri_centres_list:
+                            all_tri_centres = np.vstack(tri_centres_list)
+                            all_tri_regions = np.concatenate(tri_region_list)
+                            tree = cKDTree(all_tri_centres)
+                            _, nn_idx = tree.query(native_mesh.cell_centres)
+                            native_mesh.cell_regions = all_tri_regions[nn_idx].astype(np.int32)
+                        zone_names = [z_name for z_name, _ in cht_zones]
+                        native_mesh.metadata["cht_zone_names"] = zone_names
+                        out_mesh = extract_cht_twin_faces(native_mesh)
+                        out_mesh.metadata.setdefault("cht_zone_names", zone_names)
+                        return out_mesh
+
                 native_mesh = generate_hexcore_native(
                     surf_points=scaled_surf.vertices,
                     surf_faces=scaled_surf.faces,
@@ -276,9 +447,11 @@ class MeshEngine:
                     farfield_bbox=farfield_bbox,
                     config=active_cfg,
                 )
-                if active_cfg.rcm_reorder:
+                if active_cfg.rcm_reorder and not native_mesh.metadata.get("rcm_reordered", False):
                     native_mesh, _ = rcm_reorder(native_mesh)
                 return native_mesh
+            except MemoryError:
+                raise
             except Exception as exc:
                 if is_strict:
                     raise RuntimeError(f"Strict native mode enabled and generate_hexcore_native failed: {exc}") from exc
@@ -291,6 +464,8 @@ class MeshEngine:
 
         if effective_domain_mode == "cht_coupled":
             return self._mesh_cht_coupled(surface, scale=scale, h0=h0, active_cfg=active_cfg)
+        elif effective_domain_mode == "solid_only":
+            return self._mesh_complex_surface(surface, scale=scale, h0=h0, active_cfg=active_cfg)
         return self._mesh_external_fluid(surface, scale=scale, h0=h0, active_cfg=active_cfg)
 
     @staticmethod
@@ -548,9 +723,11 @@ class MeshEngine:
                     farfield_bbox=ff_bbox,
                     config=active_cfg,
                 )
-                if active_cfg.rcm_reorder:
+                if active_cfg.rcm_reorder and not native_mesh.metadata.get("rcm_reordered", False):
                     native_mesh, _ = rcm_reorder(native_mesh)
                 return native_mesh
+            except MemoryError:
+                raise
             except Exception as exc:
                 if is_strict:
                     raise RuntimeError(f"Strict native mode enabled and native hexcore mesher failed: {exc}") from exc
@@ -562,63 +739,111 @@ class MeshEngine:
             )
 
         ff_span = ff_max - ff_min
+        if float(np.max(ff_span)) / float(h0) > 20.0:
+            l_ref = max(float(np.max(bmax - bmin)), 1e-12)
+            h_core = max(float(h0), 0.25 * l_ref)
+            growth_ratio = float(getattr(active_cfg.sizing, "growth_rate", 1.2))
+            if growth_ratio <= 1.0:
+                growth_ratio = 1.0 + growth_ratio
+            growth_ratio = max(1.05, min(1.35, growth_ratio))
 
-        nx = max(2, int(np.round(ff_span[0] / h0)))
-        ny = max(2, int(np.round(ff_span[1] / h0)))
-        nz = max(2, int(np.round(ff_span[2] / h0)))
+            def _graded_axis(d_min: float, s_mn: float, s_mx: float, d_max: float) -> np.ndarray:
+                c_min = max(d_min, s_mn - 1.5 * h_core)
+                c_max = min(d_max, s_mx + 1.5 * h_core)
+                if c_min - d_min < 1.2 * h_core:
+                    c_min = d_min
+                if d_max - c_max < 1.2 * h_core:
+                    c_max = d_max
+                n_core = max(1, int(round((c_max - c_min) / h_core)))
+                dx_core = (c_max - c_min) / n_core
+                max_h = 8.0 * dx_core
 
-        dx = ff_span[0] / nx
-        dy = ff_span[1] / ny
-        dz = ff_span[2] / nz
+                def _slab(length: float) -> List[float]:
+                    steps: List[float] = []
+                    if length <= 1e-12 * h_core:
+                        return steps
+                    cur_h = dx_core
+                    sum_h = 0.0
+                    while sum_h < length:
+                        next_h = min(max_h, cur_h * growth_ratio)
+                        if steps and sum_h + 0.5 * next_h >= length:
+                            break
+                        steps.append(next_h)
+                        sum_h += next_h
+                        cur_h = next_h
+                    sc = length / sum_h
+                    return [s * sc for s in steps]
 
-        x_nodes = ff_min[0] + np.arange(nx + 1) * dx
-        y_nodes = ff_min[1] + np.arange(ny + 1) * dy
-        z_nodes = ff_min[2] + np.arange(nz + 1) * dz
+                left_steps = _slab(c_min - d_min)
+                right_steps = _slab(d_max - c_max)
+                coords = []
+                if left_steps:
+                    pos = d_min
+                    coords.append(d_min)
+                    for s in reversed(left_steps[1:]):
+                        pos += s
+                        coords.append(pos)
+                    coords.append(c_min)
+                else:
+                    coords.append(c_min)
+                for idx in range(1, n_core):
+                    coords.append(c_min + idx * dx_core)
+                coords.append(c_max)
+                if right_steps:
+                    pos = c_max
+                    for s in right_steps[:-1]:
+                        pos += s
+                        coords.append(pos)
+                    coords.append(d_max)
+                return np.asarray(coords, dtype=np.float64)
 
-        def node_id(i: int, j: int, k: int) -> int:
-            return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i
+            x_nodes = _graded_axis(float(ff_min[0]), float(bmin[0]), float(bmax[0]), float(ff_max[0]))
+            y_nodes = _graded_axis(float(ff_min[1]), float(bmin[1]), float(bmax[1]), float(ff_max[1]))
+            z_nodes = _graded_axis(float(ff_min[2]), float(bmin[2]), float(bmax[2]), float(ff_max[2]))
+            nx = len(x_nodes) - 1
+            ny = len(y_nodes) - 1
+            nz = len(z_nodes) - 1
+        else:
+            nx = max(2, int(np.round(ff_span[0] / h0)))
+            ny = max(2, int(np.round(ff_span[1] / h0)))
+            nz = max(2, int(np.round(ff_span[2] / h0)))
 
-        all_nodes = []
-        for k in range(nz + 1):
-            for j in range(ny + 1):
-                for i in range(nx + 1):
-                    all_nodes.append([x_nodes[i], y_nodes[j], z_nodes[k]])
-        all_nodes = np.array(all_nodes, dtype=np.float64)
+            dx = ff_span[0] / nx
+            dy = ff_span[1] / ny
+            dz = ff_span[2] / nz
 
-        # Evaluate cell centers with SDF
-        c_list = []
-        ijk_list = []
-        for k in range(nz):
-            for j in range(ny):
-                for i in range(nx):
-                    c_list.append([
-                        ff_min[0] + (i + 0.5) * dx,
-                        ff_min[1] + (j + 0.5) * dy,
-                        ff_min[2] + (k + 0.5) * dz,
-                    ])
-                    ijk_list.append((i, j, k))
-        c_arr = np.array(c_list, dtype=np.float64)
+            x_nodes = ff_min[0] + np.arange(nx + 1) * dx
+            y_nodes = ff_min[1] + np.arange(ny + 1) * dy
+            z_nodes = ff_min[2] + np.arange(nz + 1) * dz
+
+        zz, yy, xx = np.meshgrid(z_nodes, y_nodes, x_nodes, indexing="ij")
+        all_nodes = np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
+
+        xc = 0.5 * (x_nodes[:-1] + x_nodes[1:])
+        yc = 0.5 * (y_nodes[:-1] + y_nodes[1:])
+        zc = 0.5 * (z_nodes[:-1] + z_nodes[1:])
+        cz, cy, cx = np.meshgrid(zc, yc, xc, indexing="ij")
+        c_arr = np.column_stack([cx.ravel(), cy.ravel(), cz.ravel()])
         phi_c, _ = sdf.evaluate(c_arr)
 
-        active_cells = []
-        active_set = set()
-        for idx, (i, j, k) in enumerate(ijk_list):
-            if phi_c[idx] >= 0.0:  # fluid domain cell
-                active_set.add((i, j, k))
-                c_nodes = np.array([
-                    node_id(i, j, k),
-                    node_id(i + 1, j, k),
-                    node_id(i + 1, j + 1, k),
-                    node_id(i, j + 1, k),
-                    node_id(i, j, k + 1),
-                    node_id(i + 1, j, k + 1),
-                    node_id(i + 1, j + 1, k + 1),
-                    node_id(i, j + 1, k + 1),
-                ], dtype=np.int64)
-                active_cells.append(c_nodes)
+        active_3d = (phi_c >= 0.0).reshape((nz, ny, nx))
+        kk, jj, ii = np.where(active_3d)
 
-        # Automated Farfield boundary patch assignment:
-        # inlet at xmin, outlet at xmax, bottom at zmin, top at zmax, sides at ymin/ymax
+        stride_k = (ny + 1) * (nx + 1)
+        stride_j = nx + 1
+        n000 = kk * stride_k + jj * stride_j + ii
+        n100 = n000 + 1
+        n110 = n000 + stride_j + 1
+        n010 = n000 + stride_j
+        n001 = n000 + stride_k
+        n101 = n100 + stride_k
+        n111 = n110 + stride_k
+        n011 = n010 + stride_k
+
+        cells_arr = np.column_stack([n000, n100, n110, n010, n001, n101, n111, n011])
+        active_cells = [cells_arr[idx] for idx in range(len(cells_arr))]
+
+        # Automated Farfield boundary patch assignment
         boundary_patches: Dict[str, List[List[int]]] = {
             "inlet": [],
             "outlet": [],
@@ -627,45 +852,115 @@ class MeshEngine:
             "sides": [],
         }
 
-        # Body patches from SurfaceMesh if available
         body_patch_names = list(scaled_surf.patches.keys()) if scaled_surf.patches else []
         for bp in body_patch_names:
             boundary_patches[bp] = []
         if not body_patch_names:
             boundary_patches["wall"] = []
 
-        for (i, j, k) in active_set:
-            candidate_faces = [
-                ((i - 1, j, k), [node_id(i, j, k), node_id(i, j + 1, k), node_id(i, j + 1, k + 1), node_id(i, j, k + 1)], "inlet" if i == 0 else None),
-                ((i + 1, j, k), [node_id(i + 1, j, k), node_id(i + 1, j, k + 1), node_id(i + 1, j + 1, k + 1), node_id(i + 1, j + 1, k)], "outlet" if i == nx - 1 else None),
-                ((i, j - 1, k), [node_id(i, j, k), node_id(i, j, k + 1), node_id(i + 1, j, k + 1), node_id(i + 1, j, k)], "sides" if j == 0 else None),
-                ((i, j + 1, k), [node_id(i, j + 1, k), node_id(i + 1, j + 1, k), node_id(i + 1, j + 1, k + 1), node_id(i, j + 1, k + 1)], "sides" if j == ny - 1 else None),
-                ((i, j, k - 1), [node_id(i, j, k), node_id(i + 1, j, k), node_id(i + 1, j + 1, k), node_id(i, j + 1, k)], "bottom" if k == 0 else None),
-                ((i, j, k + 1), [node_id(i, j, k + 1), node_id(i, j + 1, k + 1), node_id(i + 1, j + 1, k + 1), node_id(i + 1, j, k + 1)], "top" if k == nz - 1 else None),
-            ]
-            for nb_coord, fnodes, outer_patch in candidate_faces:
-                if nb_coord not in active_set:
-                    if outer_patch is not None:
-                        boundary_patches[outer_patch].append(fnodes)
-                    else:
-                        assigned = False
-                        if body_patch_names:
-                            fc = np.mean(all_nodes[fnodes], axis=0)
-                            best_patch = body_patch_names[0]
-                            best_dist = float("inf")
-                            for bp in body_patch_names:
-                                tri_indices = scaled_surf.patches[bp]
-                                if len(tri_indices) > 0:
-                                    tri_pts = verts[scaled_surf.faces[tri_indices]]
-                                    tri_cents = np.mean(tri_pts, axis=1)
-                                    d = float(np.min(np.linalg.norm(tri_cents - fc, axis=1)))
-                                    if d < best_dist:
-                                        best_dist = d
-                                        best_patch = bp
-                            boundary_patches[best_patch].append(fnodes)
-                            assigned = True
-                        if not assigned:
-                            boundary_patches["wall"].append(fnodes)
+        tri_cents_by_patch: Dict[str, np.ndarray] = {}
+        for bp in body_patch_names:
+            tri_indices = scaled_surf.patches[bp]
+            if len(tri_indices) > 0:
+                tri_cents_by_patch[bp] = np.mean(verts[scaled_surf.faces[tri_indices]], axis=1)
+
+        def _assign_wall_faces(face_arr: np.ndarray) -> None:
+            if len(face_arr) == 0:
+                return
+            if not body_patch_names:
+                boundary_patches["wall"].extend(face_arr.tolist())
+                return
+            fcs = np.mean(all_nodes[face_arr], axis=1)
+            best_dists = np.full(len(face_arr), np.inf, dtype=np.float64)
+            best_idx = np.zeros(len(face_arr), dtype=np.int64)
+            for p_idx, bp in enumerate(body_patch_names):
+                tc = tri_cents_by_patch.get(bp)
+                if tc is None or len(tc) == 0:
+                    continue
+                d_min = np.min(np.linalg.norm(tc[None, :, :] - fcs[:, None, :], axis=2), axis=1)
+                better = d_min < best_dists
+                best_dists[better] = d_min[better]
+                best_idx[better] = p_idx
+            for row_idx, fn in enumerate(face_arr.tolist()):
+                boundary_patches[body_patch_names[int(best_idx[row_idx])]].append(fn)
+
+        # -X faces (inlet or wall)
+        m_xm_outer = ii == 0
+        m_xm_wall = np.zeros_like(m_xm_outer)
+        m_xm_wall[~m_xm_outer] = ~active_3d[kk[~m_xm_outer], jj[~m_xm_outer], ii[~m_xm_outer] - 1]
+        if np.any(m_xm_outer):
+            boundary_patches["inlet"].extend(
+                np.column_stack([n000[m_xm_outer], n010[m_xm_outer], n011[m_xm_outer], n001[m_xm_outer]]).tolist()
+            )
+        if np.any(m_xm_wall):
+            _assign_wall_faces(
+                np.column_stack([n000[m_xm_wall], n010[m_xm_wall], n011[m_xm_wall], n001[m_xm_wall]])
+            )
+
+        # +X faces (outlet or wall)
+        m_xp_outer = ii == (nx - 1)
+        m_xp_wall = np.zeros_like(m_xp_outer)
+        m_xp_wall[~m_xp_outer] = ~active_3d[kk[~m_xp_outer], jj[~m_xp_outer], ii[~m_xp_outer] + 1]
+        if np.any(m_xp_outer):
+            boundary_patches["outlet"].extend(
+                np.column_stack([n100[m_xp_outer], n101[m_xp_outer], n111[m_xp_outer], n110[m_xp_outer]]).tolist()
+            )
+        if np.any(m_xp_wall):
+            _assign_wall_faces(
+                np.column_stack([n100[m_xp_wall], n101[m_xp_wall], n111[m_xp_wall], n110[m_xp_wall]])
+            )
+
+        # -Y faces (sides or wall)
+        m_ym_outer = jj == 0
+        m_ym_wall = np.zeros_like(m_ym_outer)
+        m_ym_wall[~m_ym_outer] = ~active_3d[kk[~m_ym_outer], jj[~m_ym_outer] - 1, ii[~m_ym_outer]]
+        if np.any(m_ym_outer):
+            boundary_patches["sides"].extend(
+                np.column_stack([n000[m_ym_outer], n001[m_ym_outer], n101[m_ym_outer], n100[m_ym_outer]]).tolist()
+            )
+        if np.any(m_ym_wall):
+            _assign_wall_faces(
+                np.column_stack([n000[m_ym_wall], n001[m_ym_wall], n101[m_ym_wall], n100[m_ym_wall]])
+            )
+
+        # +Y faces (sides or wall)
+        m_yp_outer = jj == (ny - 1)
+        m_yp_wall = np.zeros_like(m_yp_outer)
+        m_yp_wall[~m_yp_outer] = ~active_3d[kk[~m_yp_outer], jj[~m_yp_outer] + 1, ii[~m_yp_outer]]
+        if np.any(m_yp_outer):
+            boundary_patches["sides"].extend(
+                np.column_stack([n010[m_yp_outer], n110[m_yp_outer], n111[m_yp_outer], n011[m_yp_outer]]).tolist()
+            )
+        if np.any(m_yp_wall):
+            _assign_wall_faces(
+                np.column_stack([n010[m_yp_wall], n110[m_yp_wall], n111[m_yp_wall], n011[m_yp_wall]])
+            )
+
+        # -Z faces (bottom or wall)
+        m_zm_outer = kk == 0
+        m_zm_wall = np.zeros_like(m_zm_outer)
+        m_zm_wall[~m_zm_outer] = ~active_3d[kk[~m_zm_outer] - 1, jj[~m_zm_outer], ii[~m_zm_outer]]
+        if np.any(m_zm_outer):
+            boundary_patches["bottom"].extend(
+                np.column_stack([n000[m_zm_outer], n100[m_zm_outer], n110[m_zm_outer], n010[m_zm_outer]]).tolist()
+            )
+        if np.any(m_zm_wall):
+            _assign_wall_faces(
+                np.column_stack([n000[m_zm_wall], n100[m_zm_wall], n110[m_zm_wall], n010[m_zm_wall]])
+            )
+
+        # +Z faces (top or wall)
+        m_zp_outer = kk == (nz - 1)
+        m_zp_wall = np.zeros_like(m_zp_outer)
+        m_zp_wall[~m_zp_outer] = ~active_3d[kk[~m_zp_outer] + 1, jj[~m_zp_outer], ii[~m_zp_outer]]
+        if np.any(m_zp_outer):
+            boundary_patches["top"].extend(
+                np.column_stack([n001[m_zp_outer], n011[m_zp_outer], n111[m_zp_outer], n101[m_zp_outer]]).tolist()
+            )
+        if np.any(m_zp_wall):
+            _assign_wall_faces(
+                np.column_stack([n001[m_zp_wall], n011[m_zp_wall], n111[m_zp_wall], n101[m_zp_wall]])
+            )
 
         active_boundary_patches = {k: v for k, v in boundary_patches.items() if len(v) > 0}
 
@@ -791,7 +1086,7 @@ class MeshEngine:
         h0: float = 0.05,
         scale: float = 1.0,
         config: Optional[MeshingConfig] = None,
-        binary_regions: bool = True,
+        binary_regions: bool = False,
     ) -> UnstructuredMesh:
         """Mesh multiple interacting CAD regions (e.g. snappyMultiRegionHeater).
 
@@ -961,15 +1256,25 @@ class MeshEngine:
         c_arr = np.array(c_list, dtype=np.float64)
 
         r_names = list(region_meshes.keys())
+        bbox_vols = []
         phi_cols = []
         for rname in r_names:
+            bb = region_meshes[rname].get_bounding_box()
+            bbox_vols.append(float(np.prod(np.maximum(bb.max_pt - bb.min_pt, 1e-12))))
             sdf = CADMeshSDF.from_surface_mesh(region_meshes[rname])
             phi, _ = sdf.evaluate(c_arr)
             phi_cols.append(phi)
         phi_mat = np.column_stack(phi_cols)
+        bbox_vols_arr = np.asarray(bbox_vols, dtype=np.float64)
 
         min_phi = np.min(phi_mat, axis=1)
         best_region_idx = np.argmin(phi_mat, axis=1)
+        for i in range(len(c_arr)):
+            inside = np.where(phi_mat[i] <= 1e-9)[0]
+            if len(inside) > 1:
+                best_region_idx[i] = int(inside[np.argmin(bbox_vols_arr[inside])])
+            elif len(inside) == 1:
+                best_region_idx[i] = int(inside[0])
 
         h_min = min(dx, dy, dz)
         active_mask = min_phi < 0.15 * h_min
@@ -1322,7 +1627,14 @@ class MeshEngine:
             return self.mesh_2d_polygon(geometry_or_sdf, config=active_cfg)
         elif isinstance(geometry_or_sdf, SurfaceMesh):
             cfg_cad = active_cfg if active_cfg is not None else MeshingConfig()
-            return self._mesh_complex_surface(geometry_or_sdf, scale=1.0, h0=cfg_cad.sizing.h_min * 10.0, active_cfg=cfg_cad)
+            h0_val = cfg_cad.sizing.h0 if getattr(cfg_cad.sizing, "h0", 0.0) > 0.0 else cfg_cad.sizing.h_min * 10.0
+            return self.mesh_hexcore(
+                geometry_or_sdf,
+                scale=1.0,
+                h0=float(h0_val),
+                domain_mode=cfg_cad.domain_mode,
+                config=cfg_cad,
+            )
         else:
             raise TypeError(f"Unsupported geometry type for generate_mesh: {type(geometry_or_sdf)}")
 

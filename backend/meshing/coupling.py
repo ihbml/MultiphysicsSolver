@@ -730,3 +730,122 @@ def interpolate_p2m_conservative(
     """
     interpolator = OPMISTaylorInterpolator(kernel=kernel)
     return interpolator.interpolate_p2m(pos, field_particles, vol, h, mesh, conservative=True)
+
+
+class FaMesh:
+    """Finite-Area surface film topology with unfolded geodesics and curvature tensors (Snippet 25).
+
+    Stores triangulated wall-film surface geometry, computes exact adjacent-triangle
+    unfolding geodesic distances across shared edges, and builds the per-face symmetric
+    dihedral curvature tensor ``sum_{e in f} 0.5 * |e| * theta * (m outer m) / A_f``.
+    """
+
+    def __init__(self, vertices: np.ndarray, triangles: np.ndarray) -> None:
+        import heapq
+
+        self._heapq = heapq
+        self.vertices = np.asarray(vertices, dtype=np.float64)
+        self.triangles = np.asarray(triangles, dtype=np.int64)
+        if self.vertices.ndim != 2 or self.vertices.shape[1] != 3:
+            raise ValueError(f"vertices must have shape (N_v, 3), got {self.vertices.shape}")
+        if self.triangles.ndim != 2 or self.triangles.shape[1] != 3:
+            raise ValueError(f"triangles must have shape (N_f, 3), got {self.triangles.shape}")
+
+        n_faces = len(self.triangles)
+        self.face_centres = np.zeros((n_faces, 3), dtype=np.float64)
+        self.face_normals = np.zeros((n_faces, 3), dtype=np.float64)
+        self.face_areas = np.zeros(n_faces, dtype=np.float64)
+        self.curvature_tensors = np.zeros((n_faces, 3, 3), dtype=np.float64)
+        self.edge_distances: Dict[Tuple[int, int], float] = {}
+        self.adjacency: List[List[Tuple[int, float]]] = [[] for _ in range(n_faces)]
+
+        edge_faces: Dict[Tuple[int, int], List[Tuple[int, int, int]]] = {}
+        for f_idx in range(n_faces):
+            i0, i1, i2 = self.triangles[f_idx]
+            p0, p1, p2 = self.vertices[i0], self.vertices[i1], self.vertices[i2]
+            self.face_centres[f_idx] = (p0 + p1 + p2) / 3.0
+            cross_v = np.cross(p1 - p0, p2 - p0)
+            area2 = float(np.linalg.norm(cross_v))
+            self.face_areas[f_idx] = 0.5 * area2
+            if area2 > 1e-15:
+                self.face_normals[f_idx] = cross_v / area2
+            for a, b in ((i0, i1), (i1, i2), (i2, i0)):
+                key = (min(int(a), int(b)), max(int(a), int(b)))
+                edge_faces.setdefault(key, []).append((f_idx, int(a), int(b)))
+
+        for edge_key, entries in edge_faces.items():
+            if len(entries) != 2:
+                continue
+            (f_idx, ea, eb), (g_idx, _, _) = entries[0], entries[1]
+            pa = self.vertices[ea]
+            pb = self.vertices[eb]
+            v = pb - pa
+            v_len = float(np.linalg.norm(v))
+            if v_len <= 1e-15:
+                continue
+            t = v / v_len
+            cf = self.face_centres[f_idx]
+            cg = self.face_centres[g_idx]
+            a_vec = cf - pa
+            b_vec = cg - pa
+            u = float(np.dot(a_vec, t))
+            w = float(np.dot(b_vec, t))
+            h = float(np.linalg.norm(a_vec - t * u))
+            k = float(np.linalg.norm(b_vec - t * w))
+            denom_hk = h + k
+            if denom_hk > 1e-15:
+                crossing = (u * k + w * h) / denom_hk
+                if 0.0 <= crossing <= v_len:
+                    dist = float(np.hypot(u - w, h + k))
+                else:
+                    dist = float(
+                        min(
+                            np.linalg.norm(a_vec) + np.linalg.norm(b_vec),
+                            np.linalg.norm(cf - pb) + np.linalg.norm(cg - pb),
+                        )
+                    )
+            else:
+                dist = float(np.linalg.norm(cf - cg))
+
+            pair_key = (min(f_idx, g_idx), max(f_idx, g_idx))
+            self.edge_distances[pair_key] = dist
+            self.adjacency[f_idx].append((g_idx, dist))
+            self.adjacency[g_idx].append((f_idx, dist))
+
+            nf = self.face_normals[f_idx]
+            ng = self.face_normals[g_idx]
+            theta = float(np.arctan2(np.dot(t, np.cross(nf, ng)), np.dot(nf, ng)))
+            m_outer = np.outer(t, t)
+            for face_id in (f_idx, g_idx):
+                area = self.face_areas[face_id]
+                if area > 1e-15:
+                    self.curvature_tensors[face_id] += (0.5 * v_len * theta / area) * m_outer
+
+    def geodesic_distance(self, src_face: int, dst_face: int) -> float:
+        """Compute shortest triangle-unfolding geodesic distance between two faces."""
+        n_faces = len(self.triangles)
+        if not (0 <= src_face < n_faces) or not (0 <= dst_face < n_faces):
+            raise IndexError(f"Face index out of bounds [0, {n_faces})")
+        if src_face == dst_face:
+            return 0.0
+        dists = np.full(n_faces, np.inf, dtype=np.float64)
+        dists[src_face] = 0.0
+        pq: List[Tuple[float, int]] = [(0.0, src_face)]
+        while pq:
+            d, cur = self._heapq.heappop(pq)
+            if cur == dst_face:
+                return float(d)
+            if d > dists[cur]:
+                continue
+            for nbr, w in self.adjacency[cur]:
+                nd = d + w
+                if nd < dists[nbr]:
+                    dists[nbr] = nd
+                    self._heapq.heappush(pq, (nd, nbr))
+        return float(dists[dst_face])
+
+    def curvature_tensor(self, face_idx: Optional[int] = None) -> np.ndarray:
+        """Return the 3x3 dihedral curvature tensor for a face or all faces."""
+        if face_idx is None:
+            return self.curvature_tensors.copy()
+        return self.curvature_tensors[int(face_idx)].copy()

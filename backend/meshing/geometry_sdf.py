@@ -1227,7 +1227,7 @@ _SDF_CABI_CONFIGURED: bool = False
 def _get_sdf_dll() -> Optional[ctypes.CDLL]:
     global _SDF_CABI_CONFIGURED
     dll = get_native_dll()
-    if dll is not None and hasattr(dll, "cfd_sdf_create") and not _SDF_CABI_CONFIGURED:
+    if dll is not None and hasattr(dll, "cfd_sdf_create") and not getattr(dll, "_sdf_cabi_configured", False):
         dll.cfd_sdf_create.argtypes = [
             ctypes.POINTER(ctypes.c_double),
             ctypes.c_int64,
@@ -1268,6 +1268,7 @@ def _get_sdf_dll() -> Optional[ctypes.CDLL]:
             ctypes.POINTER(ctypes.c_double),
         ]
         dll.cfd_sdf_voromesh_loss.restype = ctypes.c_int32
+        setattr(dll, "_sdf_cabi_configured", True)
         _SDF_CABI_CONFIGURED = True
     return dll
 

@@ -1,0 +1,8 @@
+{
+  "native": "g++ -std=c++20 -O2",
+  "passed": true,
+  "face": {"beta": 0.476117982873454, "linearError": 0, "checkerboardResponse": 0.2, "massError": 2.35367281220533e-14, "pisoMassError": 0, "matrixFreeError": 0},
+  "linear": {"levels": 4, "irIterations": 9, "bicgIterations": 6, "fgmresIterations": 10, "etaRound": 4.124985572937e-13, "fp32Floor": 1.18606428487541e-07, "history": [7.98580631443314, 0.336491970937226, 0.0109292445711854, 0.000704835799969172, 5.69029432208823e-05, 4.75165273571621e-06, 4.00300352782468e-07, 3.38616726756838e-08, 2.87100749757236e-09, 2.43759358384498e-10]},
+  "chemistry": {"active": 4, "idle": 28, "substeps": 100, "massError": 2.22044604925031e-16, "jacobianError": 2.36468622460961e-11, "hotA": 1.46763172061749e-19},
+  "adjoint": {"primalResidual": 3.2073155933675e-16, "fdError": 1.27295339547029e-09, "gammaGradient": -0.0033454014721762, "centroidGradient": 0.00479692765997278, "normalGradient": 0.0010534559004874, "cadGradient": 0.000664652413507853, "cadError": 6.65956320037436e-12}
+}

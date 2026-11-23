@@ -84,12 +84,40 @@ class ViscousTurbulenceModule(BasePhysicsModule):
         return ["U", "p", "nut", "k", "omega"]
 
     def generate_dictionary_entries(self, case_dir: str) -> Dict[str, str]:
-        return {
-            "constant/turbulenceProperties": (
-                f"simulationType RAS;\nRAS\n{{\n    RASModel {self.config.model_variant};\n"
+        _ = case_dir
+        variant = str(self.config.model_variant).strip()
+        v_low = variant.lower()
+        if v_low in ("laminar", "inviscid"):
+            body = "simulationType laminar;\n"
+        elif v_low.startswith("les") or v_low.startswith("des") or v_low.startswith("iddes"):
+            if "iddes" in v_low:
+                les_model = "SpalartAllmarasIDDES"
+            elif "des" in v_low:
+                les_model = "SpalartAllmarasDES"
+            elif "smagorinsky" in v_low:
+                les_model = "Smagorinsky"
+            elif "keqn" in v_low:
+                les_model = "kEqn"
+            elif "wale" in v_low:
+                les_model = "WALE"
+            else:
+                les_model = variant[3:].strip() or "WALE"
+            body = (
+                f"simulationType  LES;\nLES\n{{\n    LESModel {les_model};\n"
+                "    turbulence on;\n    printCoeffs on;\n"
+                "    delta cubeRootVol;\n}"
+            )
+        else:
+            ras_model = {
+                "k-omega sst": "kOmegaSST",
+                "k-epsilon": "kEpsilon",
+                "spalart-allmaras": "SpalartAllmaras",
+            }.get(v_low, variant)
+            body = (
+                f"simulationType RAS;\nRAS\n{{\n    RASModel {ras_model};\n"
                 "    turbulence on;\n    printCoeffs on;\n}"
             )
-        }
+        return {"constant/turbulenceProperties": body}
 
     def get_ui_schema(self) -> Dict[str, Any]:
         return {

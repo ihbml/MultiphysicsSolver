@@ -48,8 +48,11 @@ def compute_mesh_volume(vertices: np.ndarray, faces: np.ndarray) -> float:
     return float(np.sum(cross * v2) / 6.0)
 
 
-def create_geodesic_icosphere(subdivisions: int = 2) -> Tuple[np.ndarray, np.ndarray]:
-    """Generates a unit sphere triangulated mesh with n subdivision levels."""
+def create_geodesic_icosphere(
+    subdivisions: int = 2,
+    radius: float = 1.0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generates a sphere triangulated mesh with n subdivision levels and optional radius."""
     # Golden ratio
     phi = (1.0 + np.sqrt(5.0)) / 2.0
     verts = [
@@ -101,7 +104,7 @@ def create_geodesic_icosphere(subdivisions: int = 2) -> Tuple[np.ndarray, np.nda
         verts = np.array(verts_list, dtype=np.float64)
         faces = np.array(new_faces, dtype=np.int32)
 
-    return verts, faces
+    return verts * float(radius), faces
 
 
 class TestASMEVVCodeVerification:

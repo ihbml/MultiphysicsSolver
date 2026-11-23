@@ -13,7 +13,8 @@
 6. [Kategorie 6: Reaktionskinetik, Realgas-Thermodynamik & Steife ODE-Löser (`Thermo_Chemistry_Physics/`)](#6-kategorie-thermo_chemistry_physics--kinetik-realgas--steife-odes)
 7. [Kategorie 7: Wissenschaftliche Paper-Bookmarks (`resources/papers/`)](#7-kategorie-papers--die-schlüsselpublikationen--dissertationen-im-direktzugriff)
 8. [Kategorie 7b: Die besten LMArena Mesher- & Solver-Spickzettel (`LMArena/Mesher/` & `LMArena/Solver/`)](#7b-kategorie-lmarena--die-besten-mesher---solver-spickzettel-lmarenamesher--lmarenasolver)
-9. [Gold-Snippets & Direkt-Lesezeichen (Snippets 1–14)](#8-gold-snippets--direkt-lesezeichen-wichtigste-codeblöcke-mit-zeilennummern)
+9. [Kategorie 7c: Die besten LMArena Frontend-, Post-Processing- & CAD-Format-Spickzettel (`LMArena/Frontend/` & `LMArena/CAD/`)](#7c-kategorie-lmarenafrontend--cad--native-wgpuegui-cockpits-wgsl-shader-cfdfld03-in-situ-post-processing--axcad)
+10. [Gold-Snippets & Direkt-Lesezeichen (Snippets 1–20)](#8-gold-snippets--direkt-lesezeichen-wichtigste-codeblöcke-mit-zeilennummern)
 
 ---
 
@@ -118,6 +119,11 @@ Ordner: [`resources/papers/`](file:///G:/Datein/Projects/CFDSolver/resources/pap
    * [`FSI_Monolithic_2505.22920v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/FSI_Monolithic_2505.22920v1.pdf) *(Prajapati, Fakhreddine, Mahesh 2025: Monolithische Euler'sche 3D-FSI mit geometrischem VOF/PLIC, Oldroyd-Transport von $\mathbf{B} = \mathbf{F}\mathbf{F}^T$, WENO-Z & Fluid-Reset $\mathbf{B}=\mathbf{I}$)*
    * [`CADWatertightFineMeshing_2604.02141v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/CADWatertightFineMeshing_2604.02141v1.pdf) *(Zhou, Zint, Panozzo, Schneider, April 2026: Topology-First B-Rep Meshing — verwirft kaputte 2D-$(u,v)$-Trimmkurven, bettet 3D-Loops per Dijkstra ein und vernäht Nachbarflächen über 1D-$t$-Parameter-Vereinigung 100 % wasserdicht)*
    * [`Differtialble3DCAD_2110.01182v1.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Differtialble3DCAD_2110.01182v1.pdf) *(Cascaval, Schulz et al., SIGGRAPH Asia 2021: Kompilierter differenzierbarer CAD-DAG $\nabla\mathcal{F}(P) = \frac{\partial \mathbf{x}_{\text{surf}}}{\partial \boldsymbol{\theta}_{\text{CAD}}}$ mit automatischen Gültigkeitsschranken $g_m(P) \ge 0$)*
+11. **Coupled-Solver- & STEP-NURBS-Adjoint-Paket (Stand 2026-11-21 — [`literature_survey_2026.md` §9.18–§9.21](file:///G:/Datein/Projects/CFDSolver/resources/papers/literature_survey_2026.md#L536)):**
+   * [`coupledMFRSteadyIncFoam-Final.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/coupledMFRSteadyIncFoam-Final.pdf) *(Mangani, Buchmayr & Darwish 2014: Voll-impliziter $4\times 4$ Block-Coupled $(\mathbf{u}, p)$ FVM-Löser mit zentrifugalkraftfreier MRF-Formulierung, schiefsymmetrischem Coriolis-Block, Moving-Wall Tangentialprojektion $\mathbf{I}-\mathbf{n}_b\otimes\mathbf{n}_b$, $4\times 4$-Rodrigues-Rotation $\mathbf{T}_{NB}$ und direkter Sub-Face-AMI-Kopplung $\implies 6.1\times\text{–}35.1\times$ schneller als SIMPLE)*
+   * [`Coupled_Solver_1-s2.0-S0045793023002207-main.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Coupled_Solver_1-s2.0-S0045793023002207-main.pdf) *(El Ouafa, Vincent, Le Chenadec & Trouette 2023, Computers & Fluids 265: Massiv-paralleler monolithischer Zweiphasen-Löser bis 1,1 Mrd. Zellen mit Ordnung-0 Block-Gauss-Seidel, variabel-dichtem/viskosem Two-Phase PCD Schur-Vorkonditionierer $\hat{S}_{PCD}^{-1}$ und $\text{BiCGStab}(2)$ für $\rho_2/\rho_1 = \mu_2/\mu_1 = 10^6$)*
+   * [`CoupledSolver_RWTH_1010342.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/CoupledSolver_RWTH_1010342.pdf) *(Orland, Nista, Kocher, Vanvinckenroye, Pitsch & Terboven, RWTH Aachen, HPC Asia 2025: `AIxeleratorService` für Zero-Copy C++ SPMD-Kopplung reaktiver CFD-Solver mit GPU-C-API-Inferenz `LibTorch`/`TF_SessionRun`/`ONNX` $\implies 3.5\times\text{–}9.6\times$ schneller als MPMD-Python)*
+   * [`CAD_Optimization_1-s2.0-S0045793011000508-main.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/CAD_Optimization_1-s2.0-S0045793011000508-main.pdf) *(Yu, Müller, Jones & Christakopoulos 2011, Computers & Fluids 46: Direkte STEP B-Rep NURBS-Kontrollpunkt-Formoptimierung mit hybrider Reverse-FVM/Forward-NURBS-AD-Kettenregel $\frac{\partial \mathbf{X}_s}{\partial \mathbf{P}_{i,j}} = R_{i,j}(u,v)\mathbf{I}_3$ in 0,24 s)*
 
 ---
 
@@ -131,6 +137,41 @@ Ordner: [`resources/reference_spickzettel/LMArena/Mesher/`](file:///G:/Datein/Pr
 | **[`Fable52HighChemSolver`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Fable52HighChemSolver)** *(Fable 5.2 High)* | ⭐⭐⭐⭐½ **(4.5/5)** | • [`src/data/solvers.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Fable52HighChemSolver/src/data/solvers.ts) *(13 Solver, Kernels & Coupler von $10^{-10}\,\text{m}$ bis $10^{3}\,\text{m}$)*<br/>• [`src/data/stacks.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Fable52HighChemSolver/src/data/stacks.ts) *(3 Multiskalen-Kopplungs-Stacks)*<br/>• [`src/components/Speed.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Fable52HighChemSolver/src/components/Speed.tsx) *(6 Performance-Hebel für reaktive Strömungen)*<br/>• [`src/components/Language.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Fable52HighChemSolver/src/components/Language.tsx) *(C++ Solver + Rust `cxx`/`diffsol`/`faer` Bridge)*<br/>• [`src/lib/scale.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Fable52HighChemSolver/src/lib/scale.ts) *(13-Dekaden Log-Skala & `gradientWindow`)* | **Architektur- & UI-Blaupause für Multiskalen-Chemie (`Å → m`):** Trennt sauber Solver, Kinetik-Kerne (`Cantera`, `TChem`, `PelePhysics` AoT-Codegen) und Coupler (`preCICE`), definiert die 6 Speed-Hebel (Operator-Splitting, AoT-Jacobians, AMR) und die C++/Rust-`cxx`-Brücke. |
 | **[`MesherAndSolverStep5Preview`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/MesherAndSolverStep5Preview)** *(Step 5 Preview: „MESHFORGE“)* | ⭐⭐⭐⭐☆ **(4.1/5)** | • [`src/data/content.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/MesherAndSolverStep5Preview/src/data/content.ts#L225-L435) *(Direct CSR Indexing, `pilot_metric_kernel`, Enzyme Seed-Morphing + CAD-Tangentialprojektion)*<br/>• [`src/components/MeshErrorMapSection.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/MesherAndSolverStep5Preview/src/components/MeshErrorMapSection.tsx) *(Interaktiver 4-Segment-Explorer & VRAM-Modell)*<br/>• [`src/components/ScalingSection.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/MesherAndSolverStep5Preview/src/components/ScalingSection.tsx) *(Hilbert-SFC Partitionierer & $s$-step Krylov Skalierungsmodell)* | **Starkes Ideen- & Cockpit-UI-Vorbild:** Liefert den $128^3$ Pilot-LBM Sizing-Kernel (`pilot_metric_kernel`), die tangentiale CAD-Wandprojektion $(\mathbf{I}-\mathbf{n}\mathbf{n}^T)\nabla J$ für differenzierbares Voronoi-Seed-Morphing und interaktive Visualisierungen für unser Frontend (immer kombiniert mit den 3 Bugfixes aus `Sol61Max`!). |
 | **[`BlackglasIChemSugg.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/BlackglasIChemSugg.txt)**, **[`ChatGPTSol61SearchMaxChemSugg.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/ChatGPTSol61SearchMaxChemSugg.txt)** & **[`Mistral4LargeChemSolverSugg.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Mistral4LargeChemSolverSugg.txt)** | ⭐⭐⭐⭐ **(4.0/5)** / ⭐⭐⭐ | • [`BlackglasIChemSugg.txt#L61-L150`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/BlackglasIChemSugg.txt#L61-L150) *(DLBFoam 10× Speedup, Analytische Sparse-Jacobians 100× Speedup, DeepFlame, EBIdnsFoam, MUI)*<br/>• [`ChatGPTSol61SearchMaxChemSugg.txt#L23-L28`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/ChatGPTSol61SearchMaxChemSugg.txt#L23-L28) *(Sparse Preconditioned Cantera/SUNDIALS & Rust `diffsol`)* | Liefert die entscheidenden Literatur-Benchmarks für unser `species_chem`-Modul (**DLBFoam** dynamisches Lastbalancing steifer Chemie-Zellen, **100× Speedup** durch analytische dünnbesetzte Jacobi-Matrizen sowie Validierungsfälle **Sandia Flame D** & **ECN Spray A**). |
+| **[`SolverSIMPLEPISOChatGPT6SolMax`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax)** *(ChatGPT 6 Sol Max: „continuum“)* | ⭐⭐⭐⭐⭐ **(5.0/5)** | • [`continuum.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/include/continuum.hpp) *(Rhie-Chow, SIMPLE/PISO Re-Projektion & echte 6%-`CorrectionSoA`)*<br/>• [`linear.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/include/linear.hpp) *(Knuth-Hash PMIS, Norm-skaliertes FP32-AMG & $\eta_{\text{round}}$-Floor)*<br/>• [`adjoint.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/include/adjoint.hpp) & [`enzyme_bridge.cpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/enzyme_bridge.cpp) *(Gekoppelter 3D Rhie-Chow/Brinkman Dual-IFT-Adjoint + CAD-Kettenregel)*<br/>• [`chemistry.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/include/chemistry.hpp), [`continuum_cuda.cu`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/cuda/continuum_cuda.cu), [`generate_mechanism.py`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/tools/generate_mechanism.py) & [`verify.cpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/tests/verify.cpp) | **Goldstandard für den nativen C++20/CUDA-Solver & Adjoint-Kern:** Mit `g++ -std=c++20 -O2` kompiliert und verifiziert (`massError = 2.35e-14`, `pisoMassError = 0`, `fdError = 1.27e-9`, `cadError = 6.66e-12`). Enthält echten Python-AoT-Code-Generator (`chain.json` $\to$ `chain_abc.hpp`), CUDA-12 `cub::DeviceSelect::Flagged` + `cudaMallocAsync` Compaction und den gekoppelten Rhie-Chow-Adjoint. |
+| **[`KimiK31ProMaxSolverFVM.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt)** *(Kimi K3.1 Pro Max: „CONTINUUM_CABI“)* | ⭐⭐⭐⭐⭐ **(4.9/5)** | • [`KimiK31ProMaxSolverFVM.txt#L670-L1031`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L670-L1031) & [`#L4005-L4084`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L4005-L4084) *(2D/3D SIMPLE/PISO/PIMPLE + Monolithischer $4N\times 4N$ `(u,v,p,h)` Block-Löser)*<br/>• [`KimiK31ProMaxSolverFVM.txt#L1264-L1300`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L1264-L1300) & [`#L4605-L4644`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L4605-L4644) *(Exakte variabel-$c_p(Y)$ Temperatur-Jacobi-Zeile + C++20 AoT Sparse-Emitter)*<br/>• [`KimiK31ProMaxSolverFVM.txt#L1375-L1402`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L1375-L1402) *(Rhie-Chow-Mobilitäts-Adjoint & 3D CAD `boundary_geometry_seed`)*<br/>• [`KimiK31ProMaxSolverFVM.txt#L1587-L1600`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L1587-L1600) *(32-Zellen Shared-Memory GPU Work-Stealing)* | **Co-Goldstandard für monolithische Kopplung, Thermo-Chemie-Jacobians & 3D-CAD-Rand-Seeds:** Liefert die geschlossene Formel `boundary_geometry_seed` ($\partial Q/\partial\mathbf{x}_f, \partial Q/\partial\mathbf{S}_f$), die Quotientenregel für temperaturabhängige Mischungs-$c_p(\mathbf{Y})$ in der Energie-Jacobi-Zeile und 32-Zellen-Shared-Memory-Tile-Stealing auf der GPU. |
+| **[`Mistral4LargeAdjointSolver`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Mistral4LargeAdjointSolver)** *(Mistral 4 Large)* | ⭐⭐⭐⭐☆ **(4.2/5)** | • [`cpp/tests/verification.cpp#L404-L520`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Mistral4LargeAdjointSolver/cpp/tests/verification.cpp#L404-L520) *(Complex-Step $h=10^{-30}$ Adjoint-Verifikation auf $7.28\times 10^{-12}$!)*<br/>• [`cpp/include/chem/chemistry.hpp#L173-L323`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Mistral4LargeAdjointSolver/cpp/include/chem/chemistry.hpp#L173-L323) *(2-Stage L-stabile Rosenbrock-W `ROS2` + Matrix-Exponential `expm_dense`)*<br/>• [`cpp/include/linalg/krylov.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Mistral4LargeAdjointSolver/cpp/include/linalg/krylov.hpp) *(PCG, BiCGStab, FGMRES(30) & FP32 Iterative Refinement)* | **Referenz für Complex-Step-Taylor-Tests & Matrix-Exponential-Benchmarks:** Beweist mit $h_{\text{cs}} = 10^{-30}$ ($\operatorname{Im}(J(\gamma + i h_{\text{cs}}))/h_{\text{cs}}$) komplett auslöschungsfreie Adjoint-Verifikation (22/22 C++20-Tests grün in `run_output.txt`). |
+| **[`SolverSIMPLEPISOGemini38FlashHigh`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOGemini38FlashHigh)** *(Gemini 3.8 Flash High: „Aero-Continuum“)* | ⭐⭐⭐⭐☆ **(4.0/5)** | • [`cpp_engine/cabi_span.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOGemini38FlashHigh/cpp_engine/cabi_span.hpp) *(Strided `CAbiSpan<T>` für pitched GPU-Speicher)*<br/>• [`cpp_engine/discrete_adjoint.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOGemini38FlashHigh/cpp_engine/discrete_adjoint.hpp) *(RAMP Brinkman-Modell $\kappa(\gamma)$)*<br/>• [`src/components/RhieChowFVMView.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOGemini38FlashHigh/src/components/RhieChowFVMView.tsx) *(Interaktiver Rhie-Chow Checkerboard-Visualizer)* | Saubere C++20-Header für `CAbiSpan<T>` mit Stride-Unterstützung und sehr anschauliche interaktive UI-Darstellung der Rhie-Chow-Schachbrett-Dämpfung (*Hinweis: für $\eta_{\text{round}}$ und Stöchiometrie die Formeln aus `ChatGPT6SolMax`/`KimiK31` nutzen!*). |
+
+---
+
+## 7c. Kategorie `LMArena/Frontend & CAD` — Native `wgpu`/`egui`-Cockpits, WGSL-Shader, `CFDFLD03` In-Situ Post-Processing & `.axcad`
+Ordner: [`resources/reference_spickzettel/LMArena/Frontend/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend) & [`resources/reference_spickzettel/LMArena/CAD/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/CAD)
+
+| Spickzettel / Modell | Bewertung | Wichtigste Bookmark-Dateien (Direkt-Links) | Wofür wir diesen Spickzettel nutzen |
+| :--- | :---: | :--- | :--- |
+| **[`ChatGPT6LunaMaxCAENoSync`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync)** *(ChatGPT 6 Luna Max: „FLUX / CFD“)* | ⭐⭐⭐⭐⭐ **(5.0/5)** | • [`reference/rust/src/buffers.rs`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/rust/src/buffers.rs) *(Zero-Copy `bytemuck` Parser für `CFDGEO01`, `CFDMSH02`, `CFDFLD03`)*<br/>• [`reference/rust/src/viewport.rs`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/rust/src/viewport.rs) *(Camera-Relative `f64->(f32_hi, f32_lo)` Split, Reverse-Z & Async 1×1 `R32Uint` Pick)*<br/>• [`reference/rust/src/ipc.rs`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/rust/src/ipc.rs), [`physics.rs`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/rust/src/physics.rs) & [`mesh_quality.rs`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/rust/src/mesh_quality.rs) *(Tokio NDJSON Bridge, `RevisionClock`, `AbsoluteP` vs `ReducedPRgh`, Flat Quality)*<br/>• [`reference/shaders/mesh_inspect.wgsl`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/shaders/mesh_inspect.wgsl), [`field_unlit.wgsl`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/shaders/field_unlit.wgsl), [`surface_lic.wgsl`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/shaders/surface_lic.wgsl) & [`streamline.wgsl`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/shaders/streamline.wgsl) | **Goldstandard für unser Rust `wgpu` + `egui` Cockpit (Option C):** Idiomatisches, getestetes Rust-Crate für Zero-Copy-Binärpuffer, Reverse-Z, 8-Tap Depth-EDL, `@compute`-Shader Surface-LIC, GPU-instanzierte Streamline-Ribbons und die lockfreie `RevisionClock`. |
+| **[`CAEVisualisation1Unknown.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation1Unknown.txt)** & **[`CAEVisualisation2Unknown.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation2Unknown.txt)** *(Paket 3 `CFDFLD03` Deep-Dive)* | ⭐⭐⭐⭐⭐ **(4.9/5)** | • [`CAEVisualisation1Unknown.txt#L78-L280`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation1Unknown.txt#L78-L280) & [`#L462-L480`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation1Unknown.txt#L462-L480) *(64-Byte `CFDFLD03` Header, Hardware SSE4.2 `_mm_crc32_u64` & 21-Bit 3D-Hilbert-Index)*<br/>• [`CAEVisualisation2Unknown.txt#L279-L667`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation2Unknown.txt#L279-L667) *(Windows `CreateFileMappingA` & POSIX `shm_open` Lock-Free SPMC Triple-Buffer-Ring in C++20 & Rust)*<br/>• [`CAEVisualisation2Unknown.txt#L675-L963`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation2Unknown.txt#L675-L963) *(IEEE-754 XOR-Delta + LZ4/ZFP + Lag-Dropping WebSocket Streamer)*<br/>• [`CAEVisualisation2Unknown.txt#L1059-L1694`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation2Unknown.txt#L1059-L1694) *(Polyeder-Slicer, Cardano-$\lambda_2$ & $Q$-Kriterium, Face-Exit RK4/Cash-Karp Streamlines, 3-Ring WLSQ $\boldsymbol{\tau}_w$, Paket-4-Integrale)* | **Komplette C++20- & Rust-Implementierung für `Paket 3 (CFDFLD03)` & In-Situ Post-Processing:** Liefert alle 5 Post-Processing-Kerne, den plattformübergreifenden Shared-Memory-Ringbuffer und das komprimierte Remote-Streaming. |
+| **[`Qwen27bCockpitCAENoSync`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen27bCockpitCAENoSync)** *(Qwen 27B: „HydroCore“)* | ⭐⭐⭐⭐½ **(4.6/5)** | • [`src/fields/colormaps.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen27bCockpitCAENoSync/src/fields/colormaps.ts) *(Exakter $256\times 1$ Oklab-LUT-Generator mit Ansys-Band-Quantisierung)*<br/>• [`rust/src/render/shaders.wgsl`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen27bCockpitCAENoSync/rust/src/render/shaders.wgsl) & [`src/gl/shaders.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen27bCockpitCAENoSync/src/gl/shaders.ts) *(2-Phasen MRT-Compositor, MatCap + 4-Tap Normal-EDL, Isolinien & LIC)*<br/>• [`src/gl/engine.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen27bCockpitCAENoSync/src/gl/engine.ts) & [`src/units/parser.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen27bCockpitCAENoSync/src/units/parser.ts) *(3D Slice-Plane-Gizmo, 4-Quadranten-Splitscreen & Unicode-SI-Parser)* | **Beste Vorlage für Oklab-LUT-Texturen, MRT-Compositing & 3D-Slice-Gizmo:** Kombiniert einen zweiphasigen MRT-Renderer (`[albedo, normal, id]`) mit wahrnehmungsgleichen Oklab-Farbtabellen und einem 4-Quadranten-Qualitäts-Splitscreen. |
+| **[`Fable52xhighCockpit`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Fable52xhighCockpit)** *(Fable 5.2 xHigh)* & **[`Qwen38maxCADRender1`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen38maxCADRender1)** *(Qwen 3.8 Max)* | ⭐⭐⭐⭐½ **(4.6/5)** | • [`Fable52xhighCockpit/src/components/BlockStack.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Fable52xhighCockpit/src/components/BlockStack.tsx), [`Viewport3D.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Fable52xhighCockpit/src/components/Viewport3D.tsx), [`colormaps.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Fable52xhighCockpit/src/lib/colormaps.ts) & [`units.ts`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Fable52xhighCockpit/src/lib/units.ts)<br/>• [`Qwen38maxCADRender1/crates/cad_renderer/src/pipeline.rs`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen38maxCADRender1/crates/cad_renderer/src/pipeline.rs) & [`crates/cad_addons/src/rhai_engine.rs`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen38maxCADRender1/crates/cad_addons/src/rhai_engine.rs) | **Design-Referenz & Rhai-Addon-Architektur:** `Fable52xhighCockpit` definiert das Obsidian/Carbon-UI, den nTop-Block-Stack und die Colormaps; `Qwen38maxCADRender1` liefert ein komplettes 5-Crate Rust-Workspace (`wgpu 30` + `egui 0.37` + `rhai` Scripting-Addons). |
+| **[`CADFiletypeGPT6Sol`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/CAD/CADFiletypeGPT6Sol)** *(GPT-6 Sol: „AXIOM `.axcad`“)* & **[`MuseEmberMax`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/MuseEmberMax)** | ⭐⭐⭐⭐☆ **(4.3/5)** | • [`AXIOM_FORMAT_SPEC.md`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/CAD/CADFiletypeGPT6Sol/public/AXIOM_FORMAT_SPEC.md) *(Trennung von Design-Intent & Binär-Cache, 6-Stufen-DAG-Invalidierung, PBR vs. Physik-Material)*<br/>• [`MuseEmberMax/src/App.tsx`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/MuseEmberMax/src/App.tsx) *(Interaktiver 64-Byte `CFDFLD03` Hex-Inspector & SPMC-Slot-Monitor)* | **Vorlage für Git-freundliche Projektdateien & `CFDFLD03`-Hex-Debugging:** Zeigt exakt, wie man deklarativen Intent (`manifest.json` / `project.toml`) von ableitbaren Binär-Caches trennt und Topologie-Konflikte bei B-Rep-Edits abfängt. |
+
+---
+
+## 7d. Vierte LMArena-Charge: Grenzschicht-Mesher, 3D-MMS/Adjoint-Verifikation, All-Mach/SPH-FVM, Cluster C & Cluster A (Neu vom 21.–22.11.2026)
+
+| Ordner / Datei in `LMArena/` | Bewertung | Wichtigste C++20/CUDA-Dateien & Zeilen-Lesezeichen | Was wir konkret daraus übernehmen |
+| :--- | :---: | :--- | :--- |
+| **[`Mesher/BoundaryLayerMeshing1GPTAstra62max/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/octree_hexcore.cpp)** *(GPT Astra 6.2 Max)* | ⭐⭐⭐⭐⭐ **(9.9/10)** | • [`engine/superelements.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/engine/superelements.hpp) & [`engine/templates.hpp`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/engine/templates.hpp) *(23 kanonische Stromberg-Templates, 48 Symmetrien, 125-Bit Sub-Voxel-Voting)*<br/>• [`engine/geometry.hpp#L185-L204`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/engine/geometry.hpp#L185-L204) *(Quadratische Prismen-Jacobi-Schranke $\min_{t\in[0,1]}(At^2+Bt+C)$)*<br/>• [`engine/fa_mesh.hpp#L54-L70`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/engine/fa_mesh.hpp#L54-L70) *(Dreiecks-Abwicklungs-Geodäte & Dihedral-Krümmung)*<br/>• [`tests/certify_dyadic.py`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/tests/certify_dyadic.py) *(Exakte dyadische Rationalzahl-Zertifizierung)* | **Gold-Standard für Phase 2.5 Boundary-Layer, 23 Super-Elements & `faMesh` (`Snippet 25`):** Zertifiziert 0 Hanging Nodes, exakt 0 Gauss-Residuum und stetige Prismen-Positivität $\det\mathbf{J}(t) > 0$ für alle $t\in[0,1]$. |
+| **[`Fable52high.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Fable52high.txt)** *(Fable 5.2 High: `mphys` Rust + C++20)* | ⭐⭐⭐⭐⭐ **(9.8/10)** | • `quantity.hpp` *(Zeilen 9560–9845: 7-Exponenten-SI, `AbsolutePressurePa` vs. `GaugePressurePa` vs. `ReducedPressurePRgh`)*<br/>• `mesh_arena.hpp` *(Zeilen 9848–10060: 2-MiB-Page Bump-Arena + Epoch-Tagging)*<br/>• `deterministic.hpp` *(Zeilen 10063–10309: Skilling 3D-Hilbert, 4096-Blatt-Baumsumme, LSD-Radix)*<br/>• `selector.hpp` *(Zeilen 10312–11014: Zero-Alloc Bytecode-VM)* & `flight_recorder.hpp` *(Zeilen 11017–11318: `amips_tet`)* | **Bit-identischer Rust/C++20 Systems-Core (`Snippet 26`):** Garantiert threadzahl-unabhängige Reduktionen und 1:1 Parität zwischen Rust-Node-Manager und C++20-Kerneln. |
+| **[`Solver/MultiphaseCompressible1PGT62SolMax/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/physics.hpp)** *(GPT 6.2 Sol Max)* | ⭐⭐⭐⭐⭐ **(9.7/10)** | • [`native/physics.hpp#L44-L93`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/physics.hpp#L44-L93) *(Geschlossene quadratische Peng-Robinson-EOS in $w=\sqrt{T}$)* & [`#L200-L265`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/physics.hpp#L200-L265) *(All-Mach HLLC & AUSM+-up)*<br/>• [`native/hybrid.hpp#L50-L92`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/hybrid.hpp#L50-L92) *(OPMIS Wendland-$C^2$ MLS-Transfer)*<br/>• [`native/film.hpp#L41-L186`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/film.hpp#L41-L186) *(2D-Wandfilm & Bai-Gosman 4-Regime-Splash)* | **Referenz für Cluster B (`Snippet 27`):** 51/51 bestandene C++20-Tests + CPU/CUDA-Parität (`< 5e-12`). Löst Peng-Robinson ohne Newton-Iteration und koppelt FVM, OPMIS-SPH und 2D-Wandfilm massenerhaltend ($4.08\times 10^{-15}$). |
+| **[`Solver/MultiphysicsModules2GPT61SolMax/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules2GPT61SolMax/public/solver/cluster_c.cpp)** *(GPT 6.1 Sol Max)* | ⭐⭐⭐⭐⭐ **(9.6/10)** | • [`public/solver/cluster_c.cpp#L195-L228`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules2GPT61SolMax/public/solver/cluster_c.cpp#L195-L228) *(Nicht-orthogonale elliptische Flussprojektion `project_flux`)*<br/>• [`#L248-L346`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules2GPT61SolMax/public/solver/cluster_c.cpp#L248-L346) *(2-RC-ECM + zukünftige Temperatur-Patankar-Bisektion & Farassat 1A)*<br/>• [`#L366-L410`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules2GPT61SolMax/public/solver/cluster_c.cpp#L366-L410) *(Ni et al. 4-Schritt-MHD)* & [`#L510-L561`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules2GPT61SolMax/public/solver/cluster_c.cpp#L510-L561) *(Exakte 3D Swept-Volume Simpson-BDF2-DGCL-Quadratur)* | **Referenz für Cluster C & 3D Polyeder-ALE (`Snippet 28`):** 35/35 bestandene Tests inkl. exakter Simpson-Swept-Volume-Quadratur ($1.21\times 10^{-17}\,\text{m}^3/\text{s}$ DGCL-Fehler auf verformten 3D-Zellen!). |
+| **[`Mesher/FVMVerificationEngine1Inkling2Small/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine1Inkling2Small/engine/assembly.h)** *(Inkling 2 Small)* | ⭐⭐⭐⭐⭐ **(9.6/10)** | • [`engine/mesh.h#L430-L505`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine1Inkling2Small/engine/mesh.h#L430-L505) & [`engine/assembly.h#L206-L235`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine1Inkling2Small/engine/assembly.h#L206-L235) *(Implizite WLS-Gradienten-Einbettung $\mathbf{L}_{c,j}$ in $\mathbf{A}$)*<br/>• [`engine/assembly.h#L68-L108`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine1Inkling2Small/engine/assembly.h#L68-L108) *($2\times 2\times 2$ Gauss-Quellquadratur)* & [`#L330-L346`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine1Inkling2Small/engine/assembly.h#L330-L346) (`luSolveT`) | **Implizite Nicht-Orthogonalitäts-Matrix & IFT-Adjoint (`Snippet 26`):** Konvergiert bei $47.7^\circ$ Gitterverzerrung in **1 linearen Solve ohne Picard-Schleife** ($p_{\text{obs}} = 1.9586$) und trifft den Complex-Step-Adjoint auf $1.14\times 10^{-14}$. |
+| **[`Mesher/FVMVerificationEngine2Gemini38Flashhigh/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine2Gemini38Flashhigh/cpp/fvm_solver.hpp)** *(Gemini 3.8 Flash High)* | ⭐⭐⭐⭐½ **(9.3/10)** | • [`cpp/geometry.hpp#L313-L424`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine2Gemini38Flashhigh/cpp/geometry.hpp#L313-L424) *(Tet-Pyramiden-Zellvolumen & Ebenen-Schnitt $\mathbf{m}_f^{\text{skew}}, \mathbf{k}_f^{\text{corr}}$)*<br/>• [`cpp/fvm_solver.hpp#L354-L396`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine2Gemini38Flashhigh/cpp/fvm_solver.hpp#L354-L396) *(Picard Deferred-Correction)* & [`cpp/adjoint.hpp#L220-L408`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine2Gemini38Flashhigh/cpp/adjoint.hpp#L220-L408) *(6-Param. IFT-Adjoint, $2.26\times 10^{-15}$ Fehler)* | **Sauberste modulare V&V-Suite:** Beweist den Ordnungsverlust von $p_{\text{obs}} = 1.951$ auf $0.964$ beim Abschalten von $\mathbf{k}_f^{\text{corr}}$ und prüft 6 geometrische Gitter-Pathologien. |
+| **[`Solver/Turbulence3GPT6LunaMax/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence3GPT6LunaMax/cpp/include/cluster_a/cluster_a.hpp)** *(GPT-6 Luna Max)* | ⭐⭐⭐⭐½ **(9.2/10)** | • [`cpp/include/cluster_a/cluster_a.hpp#L483-L551`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence3GPT6LunaMax/cpp/include/cluster_a/cluster_a.hpp#L483-L551) *(Exakte Rang-1 Forchheimer-Jacobi-Matrix & P1-Marshak-Rand)*<br/>• [`cpp/cuda/cluster_a_kernels.cu#L52-L125`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence3GPT6LunaMax/cpp/cuda/cluster_a_kernels.cu#L52-L125) *(10 CUDA-Kerne: CSR-Gather & block-gekoppelte Patankar-SST)* | **Referenz für Cluster-A CUDA-Kerne & Forchheimer-Jacobi-Matrix (`Snippet 29`):** Einzige Implementierung mit exakter analytischer Tangentenmatrix $J_{ij} = \mu D_{ij} + \frac{1}{2}\rho(|\mathbf{u}|F_{ij} + \frac{(\mathbf{F}\mathbf{u})_i u_j}{|\mathbf{u}|})$. |
+| **[`Solver/Turbulence1ClaudeHaiku55med/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence1ClaudeHaiku55med/cpp/include/mp_turbulence_cht.hpp)** & **[`Turbulence2ClaudeHaiku55med/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2ClaudeHaiku55med/cpp/cluster_a.hpp)** | ⭐⭐⭐⭐½ **(9.0 & 8.8/10)** | • [`Turbulence1.../mp_turbulence_cht.hpp#L187-L241`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence1ClaudeHaiku55med/cpp/include/mp_turbulence_cht.hpp#L187-L241) *(Newton-Patankar SST & SA-noft2)*<br/>• [`Turbulence2.../cluster_a.hpp#L236-L275`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2ClaudeHaiku55med/cpp/cluster_a.hpp#L236-L275) *(Jayatilleke-$P$ Thermowandgesetz)* & [`#L429-L462`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2ClaudeHaiku55med/cpp/cluster_a.hpp#L429-L462) *(Aitken-$\Delta^2$ Robin-Robin CHT)* | **100 % Verifikationsrate (30/30 & 36/36 Checks, `Snippet 29`):** Aitken-$\Delta^2$ Robin-Robin CHT konvergiert in **3 Schritten** auf $8.79\times 10^{-11}\,\text{K}$ an die monolithische Lösung! |
+| **[`Solver/MultiphysicsModules1GeminiArgon4High/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules1GeminiArgon4High/cpp/cluster_c_multiphysics.cpp)** & **[`MultiphysicsModuleGLM53.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/MultiphysicsModuleGLM53.txt)** | ⭐⭐⭐⭐½ **(9.0 & 8.6/10)** | • [`cluster_c_multiphysics.cpp#L419-L476`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules1GeminiArgon4High/cpp/cluster_c_multiphysics.cpp#L419-L476) *(Hatchard-Spotnitz mit SEI-Tunneling $t_{\text{SEI}}$ & Rosenbrock-W)* & [`#L1107-L1146`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules1GeminiArgon4High/cpp/cluster_c_multiphysics.cpp#L1107-L1146) *(PICA Blowing-Newton)*<br/>• [`MultiphysicsModuleGLM53.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/MultiphysicsModuleGLM53.txt) *(Zeilen 1264–1565 & 3073–3295: $5\times 5$ `expm_phi1` & `Ros2`)* | **Elektrochemie- & PICA-Ablations-Perlen (`Snippet 28`):** Dynamische SEI-Schichtdicken-Barriere $\exp(-t_{\text{SEI}}/t_{\text{SEI},0})$, Transpirations-Blowing $\psi_{\text{blow}} = \phi/(e^\phi-1)$ und $5\times 5$ Matrix-Exponential-Integrator. |
+| **[`Mesher/BoundaryLayerMeshing2MistralLarge4high/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing2MistralLarge4high/mesher/engine.h)** & **[`Solver/Turbulence2GLM53max/`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2GLM53max/src/cpp/cluster_a_radiation.hpp)** | ⭐⭐⭐⭐☆ **(8.6 & 8.5/10)** | • [`MistralLarge4high/mesher/engine.h#L145-L162`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing2MistralLarge4high/mesher/engine.h#L145-L162) *(Sichtkegel-Projektion $\cos 65^\circ$)* & [`quality.h#L51-L64`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing2MistralLarge4high/mesher/quality.h#L51-L64) *(Pyramiden-Faltungstest)*<br/>• [`Turbulence2GLM53max/.../cluster_a_wall.hpp#L89-L135`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2GLM53max/src/cpp/cluster_a_wall.hpp#L89-L135) *(Spalding + Newton $u_\tau$)* & [`cluster_a_radiation.hpp#L161-L274`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2GLM53max/src/cpp/cluster_a_radiation.hpp#L161-L274) *($S_8/S_{16}$ fvDOM)* | **Spalding-Newton-$u_\tau$, $S_8/S_{16}$ fvDOM & Pyramiden-Qualität (`Snippets 25 & 29`):** Liefert den 128/512-Richtungs-fvDOM-Sweep mit Spiegel-Reflexion und das exakte $\operatorname{tr}(\mathbf{g}^2)$-WALE. |
+| **[`BoundaryLayerMeshing1Inkling2mini`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1Inkling2mini/engine/geometry.hpp)** (6.2), **[`FVMVerificationEngine1Nemotron35SuperVL`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine1Nemotron35SuperVL/verification_engine.cpp)** / **[`FVMVerificationEngineAUnknown.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/FVMVerificationEngineAUnknown.txt)** (5.5), **[`Turbulence1MM31flash`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence1MM31flash/)** (5.2) & **[`MultiphysicsModules1GLM53`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules1GLM53/)** (0.0) | ⭐⭐☆☆☆ **(0.0–6.2/10)** | • `Inkling2mini/engine/geometry.hpp#L31-L45` *(Kompensierte `KahanVec3`-Summation — Rest wegen Fake-$J_{\text{ENS}}$ nicht nutzen)*<br/>• *Red-Team-Ausschluss:* `Nemotron35SuperVL` (nur 3/6 WLS-Nachbarn, Fake-FD-Adjoint), `Turbulence1MM31flash` (12/16 Tests rot, `NaN` in P1) und `MultiphysicsModules1GLM53` (leeres Vite-Template). | **Ausschließlich `KahanVec3` aus `Inkling2mini` nutzen; alle anderen durch die Top-10-Referenzen oben ersetzt!** |
 
 
 ---
@@ -429,3 +470,480 @@ for (int i = 0; i < M.n_boundary_nodes; ++i) {
     M.seeds[idx] = x_trial - psi_val * M.sdf_gradient(x_trial);
 }
 ```
+
+---
+
+### Snippet 15: Rhie-Chow PISO Re-Projektion, Norm-skaliertes `FP32`-AMG & Kombinierter $\eta_{\text{round}}$-Detektor (aus [`SolverSIMPLEPISOChatGPT6SolMax/native/include/continuum.hpp#L248-L271`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/include/continuum.hpp#L248-L271), [`linear.hpp#L252-L289`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/include/linear.hpp#L252-L289) & [`KimiK31ProMaxSolverFVM.txt#L414-L426`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L414-L426))
+* **Warum wichtig:**
+  1. Dämpft Schachbrett-Druckoszillationen auf kollokierten Polyedergittern exakt (verschwindet identisch für jedes lineare Druckfeld $p(\mathbf{x}) = a + \mathbf{b}\cdot\mathbf{x}$!) und wertet in mehrstufigen PISO-Schleifen (`pass > 0`) $\nabla p$ und `rhie_chow_faces` vor jedem weiteren Korrekturschritt neu aus.
+  2. Skaliert den `FP64`-Defektvektor $\mathbf{r}$ vor dem Cast auf `float` mit $s = \|\mathbf{r}\|_\infty$ (verhindert `FP32`-Underflow bei kleinen Residuen!) und überwacht den Rundungsboden über den normweisen Rückwärtsfehler $\eta_{\text{round}}$ + den Rekurrenz-Drift alle 5 Krylov-Schritte:
+```cpp
+// 1. Rhie-Chow Massenstrom (continuum.hpp:248–271): Exakt null Korrektur für lineare Druckfelder p(x) = a + b.x
+flow.face_mass[f] = rho * (dot(u_beta, geo.s) - d_f * geo.alpha * ((p_N - p_P) - dot(grad_p_beta, geo.d)));
+
+// 2. Underflow-sichere Norm-Skalierung vor dem FP32-AMG-V-Zyklus (linear.hpp:252–263):
+double scale = 0.0;
+for (double v : r) scale = std::max(scale, std::abs(v));
+if (scale == 0.0) return std::vector<double>(r.size(), 0.0);
+std::vector<float> b_fp32(r.size()), x_fp32(r.size(), 0.0f);
+for (size_t i = 0; i < r.size(); ++i) b_fp32[i] = static_cast<float>(r[i] / scale);
+for (int c = 0; c < cycles; ++c) cycle(0, b_fp32, x_fp32);
+for (size_t i = 0; i < r.size(); ++i) out[i] = static_cast<double>(x_fp32[i]) * scale;
+
+// 3. A-posteriori Rundungsboden & Stagnations-Detektor (linear.hpp:277–289):
+const double denom = a_inf * x_inf + b_inf + 1e-30;
+const double eta_round  = r_inf / denom;
+const double fp32_floor = (static_cast<double>(std::numeric_limits<float>::epsilon()) * a_inf * x_inf) / denom;
+const bool round_limited = stagnated && (eta_round <= 8.0 * fp32_floor);
+```
+
+---
+
+### Snippet 16: AoT Sparse-Chemie-Jacobian, Variabel-$c_p(Y)$ Temperatur-Ableitung & CUB / 32-Cell Shared-Memory GPU Work-Stealing (aus [`continuum_cuda.cu#L325-L331`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/cuda/continuum_cuda.cu#L325-L331) & [`KimiK31ProMaxSolverFVM.txt#L1294-L1600`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L1294-L1600))
+* **Warum wichtig:** Kombiniert die exakte Quotientenregel für temperatur- und zusammensetzungsabhängige Wärmekapazitäten $c_p(\mathbf{Y})$ in der Energie-Zeile der analytischen Jacobi-Matrix mit CUDA-12 Stream-Ordered Compaction (`cub::DeviceSelect::Flagged` + `cudaMallocAsync`) und einem **32-Zellen Shared-Memory Tile-Stealing-Kernel** (reduziert globale Atomic-Zugriffe auf die Work-Queue um den Faktor 32!):
+```cpp
+// 1. Exakte Temperatur-Zeile d(dT/dt)/dY_j inkl. variabler Mischungs-Wärmekapazität cp(Y) (KimiK31ProMax:1294–1299):
+//    d(Tdot)/dY_j = -(1 / (rho * cp)) * sum_k (d(omega_k)/dY_j * h_k) + (sum_k omega_k * h_k) / (rho * cp^2) * cp_j
+for (std::size_t j = 0; j < S; ++j) {
+    double d_heat_dYj = 0.0;
+    for (std::size_t k = 0; k < S; ++k) d_heat_dYj += J[k * (S + 1) + j] * m.enthalpy[k];
+    J[S * (S + 1) + j] = -d_heat_dYj / (rho * cp) + (heat_release * m.cp_species[j]) / (rho * cp * cp);
+}
+
+// 2. 32-Zellen Shared-Memory Tile Work-Stealing auf der GPU (KimiK31ProMax:1587–1600):
+__shared__ int tile_base, tile_cursor, tile_count;
+if (threadIdx.x == 0 && tile_cursor >= tile_count) {
+    tile_base = atomicAdd(&queue->cursor, 32); // Nur 1 globaler Atomic pro 32 steife Chemie-Zellen!
+    tile_count = min(32, queue->count - tile_base);
+    tile_cursor = 0;
+}
+__syncthreads();
+int lane = atomicAdd(&tile_cursor, 1);         // Schneller Shared-Memory-Atomic innerhalb des Blocks
+if (lane < tile_count) {
+    int cell = active[tile_base + lane];
+    ros2_integrate_cell(state + cell * stride, rho[cell], dt);
+}
+```
+
+---
+
+### Snippet 17: Gekoppelter Druck-Geschwindigkeits-IFT-Adjoint (inkl. Rhie-Chow-Mobilität $\partial D_f/\partial\gamma_i$), Analytische 3D-CAD-Rand-Seeds & Complex-Step-Test (aus [`adjoint.hpp#L115-L166`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/SolverSIMPLEPISOChatGPT6SolMax/native/include/adjoint.hpp#L115-L166), [`KimiK31ProMaxSolverFVM.txt#L1380-L1402`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/KimiK31ProMaxSolverFVM.txt#L1380-L1402) & [`verification.cpp#L424-L491`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Mistral4LargeAdjointSolver/cpp/tests/verification.cpp#L424-L491))
+* **Warum wichtig:** Auf kollokierten FVM-Gittern hängt nicht nur der Impuls-Bremsterm $\alpha(\gamma_i)\mathbf{u}_i$ von der SIMP-Designvariable $\gamma_i$ ab, sondern über die Hauptdiagonale $a_P(\gamma_i)$ auch die **Rhie-Chow-Flächenmobilität $D_f(\gamma) = V_P / a_P(\gamma_i)$ in der Kontinuitätsgleichung**! Erst mit diesem Zusatzterm + den geschlossenen 3D-Rand-Seeds $(\partial Q/\partial\mathbf{x}_f, \partial Q/\partial\mathbf{S}_f)$ stimmt der Adjoint auf **10–12 signifikante Stellen** mit dem auslöschungsfreien Complex-Step-Test ($h_{\text{cs}} = 10^{-30}$) überein:
+```cpp
+// 1. Vollständige SIMP-Brinkman-Sensitivität inkl. Rhie-Chow-Kontinuitäts-Kopplung (KimiK31ProMax:1380–1386):
+//    dJ/d(gamma_i) = lambda_{u,i} * V_i * d(alpha)/d(gamma_i) * u_i
+//                  + sum_{f in i} (lambda_{p,P} - lambda_{p,N}) * (dD_f / d(gamma_i)) * (p_N - p_P)
+
+// 2. Geschlossene 3D-Rand-Sensitivität nach Flächenschwerpunkt x_f und Flächenvektor S_f (KimiK31ProMax:1395–1402):
+inline FaceGeometrySeed boundary_geometry_seed(Vec3 xP, Vec3 xf, Vec3 S, Vec3 u, Vec3 ub,
+                                               double p, double mu, double lambda_c, Vec3 lambda_u) {
+    const Vec3 e = xP - xf;
+    const double eS = dot(e, S), S2 = dot(S, S), g = mu * S2 / eS;
+    const double lu = dot(lambda_u, u - ub);
+    FaceGeometrySeed d;
+    d.S   = (lambda_u * p - lambda_c * ub) + ((lu * mu * 2.0 / eS) * S) - ((lu * g / eS) * e);
+    d.x_f = (lu * g / eS) * S; // Wird direkt mit dem Differentiable-CAD-DAG dx_f / d(theta_CAD) kontrahiert!
+    return d;
+}
+
+// 3. Auslöschungsfreier Complex-Step-Taylor-Check mit h_cs = 1e-30 (Mistral4Large verification.cpp:432–445):
+std::vector<std::complex<double>> gamma_c(N);
+for (int i = 0; i < N; ++i) gamma_c[i] = std::complex<double>(gamma[i], (i == k) ? 1e-30 : 0.0);
+const double dJ_dgamma_exact = solve_complex_objective(gamma_c).imag() / 1e-30; // 0 Subtraktions-Auslöschung!
+```
+
+---
+
+### Snippet 18: In-Situ Post-Processing (`Paket 3: CFDFLD03`): Trigonometrischer Cardano-$\lambda_2$-Löser & Topologischer Face-Exit Streamline-Walker (aus [`CAEVisualisation2Unknown.txt#L1212-L1377`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/CAEVisualisation2Unknown.txt#L1212-L1377))
+* **Warum wichtig:**
+  1. Berechnet das **$Q$-Kriterium** $Q = \frac{1}{2}(\|\boldsymbol{\Omega}\|_F^2 - \|\mathbf{S}\|_F^2)$ und das **$\lambda_2$-Wirbelkriterium** (zweitgrößter Eigenwert von $\mathbf{M} = \mathbf{S}^2 + \boldsymbol{\Omega}^2$) numerisch stabil in geschlossener trigonometrischer Cardano-Form pro Zelle.
+  2. Verfolgt RK4-/Cash-Karp-Stromlinien über die **exakte Face-Plane-Austrittszeit** $t_{\text{exit}} = \min_{f\in c,\,\mathbf{u}\cdot\mathbf{S}_f > 0} \frac{(\mathbf{x}_f - \mathbf{x})\cdot\mathbf{S}_f}{\mathbf{u}\cdot\mathbf{S}_f}$ direkt von Nachbarzelle zu Nachbarzelle (**null globale BVH-/Octree-Punktsuchen nach dem Seeding!**):
+```cpp
+// Topologischer Face-Exit-Walker entlang eines Stromlinien-Segments x0 -> x1 (CAEVisualisation2Unknown.txt:1338–1377):
+for (uint32_t f : mesh.cell_faces.row((uint32_t)cell)) {
+    const Vec3 Sf   = mesh.outward_area(f, cell);
+    const double un = dot(dir, Sf);
+    if (un <= 1e-14) continue; // Strahl verlässt die Zelle nicht über Fläche f
+    const double t  = dot(mesh.face_centroids[f] - x, Sf) / un;
+    if (t > eps && t < t_exit) { t_exit = t; exit_face = static_cast<int32_t>(f); }
+}
+// Direkt über mesh.face_neighbour_cell(exit_face, cell) in O(1) in die Nachbarzelle wechseln!
+```
+
+---
+
+### Snippet 19: Zero-Copy `bytemuck` Binärpuffer-View (`CFDGEO01`/`CFDMSH02`/`CFDFLD03`) & Camera-Relative `f64->(f32_hi, f32_lo)` Reverse-Z (aus [`ChatGPT6LunaMaxCAENoSync/reference/rust/src/buffers.rs#L49-L164`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/rust/src/buffers.rs#L49-L164) & [`viewport.rs#L17-L50`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/rust/src/viewport.rs#L17-L50))
+* **Warum wichtig:** Borgt die gemappten Binärpuffer im Rust-Cockpit ohne eine einzige Heap-Allokation via `bytemuck::try_cast_slice` (mit Overflow-sicherer `checked_mul`/`checked_add`-Arithmetik) und verhindert Z-Fighting auf $\Delta y_1 = 10^{-6}\,\text{m}$ dünnen Grenzschichten durch Camera-Relative `f64`-Subtraktion + unendliche Reverse-Z-Projektion (`Near -> 1.0`, `Infinity -> 0.0`, `CompareFunction::GreaterEqual`):
+```rust
+// 1. Overflow-sicherer Zero-Copy Slice-Cast (buffers.rs:155–164):
+fn cast_array<'a, T: bytemuck::Pod>(bytes: &'a [u8], offset: &mut usize, count: usize) -> Result<&'a [T], BufferError> {
+    let byte_count = count.checked_mul(std::mem::size_of::<T>()).ok_or(BufferError::Bounds)?;
+    let end = offset.checked_add(byte_count).ok_or(BufferError::Bounds)?;
+    let slice = bytes.get(*offset..end).ok_or(BufferError::Bounds)?;
+    *offset = end;
+    bytemuck::try_cast_slice(slice).map_err(|_| BufferError::Alignment)
+}
+
+// 2. WebGPU [0, 1] Infinite Reverse-Z Projektionsmatrix (viewport.rs:39–50):
+pub fn reverse_z_infinite_projection(vertical_fov: f32, aspect: f32, near: f32) -> glam::Mat4 {
+    let f = 1.0 / (vertical_fov * 0.5).tan();
+    glam::Mat4::from_cols(
+        glam::Vec4::new(f / aspect, 0.0, 0.0, 0.0),
+        glam::Vec4::new(0.0, f, 0.0, 0.0),
+        glam::Vec4::new(0.0, 0.0, 0.0, -1.0),
+        glam::Vec4::new(0.0, 0.0, near, 0.0),
+    )
+}
+```
+
+---
+
+### Snippet 20: WGSL Compute-Shader für 2D Surface-LIC (`@workgroup_size(8,8,1)`), Screen-Space EDL & Perzeptuelle 1D-Oklab-LUT (aus [`surface_lic.wgsl#L17-L47`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/shaders/surface_lic.wgsl#L17-L47), [`mesh_inspect.wgsl#L96-L160`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/ChatGPT6LunaMaxCAENoSync/reference/shaders/mesh_inspect.wgsl#L96-L160) & [`colormaps.ts#L32-L98`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Frontend/Qwen27bCockpitCAENoSync/src/fields/colormaps.ts#L32-L98))
+* **Warum wichtig:** Faltet ein hochfrequentes Rauschfeld vorwärts und rückwärts entlang des normierten Wandschubspannungs-Tangentenfeldes $\boldsymbol{\tau}_w / \|\boldsymbol{\tau}_w\|$ mit einem exponentiellen Filterkern $\exp(-s \cdot 0.035)$, um Ablöselinien und Wiederanlegepunkte direkt auf der Bauteiloberfläche mit 120 FPS sichtbar zu machen, während `@interpolate(flat)` im Mesh-Inspector garantiert, dass defekte oder `NaN`-Zellen niemals weichgezeichnet werden:
+```wgsl
+// Vorwärts-/Rückwärts-Streamline-Faltung für Surface-LIC (surface_lic.wgsl:17–47):
+fn integrate_direction(origin: vec2<f32>, direction_sign: f32) -> f32 {
+    var cursor = origin; var accumulated = 0.0; var weight_sum = 0.0;
+    for (var step = 0u; step < settings.steps; step += 1u) {
+        let shear = sample_shear(vec2<i32>(cursor));
+        let mag = length(shear);
+        if (mag < 1e-8) { break; }
+        cursor += (shear / mag * direction_sign) * settings.step_length;
+        let noise = textureLoad(noise_texture, bounded_pixel(vec2<i32>(cursor * settings.noise_scale)), 0).r;
+        let kernel = exp(-f32(step) * settings.step_length * 0.035);
+        accumulated += noise * kernel; weight_sum += kernel;
+    }
+    return select(0.0, accumulated / weight_sum, weight_sum > 0.0);
+}
+```
+
+---
+
+### Snippet 21: $4\times 4$ Block-Coupled $(\mathbf{u}, p)$ FVM-Assembler für MRF-Coriolis, Moving Walls, Rodrigues-Cyclic & Direct Sub-Face AMI (aus [`coupledMFRSteadyIncFoam-Final.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/coupledMFRSteadyIncFoam-Final.pdf), Mangani, Buchmayr & Darwish 2014, Gl. 5–19)
+* **Warum wichtig:** Löst die vier größten Konvergenzkiller segregierter Turbomaschinen-Solver (`simpleFoam`) in einer einzigen $4\times 4$-Blockmatrix:
+  1. **Schiefsymmetrischer MRF-Coriolis-Block ($\mathbf{\Omega}\times\mathbf{u}$, §3.1)** direkt auf den 6 Nebendiagonalen von $\mathbf{A}_C^{uu}$ (ohne Zentrifugal-Quellterm dank Absolutgeschwindigkeit $\mathbf{u}$ mit Relativfluss $\dot{V}_r = \dot{V} - (\mathbf{\Omega}\times\mathbf{r}_f)\cdot\mathbf{S}_f$, Gl. 4–6).
+  2. **Implizite Tangential-Projektion $\mathbf{I} - \mathbf{n}_b\otimes\mathbf{n}_b$ an rotierenden/bewegten Wänden (Gl. 14–15)**.
+  3. **$4\times 4$ Rodrigues-Rotation $\mathbf{A}_{NB} = \mathbf{A}_{NB,\text{geom}}\cdot\mathbf{T}_{NB}$ (Gl. 16–17)** für rotationsperiodische `cyclic`-Patches.
+  4. **Direkte Sub-Face-AMI-Kopplung mit Flächengewichten $w_{f_k}$ (Gl. 18–19)** ohne virtuelle Schatten-Zellen ($\implies 6.1\times\text{ bis }35.1\times$ schneller als SIMPLE!):
+```cpp
+struct alignas(64) Block4x4 { double m[4][4]{}; }; // [0=u, 1=v, 2=w, 3=p]
+
+// 1. Impliziter schiefsymmetrischer MRF-Coriolis-Block (\Omega x u) auf dem Zell-Diagonalblock A_C (§3.1):
+inline void add_mrf_coriolis_block(Block4x4& A_C, const double omega[3], double V_C) noexcept {
+    const double ox = omega[0] * V_C, oy = omega[1] * V_C, oz = omega[2] * V_C;
+    A_C.m[0][1] -= oz; A_C.m[0][2] += oy;
+    A_C.m[1][0] += oz; A_C.m[1][2] -= ox;
+    A_C.m[2][0] -= oy; A_C.m[2][1] += ox;
+}
+
+// 2. Implizite Tangential-Wandschubspannungs-Projektion P = I - n_b (x) n_b an bewegter/rotierender Wand (Gl. 14–15):
+inline void add_moving_wall_shear_block(Block4x4& A_C, double b_C[4], double nu_eff,
+                                        const double S_b[3], double d_perp, const double u_wall[3]) noexcept {
+    const double area = std::sqrt(S_b[0]*S_b[0] + S_b[1]*S_b[1] + S_b[2]*S_b[2]);
+    const double n[3] = {S_b[0] / area, S_b[1] / area, S_b[2] / area};
+    const double c = (nu_eff * area) / d_perp;
+    for (int i = 0; i < 3; ++i) {
+        double u_par_i = 0.0;
+        for (int j = 0; j < 3; ++j) {
+            const double P_ij = (i == j ? 1.0 : 0.0) - n[i] * n[j];
+            A_C.m[i][j] += c * P_ij;
+            u_par_i     += P_ij * u_wall[j];
+        }
+        b_C[i] += c * u_par_i;
+    }
+}
+
+// 3. Direkte implizite Sub-Face-AMI / Interne Face-Assemblierung mit Überlappungsgewicht w_f (Gl. 9, 18–19):
+//    Für normale interne Faces ist w_f = 1.0; für AMI-Subfaces ist w_f = w_{f_k} (mit sum_k w_{f_k} == 1.0).
+inline void assemble_coupled_subface(Block4x4& A_C, Block4x4& A_NB, double b_C[4],
+                                     double w_f, double Vdot_rel, double nu_eff, double rho, double g_f,
+                                     const double S_f[3], const double d[3], const double D_rc[3], const double grad_p[3]) noexcept {
+    const double wf_V = w_f * Vdot_rel;
+    const double dS   = d[0]*S_f[0] + d[1]*S_f[1] + d[2]*S_f[2];
+    const double S2   = S_f[0]*S_f[0] + S_f[1]*S_f[1] + S_f[2]*S_f[2];
+    const double c_C  = std::max(wf_V, 0.0), c_NB = -std::max(-wf_V, 0.0), diff = w_f * nu_eff * (S2 / dS);
+    for (int i = 0; i < 3; ++i) {
+        A_C.m[i][i]  += c_C  + diff;                A_NB.m[i][i] += c_NB - diff;
+        A_C.m[i][3]  += w_f * (1.0 - g_f) * S_f[i] / rho; A_NB.m[i][3] += w_f * g_f * S_f[i] / rho; // A^{up}
+        A_C.m[3][i]  += w_f * (1.0 - g_f) * S_f[i];       A_NB.m[3][i] += w_f * g_f * S_f[i];       // A^{pu}
+    }
+    const double a_pp = w_f * (S_f[0]*D_rc[0]*S_f[0] + S_f[1]*D_rc[1]*S_f[1] + S_f[2]*D_rc[2]*S_f[2]) / dS;
+    A_C.m[3][3] += a_pp; A_NB.m[3][3] -= a_pp; // Rhie-Chow A^{pp} (Gl. 19)
+    for (int i = 0; i < 3; ++i) b_C[3] += (w_f * S_f[i] * D_rc[i] - a_pp * d[i]) * grad_p[i]; // N_k . grad_p (Gl. 18)
+}
+```
+
+---
+
+### Snippet 22: Block-Dreiecks-PCD-Schur-Vorkonditionierer ($\rho_2/\rho_1 = \mu_2/\mu_1 = 10^6$) & Direkte STEP-NURBS-Kontrollpunkt-Adjoint-Kontraktion (aus [`Coupled_Solver_1-s2.0-S0045793023002207-main.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Coupled_Solver_1-s2.0-S0045793023002207-main.pdf), El Ouafa et al. 2023, Gl. 19–21, Alg. 2 & [`CAD_Optimization_1-s2.0-S0045793011000508-main.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/CAD_Optimization_1-s2.0-S0045793011000508-main.pdf), Yu & Müller 2011, Gl. 7–11)
+* **Warum wichtig:**
+  1. **El Ouafa et al. (2023, Alg. 2):** Vorkonditioniert das monolithische Sattelpunktsystem über das zweiphasige *Pressure Convection-Diffusion (PCD)*-Schur-Komplement $\hat{S}_{PCD}^{-1} = (M_p^{(1/\mu)})^{-1} + (A_p^{(1/\rho)})^{-1}(N_p^{(1)} + \Delta t^{-1}M_p^{(1)})(M_p^{(1)})^{-1}$ und eine **Ordnung-0 Block-Gauss-Seidel-Rückwärtseinsetzung** auf $(F_{ww}, F_{vv}, F_{uu})$ mit insgesamt nur **4 skalaren AMG-V-Zyklen pro Aufruf** (skaliert bis 1,1 Mrd. Zellen bei Dichte-/Viskositätssprüngen von $10^6$).
+  2. **Yu & Müller (2011, Gl. 7–11):** Kontrahiert für beliebige importierte ISO-STEP-NURBS-Flächen die FVM-Oberflächensensitivität $\frac{\mathrm{d}L}{\mathrm{d}\mathbf{X}_B}$ über $\frac{\partial\mathbf{X}_s(u,v)}{\partial\mathbf{P}_{i,j}} = R_{i,j}(u,v)\mathbf{I}_3$ lokal im aktiven Knotenintervall $(\text{span}_u, \text{span}_v)$ in $\mathcal{O}(pq)$ (**0,24 s statt 3 h CATIA-FD, 0 künstliche Gradientenglättung!**):
+```cpp
+// 1. Zweiphasiges PCD Schur-Komplement S_PCD^-1 * z_p (El Ouafa et al. 2023, Gl. 20–21 & Alg. 2 Zeilen 2–7):
+for (size_t i = 0; i < N; ++i) {
+    rp_visc[i] = (mu_eff[i] / vol_p[i]) * z_p[i]; // (M_p^{(1/mu)})^{-1} * z_p  (Stokes-/Hochviskos-Zweig)
+    rp_mass[i] = (1.0       / vol_p[i]) * z_p[i]; // (M_p^{(1)})^{-1} * z_p
+}
+apply_pressure_convection_Np(rp_mass.data(), rp_conv.data()); // N_p^{(1)} * rp_mass
+for (size_t i = 0; i < N; ++i) rp_conv[i] += dt_inv * z_p[i]; // + dt^{-1} * M_p^{(1)} * (M_p^{(1)})^{-1} * z_p
+amg_Ap_inv_rho.v_cycle(rp_conv.data(), rp_inert.data());      // 1 AMG-V-Zyklus auf div(rho^{-1} grad phi)
+for (size_t i = 0; i < N; ++i) r_p[i] = rp_inert[i] + rp_visc[i];
+// Danach: z_u -= B_p^T * r_p und 3 skalare AMG-V-Zyklen rückwärts auf F_ww -> F_vv -> F_uu (Block-Gauss-Seidel)!
+
+// 2. Lokale STEP-NURBS-Kontrollpunkt-Adjoint-Kontraktion dL/dP_{i,j} += R_{i,j}(u,v) * dL/dX_B (Yu & Müller Gl. 7–11):
+for (int iu = 0; iu <= p; ++iu) {
+    const int i = span_u - p + iu;
+    for (int iv = 0; iv <= q; ++iv) {
+        const int idx = i * n_ctrl_v + (span_v - q + iv);
+        const double R_ij = (Nu[iu] * Nv[iv] * W[idx]) / W_sum; // Rationale NURBS-Basis (Gl. 8)
+        dL_dP[idx].x += R_ij * dL_dXB.x;
+        dL_dP[idx].y += R_ij * dL_dXB.y;
+        dL_dP[idx].z += R_ij * dL_dXB.z;
+    }
+}
+```
+
+---
+
+### Snippet 23: Mimetischer Polyeder-Hodge-Stern $\mathbf{M}_P$ (MFD/VEM) & Port-Hamiltonscher Dirac-Kopplungsvertrag (aus [`literature_survey_2026.md` §10.1–§10.2](file:///G:/Datein/Projects/CFDSolver/resources/papers/literature_survey_2026.md#L634))
+* **Warum wichtig:**
+  1. **Mimetische Polyeder-Stabilisierung (Brezzi, Buffa & Lipnikov):** Liefert für jede noch so stark verzerrte Cut-Cell oder Mosaic-Polyederzelle $P$ ($m$ Flächen) rein aus den vorhandenen Größen $(\mathbf{S}_{P,f}, \mathbf{x}_f - \mathbf{x}_P, V_P)$ eine **garantiert symmetrisch positiv definite ($m\times m$)-Leitwertmatrix $\mathbf{M}_P \succ 0$**, die für jedes lineare Feld exakt ist ($\mathbf{M}_P \mathbf{R}_P = \mathbf{N}_P \mathbf{K}_P$).
+  2. **Port-Hamiltonscher Dirac-Port $(e, f)$:** Erzwingt an jeder Modulgrenze (FSI, CHT, Batterie, MHD) leistungskonjugierte Paare ($\dim(e\cdot f) = [\text{W}] = [1,2,-3,0,0,0,0]$) mit $e_A = e_B, f_A + f_B = 0 \implies \frac{\mathrm{d}\mathcal{H}_{\text{tot}}}{\mathrm{d}t} \le 0$ (unbedingte Kopplungs-Stabilität!):
+```cpp
+// 1. Mimetischer lokaler (m x m)-Leitwert-Eintrag M_P(f1, f2) für verzerrte Klasse-1-Polyeder (Lipnikov et al. 2014):
+//    N_P[f] = S_{P,f} (äußerer Flächenvektor), R_P[f] = x_f - x_P, G = (R_P^T * R_P)^{-1} in R^{3x3}:
+inline double mimetic_polyhedral_conductance_entry(
+    int f1, int f2, double V_P, double kappa_iso,
+    const Vec3* N_P, const Vec3* R_P, const Mat3& RtR_inv) noexcept
+{
+    const double consistency = (kappa_iso / V_P) * dot(N_P[f1], N_P[f2]); // (1/V_P) * N_P * K_P * N_P^T
+    const double gamma_P     = (3.0 * kappa_iso) / std::cbrt(V_P);        // tr(K_P) / V_P^{1/3}
+    const double proj_f1_f2  = (f1 == f2 ? 1.0 : 0.0) - dot(R_P[f1], RtR_inv * R_P[f2]);
+    return consistency + gamma_P * proj_f1_f2; // Garantiert SPD (M_P > 0) und exakt für lineare Felder!
+}
+
+// 2. Port-Hamiltonscher Dirac-Kopplungs-Check (van der Schaft & Kotyczka):
+//    Prüft, dass Effort e und Flow f exakt die SI-Dimension Leistung [W] = [1, 2, -3, 0, 0, 0, 0] ergeben
+//    und die verlustfreie Dirac-Bilanz e_A * f_A + e_B * f_B == 0 (+ Dämpfung R_diss >= 0) erfüllen:
+constexpr bool verify_port_hamiltonian_power_pair(const int8_t dim_effort[7], const int8_t dim_flow[7]) noexcept {
+    constexpr int8_t kWattDim[7] = {1, 2, -3, 0, 0, 0, 0}; // [kg * m^2 * s^-3] = [W]
+    for (int i = 0; i < 7; ++i) {
+        if (dim_effort[i] + dim_flow[i] != kWattDim[i]) return false;
+    }
+    return true;
+}
+```
+
+---
+
+### Snippet 24: Anderson Acceleration `AA(m)` für SIMPLE/CHT & Unbedingt positives Modified Patankar-Chemie-Update (MPRK) (aus [`literature_survey_2026.md` §10.5](file:///G:/Datein/Projects/CFDSolver/resources/papers/literature_survey_2026.md#L675))
+* **Warum wichtig:**
+  1. **Anderson Acceleration `AA(m)` (Walker & Ni 2011; Pollock & Rebholz 2019):** Beschleunigt segregierte Fixpunkt-Schleifen (`SIMPLE`, partitioniertes `CHT`/`FSI`) durch eine winzige $m\times m$ Least-Squares-Extrapolation ($m \approx 5$) der letzten Residuen $\mathbf{f}_k = \mathcal{G}(\mathbf{x}_k) - \mathbf{x}_k$ um **Faktor $2.5\times\text{ bis }4\times$** komplett ohne Änderung der FVM-Matrixassemblierung.
+  2. **Modified Patankar (Burchard, Deleersnijder & Meister):** Gewichtet in steifen Produktions-Destruktions-Systemen $\dot{Y}_k = \sum_j p_{kj} - \sum_j d_{kj}$ ($p_{kj} = d_{jk} \ge 0$) die Terme implizit mit $\frac{Y_j^{n+1}}{Y_j^n}$ und garantiert damit **strikte Positivität ($Y_k^{n+1} > 0$) und exakte Massenerhaltung ($\sum_k Y_k^{n+1} \equiv \sum_k Y_k^n = 1$) für jedes $\Delta t > 0$** ohne künstliches Renormierungs-Clipping:
+```cpp
+// 1. Modified Patankar-Euler Matrix-Assemblierung M * Y^{n+1} = Y^n (Burchard et al., strikte M-Matrix!):
+//    Für p_{kj} >= 0 (Produktion von k aus j) und d_{kj} = p_{jk} >= 0 (Destruktion von k nach j):
+inline void assemble_modified_patankar_system(
+    int Ns, double dt, const double* Y_n, const double* p_matrix, double* M_out) noexcept
+{
+    for (int k = 0; k < Ns; ++k) {
+        double diag_sum = 1.0;
+        const double inv_Yk = 1.0 / std::max(Y_n[k], 1e-300);
+        for (int j = 0; j < Ns; ++j) {
+            if (j == k) continue;
+            const double d_kj = p_matrix[j * Ns + k]; // Destruktion von k -> Produktion von j
+            const double p_kj = p_matrix[k * Ns + j]; // Produktion von k <- Destruktion von j
+            diag_sum          += dt * d_kj * inv_Yk;
+            M_out[k * Ns + j]  = -dt * p_kj / std::max(Y_n[j], 1e-300); // Off-Diag <= 0
+        }
+        M_out[k * Ns + k] = diag_sum; // Spaltensumme jeder Spalte j ist exakt 1.0 ==> sum_k Y_k^{n+1} == sum_k Y_k^n!
+    }
+}
+```
+
+---
+
+### Snippet 25: Stetige quadratische Prismen-Jacobi-Schranke $\min_{t\in[0,1]}\det\mathbf{J}(t)$, Pyramiden-Basis-Faltungstest & Exakte Dreiecks-Abwicklungs-Geodäte im `FaMesh` (aus [`BoundaryLayerMeshing1GPTAstra62max/engine/geometry.hpp#L185-L204`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/engine/geometry.hpp#L185-L204), [`fa_mesh.hpp#L54-L70`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing1GPTAstra62max/engine/fa_mesh.hpp#L54-L70) & [`BoundaryLayerMeshing2MistralLarge4high/mesher/quality.h#L51-L64`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/BoundaryLayerMeshing2MistralLarge4high/mesher/quality.h#L51-L64))
+* **Warum wichtig:**
+  1. **Stetige Prismen-Schranke (`GPTAstra62max`):** Ein verdrilltes Grenzschicht-Prisma kann an Boden ($t=0$) und Deckel ($t=1$) $\det\mathbf{J} > 0$ besitzen und trotzdem bei $t^* = -B/(2A) \in (0,1)$ invertieren! Die exakte Auswertung des quadratischen Polynoms $\det\mathbf{J}_i(t) = At^2 + Bt + C$ schließt jede innere Selbstüberschneidung analytisch aus.
+  2. **Exakte Geodäten-Abwicklung (`GPTAstra62max`):** Klappt benachbarte Wanddreiecke um ihre gemeinsame Kante $\mathbf{t}$ in eine Ebene auf und berechnet exakte geodätische Abstände und Dihedral-Krümmungstensoren für den 2D-Wandfilm (`faMesh`).
+```cpp
+// 1. Stetige quadratische Prismen-Jacobi-Schranke über die gesamte Schichtdicke t in [0, 1] (geometry.hpp:185-204):
+inline double prismJacobianBound(const Points &p, const Ids &v) {
+    Vec a = p[v[1]] - p[v[0]], b = p[v[2]] - p[v[0]], at = p[v[4]] - p[v[3]], bt = p[v[5]] - p[v[3]];
+    double result = 1.0;
+    for (int i = 0; i < 3; i++) {
+        Vec d = p[v[i + 3]] - p[v[i]], da = at - a, db = bt - b;
+        double A = det(da, db, d), B = det(da, b, d) + det(a, db, d), C = det(a, b, d);
+        double m = std::min(C, A + B + C);
+        if (A > 0.0) {
+            double t = -B / (2.0 * A);
+            if (t > 0.0 && t < 1.0) m = std::min(m, (A * t + B) * t + C); // Inneres Minimum t* in (0,1)!
+        }
+        double denom = std::max(a.norm(), at.norm()) * std::max(b.norm(), bt.norm()) * d.norm();
+        result = std::min(result, denom > 0.0 ? m / denom : -1.0);
+    }
+    return result;
+}
+
+// 2. Exakte Dreiecks-Abwicklungs-Geodäte & symmetrischer Dihedral-Krümmungstensor im FaMesh (fa_mesh.hpp:54-70):
+Vec v = p[ed.b] - p[ed.a], t = v.unit();
+Vec a = f.c - p[ed.a], b = g.c - p[ed.a];
+double u = a.dot(t), w = b.dot(t);
+double h = (a - t * u).norm(), k = (b - t * w).norm(), crossing = (u * k + w * h) / (h + k);
+ed.distance = (crossing >= 0.0 && crossing <= v.norm())
+    ? std::hypot(u - w, h + k)
+    : std::min(a.norm() + b.norm(), (f.c - p[ed.b]).norm() + (g.c - p[ed.b]).norm());
+double theta = std::atan2(t.dot(f.n.cross(g.n)), f.n.dot(g.n));
+Vec m = ed.le.unit();
+for (int r = 0; r < 3; r++)
+    for (int c = 0; c < 3; c++)
+        f.curvature[3 * r + c] += 0.5 * v.norm() * theta * m[r] * m[c] / f.area;
+```
+
+---
+
+### Snippet 26: Implizite WLS-Gradienten-Einbettung in die FVM-Systemmatrix $\mathbf{A}$ (Konvergenz in 1 Solve ohne Picard-Lagging!) & Skilling 3D-Hilbert + AMIPS (aus [`FVMVerificationEngine1Inkling2Small/engine/assembly.h#L206-L235`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Mesher/FVMVerificationEngine1Inkling2Small/engine/assembly.h#L206-L235) & [`Fable52high.txt`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Fable52high.txt))
+* **Warum wichtig:**
+  1. **Implizite WLS-Einbettung (`Inkling2Small`):** Drückt den WLS-Zellgradienten als exakte Linearkombination $(\nabla\phi)_c = \sum_j \mathbf{L}_{c,j}\phi_j + \mathbf{t}_c$ aus und assembliert die Skewness- und Nicht-Orthogonalitäts-Korrektur $\mathbf{c}_f \cdot \frac{1}{2}(\mathbf{L}_{P,j} + \mathbf{L}_{N,j})$ mit $\mathbf{c}_f = \dot{m}_f\mathbf{m}_f^{\text{skew}} - \Gamma\mathbf{k}_f^{\text{corr}}$ **direkt in die Matrix $\mathbf{A}$**. Dadurch konvergiert das System selbst bei $47.7^\circ$ Nicht-Orthogonalität in **einem einzigen linearen Solve ohne Picard-Schleife** ($p_{\text{obs}} = 1.9586$) und besitzt eine exakte Transponierte $\mathbf{A}^T$ für den Diskreten Adjoint ($1.14\times 10^{-14}$ Fehler gegen Complex-Step!).
+  2. **AMIPS Tetraeder-Qualitätsenergie (`Fable52high.txt:11080-11099`):** $\text{AMIPS}(\mathbf{J}) = \operatorname{tr}(\mathbf{J}^T\mathbf{J})/(\det\mathbf{J})^{2/3} \ge 3$ für den Crash-Flight-Recorder:
+```cpp
+// 1. Implizite Einbettung der WLS-Gradientengewichte L_{P,j}, L_{N,j} für m_skew und k_corr in Matrix A (assembly.h:206-235):
+const T aPP = m * (T)(1.0 - beta) + gamma * (T)alpha;
+const T aPN = m * (T)beta - gamma * (T)alpha;
+const std::array<T, 3> cvec{m * (T)mSkew.x - gamma * (T)kCorr.x,
+                            m * (T)mSkew.y - gamma * (T)kCorr.y,
+                            m * (T)mSkew.z - gamma * (T)kCorr.z};
+for (int j : neighbor_stencil_union_PN) {
+    std::array<double, 3> lp{0, 0, 0}, ln{0, 0, 0};
+    bool hp = false, hn = false;
+    LvecOf<T>(G, P, j, lp, hp);
+    LvecOf<T>(G, N, j, ln, hn);
+    const T corr = cvec[0] * (T)(0.5 * (lp[0] + ln[0]))
+                 + cvec[1] * (T)(0.5 * (lp[1] + ln[1]))
+                 + cvec[2] * (T)(0.5 * (lp[2] + ln[2]));
+    const T valP = (j == P ? aPP : T(0)) + (j == N ? aPN : T(0)) + corr;
+    add(P, j,  valP);
+    add(N, j, -valP);
+}
+```
+
+---
+
+### Snippet 27: Geschlossene quadratische Peng-Robinson-EOS in $w = \sqrt{T}$, All-Mach Low-Mach HLLC & OPMIS Wendland-$C^2$ MLS-Transfer (aus [`MultiphaseCompressible1PGT62SolMax/native/physics.hpp#L44-L93`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/physics.hpp#L44-L93), [`#L200-L235`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/physics.hpp#L200-L235) & [`hybrid.hpp#L50-L92`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphaseCompressible1PGT62SolMax/native/hybrid.hpp#L50-L92))
+* **Warum wichtig:**
+  1. **Exakte Newton-freie Peng-Robinson-Inversion (`GPT62SolMax`):** Da im Peng-Robinson-Real-Gas-Modell sowohl $p(v, w)$ als auch die innere Energie $e(v, w)$ **exakte quadratische Funktionen in $w = \sqrt{T}$** sind, löst `positive_root` sowohl `from_p(rho, p)` als auch `from_e(rho, e)` geschlossen in $\mathcal{O}(1)$ auf $2.22\times 10^{-16}$ genau!
+  2. **All-Mach Low-Mach-vorkonditioniertes HLLC:** Skaliert nur den akustischen Geschwindigkeitssprung im Stern-Druck über $\Delta p^* = (\beta - 1)\frac{\alpha_L\alpha_R}{\alpha_L+\alpha_R}(v_L - v_R)$ mit Schocksensor $\beta = \max(\text{Ma}_{\text{loc}}, \text{sensor}) \in [10^{-3}, 1]$ (99,76 % Akustikpuls-Erhaltung + exakte Sod-Stoßfronten!).
+```cpp
+// 1. Geschlossene quadratische Peng-Robinson-Inversion in w = sqrt(T) via Citardauq-Formel (physics.hpp:55-93):
+CB_HD inline double positive_root(double a, double b, double c) {
+    const double d = b * b - 4.0 * a * c;
+    if (!(d >= 0.0) || !(a > 0.0)) return -1.0;
+    const double root = ::sqrt(d);
+    return (b >= 0.0) ? (b + root > 0.0 ? -2.0 * c / (b + root) : -1.0) : (-b + root) / (2.0 * a);
+}
+// Inversion aus (rho, p):
+// w = positive_root(t.R/(t.v - t.b) - sq(t.B)/t.den, 2*t.A*t.B/t.den, -sq(t.A)/t.den - p);
+// Inversion aus (rho, e):
+// w = positive_root(t.cv, t.A*t.B*t.I, -sq(t.A)*t.I - e);
+
+// 2. All-Mach Low-Mach-Korrektur im HLLC-Riemann-Löser (physics.hpp:226-232):
+if (scheme == Scheme::AllMach) {
+    const double sensor = clip(6.0 * ::fabs(l.p - r.p) / min(l.rho * sq(l.c), r.rho * sq(r.c)), 0.0, 1.0);
+    const double beta   = max(beta_hllc(l, r, floor), sensor);
+    const double dp     = (beta - 1.0) * (al * ar / (al + ar)) * (vl - vr);
+    f.m += n * dp;
+    f.E += sm * dp;
+}
+```
+
+---
+
+### Snippet 28: Exakte 3D Swept-Volume Simpson-BDF2-DGCL-Quadratur & 4-Stufen Hatchard-Spotnitz Thermal-Runaway mit SEI-Tunnelbarriere $t_{\text{SEI}}$ (aus [`MultiphysicsModules2GPT61SolMax/public/solver/cluster_c.cpp#L510-L561`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules2GPT61SolMax/public/solver/cluster_c.cpp#L510-L561) & [`MultiphysicsModules1GeminiArgon4High/cpp/cluster_c_multiphysics.cpp#L419-L476`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/MultiphysicsModules1GeminiArgon4High/cpp/cluster_c_multiphysics.cpp#L419-L476))
+* **Warum wichtig:**
+  1. **Exaktes 3D-Swept-Volume für rotierende/deformierende Polyederflächen (`GPT61SolMax`):** Bei linearer Knotenbewegung über $[t^n, t^{n+1}]$ ist der Dreiecks-Flächenvektor $\mathbf{S}(\xi)$ quadratisch in $\xi\in[0,1]$, sodass die **Simpson-Regel $\frac{\mathbf{S}_0 + 4\mathbf{S}_{1/2} + \mathbf{S}_1}{6}$ das überstrichene Volumen auf Maschinenpräzision ($1.21\times 10^{-17}\,\text{m}^3/\text{s}$) exakt integriert**!
+  2. **4-Stufen Hatchard-Spotnitz Batterie-Thermal-Runaway (`GeminiArgon4High`):** Beinhaltet in Stufe 2 (Anode-Elektrolyt) die physikalische **SEI-Tunnelbarriere $\exp(-t_{\text{SEI}}/t_{\text{SEI},0})$** mit wachsender Schichtdicke $t_{\text{SEI}}^{n+1} = t_{\text{SEI}}^n + \Delta t R_{\text{ne}}$ und die autokatalytische Kathoden-Slack-Variable $1 - \alpha_{\text{pe}}$:
+```cpp
+// 1. Exakte 3D Swept-Volume Simpson-Quadratur für ein bewegtes Flächendreieck (a,b,c) -> (A,B,C) (cluster_c.cpp:510-517):
+inline double triangle_sweep(Vec a, Vec b, Vec c, Vec A, Vec B, Vec C) noexcept {
+    const Vec velocity_integral = ((A - a) + (B - b) + (C - c)) / 3.0;
+    const Vec S0 = cross(b - a, c - a) * 0.5;
+    const Vec S1 = cross(B - A, C - A) * 0.5;
+    const Vec Sm = cross((b + B - a - A) * 0.5, (c + C - a - A) * 0.5) * 0.5;
+    return dot(velocity_integral, (S0 + Sm * 4.0 + S1) / 6.0); // Exakt für beliebige 3D-Rotation & Streckung!
+}
+
+// 2. Stufe 2 (Anode mit SEI-Tunneling t_SEI) & Stufe 3 (Autokatalytische Kathode via 1 - alpha_pe) (cluster_c_multiphysics.cpp:427-444):
+const double t_sei_old = std::max(p_.t_SEI_0, state.t_SEI[c]);
+const double k_ne      = p_.A_ne * std::exp(-p_.E_ne / (p_.R_u * Tc)) * std::exp(-t_sei_old / p_.t_SEI_0);
+const double c_ne_new  = state.c_ne[c] / (1.0 + dt * k_ne);
+state.t_SEI[c]         = t_sei_old + dt * ((state.c_ne[c] - c_ne_new) / dt);
+
+const double a_old           = std::clamp(state.alpha_pe[c], 1e-6, 1.0 - 1e-9);
+const double prod_rate       = k_pe * std::pow(a_old, p_.m_pe1) * std::pow(1.0 - a_old, p_.m_pe2);
+const double one_minus_a_new = (1.0 - a_old) / (1.0 + dt * prod_rate / std::max(1e-12, 1.0 - a_old));
+state.alpha_pe[c]            = std::clamp(1.0 - one_minus_a_new, a_old, 1.0);
+```
+
+---
+
+### Snippet 29: Analytische Rang-1 Forchheimer-Jacobi-Matrix, Aitken-$\Delta^2$ Robin-Robin CHT & $S_8/S_{16}$ fvDOM-Strahlung mit Spiegel-Reflexion (aus [`Turbulence3GPT6LunaMax/cpp/include/cluster_a/cluster_a.hpp#L489-L511`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence3GPT6LunaMax/cpp/include/cluster_a/cluster_a.hpp#L489-L511), [`Turbulence2ClaudeHaiku55med/cpp/cluster_a.hpp#L429-L462`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2ClaudeHaiku55med/cpp/cluster_a.hpp#L429-L462) & [`Turbulence2GLM53max/src/cpp/cluster_a_radiation.hpp#L161-L274`](file:///G:/Datein/Projects/CFDSolver/resources/reference_spickzettel/LMArena/Solver/Turbulence2GLM53max/src/cpp/cluster_a_radiation.hpp#L161-L274))
+* **Warum wichtig:**
+  1. **Exakte Fréchet-Ableitung der anisotropen Forchheimer-Senke (`Turbulence3GPT6LunaMax`):** Liefert für unseren $4\times 4$ Block-Coupled Solver neben $\mu\mathbf{D} + \frac{1}{2}\rho|\mathbf{u}|\mathbf{F}$ auch den exakten Rang-1-Tangentenbeitrag $\frac{1}{2}\rho\frac{(\mathbf{F}\mathbf{u})\otimes\mathbf{u}}{|\mathbf{u}|}$.
+  2. **Aitken-$\Delta^2$ Robin-Robin CHT (`Turbulence2ClaudeHaiku55med`):** Konvergiert partitioniertes Fluid-Solid-CHT über $w_k = -w_{k-1}\frac{r_{k-1}}{r_k - r_{k-1}}$ in **3 Iterationen auf $8.79\times 10^{-11}\,\text{K}$** an die monolithische Lösung!
+```cpp
+// 1. Exakte 3x3 Tangenten-Jacobi-Matrix der anisotropen Darcy-Forchheimer-Senke (cluster_a.hpp:491-510):
+const double speed = norm(velocity);
+const Vec3   Fu    = matVec(forchheimerTensor, velocity);
+for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+        implicitJacobian[i][j] = mu * darcyTensor[i][j]
+            + 0.5 * rho * (speed * forchheimerTensor[i][j] + (speed > 1e-12 ? Fu[i] * velocity[j] / speed : 0.0));
+    }
+}
+
+// 2. Aitken-Delta^2 dynamische Relaxationsbeschleunigung für partitioniertes Robin-Robin-CHT (cluster_a.hpp:457-460):
+const double r = T_solid_interface_new - x_trace;
+if (it > 0 && std::abs(r - rPrev) > 1e-300) {
+    w_aitken = -w_aitken * rPrev / (r - rPrev);
+}
+rPrev    = r;
+x_trace += w_aitken * r;
+```
+
+---
+
+### Snippet 30: Unterrelaxations- & Zeitschritt-Konsistentes Rhie-Chow (Moukalled/Mangani/Darwish) & Zweistufiger `CPR` (Constrained Pressure Residual) Block-Vorkonditionierer (aus [`literature_survey_2026.md` §9.23](file:///G:/Datein/Projects/CFDSolver/resources/papers/literature_survey_2026.md#L628))
+* **Warum wichtig:**
+  1. **Konsistente Rhie-Chow-Flächengeschwindigkeit (Moukalled, Mangani & Darwish 2016, Kap. 15.6 & 18):** Verhindert, dass der konvergierte stationäre Zustand in gekoppelten oder segregierten Lösern vom Unterrelaxationsfaktor $\alpha_u$ oder vom Zeitschritt $\Delta t$ abhängt.
+  2. **Zweistufiger `CPR`-Vorkonditionierer für Reaktive & Multiphysik-Systeme ($M = 10\text{–}50$ DOFs/Zelle):** Kombiniert innerhalb von Matrix-Free Enzyme-JFNK (`FGMRES`) **1 skalaren AMG-V-Zyklus** auf der Quasi-IMPES-Druckmatrix $\mathbf{A}_{pp}^{\text{CPR}} = \mathbf{R}_p^T\mathcal{J}\mathbf{P}_p$ mit **1 hochparallelen zelllokalen Block-Jacobi/BILU(0)-Sweep** auf allen Transport- und Reaktionsgleichungen:
+```cpp
+// 1. Unterrelaxations- und Zeitschritt-konsistenter Rhie-Chow-Flächenfluss (Moukalled, Mangani & Darwish Kap. 15.6 & 18):
+inline Vec3 consistent_rhie_chow_face_velocity(
+    Vec3 u_bar_k, Vec3 u_f_km1, Vec3 u_bar_km1, Vec3 u_f_old_n, Vec3 u_bar_old_n,
+    Vec3 D_bar_f, Vec3 grad_p_f, Vec3 grad_p_bar_f,
+    double alpha_u, double rho_f, double V_f, double dt, double a_P_bar_f) noexcept
+{
+    const Vec3 dp_diss    = {D_bar_f.x * (grad_p_f.x - grad_p_bar_f.x),
+                             D_bar_f.y * (grad_p_f.y - grad_p_bar_f.y),
+                             D_bar_f.z * (grad_p_f.z - grad_p_bar_f.z)};
+    const Vec3 urf_corr   = (1.0 - alpha_u) * (u_f_km1 - u_bar_km1);
+    const Vec3 dt_corr    = ((rho_f * V_f) / std::max(dt * a_P_bar_f, 1e-300)) * (u_f_old_n - u_bar_old_n);
+    return u_bar_k - dp_diss + urf_corr + dt_corr; // Im Fixpunkt u^{(k)} == u^{(k-1)} == u^n exakt unabhängig von alpha_u & dt!
+}
+
+// 2. Zweistufiger CPR (Constrained Pressure Residual) Rechts-Vorkonditionierer M_CPR^{-1} * r innerhalb von Matrix-Free JFNK:
+//    Stufe 1: Quasi-IMPES Druck-Restriktion r_p = R_p^T * r -> 1 skalarer AMG-V-Zyklus auf A_pp^{CPR} * dp = r_p
+//    Stufe 2: Defekt-Update r_corr = r - J * (P_p * dp) via Enzyme Forward-AD -> 1 zelllokaler GPU Block-Jacobi/BILU(0)-Sweep:
+inline void apply_cpr_preconditioner(
+    size_t N_cells, int M_dofs, const double* r_full, double* z_out,
+    double* r_p_buf, double* dp_buf, double* J_Pp_dp_buf)
+{
+    restrict_quasi_impes_pressure(N_cells, M_dofs, r_full, r_p_buf);    // r_p = R_p^T * r
+    amg_pressure_cpr.v_cycle(r_p_buf, dp_buf);                          // dp  = (A_pp^{CPR})^{-1} * r_p (1 skalarer AMG-V-Zyklus!)
+    prolongate_and_jvp_enzyme(N_cells, M_dofs, dp_buf, J_Pp_dp_buf);    // J * (P_p * dp) matrixfrei via __enzyme_fwddiff
+    apply_cell_block_jacobi_or_bilu0(N_cells, M_dofs, r_full, J_Pp_dp_buf, dp_buf, z_out); // z = M_BILU^{-1}(r - J*P_p*dp) + P_p*dp
+}
+```
+

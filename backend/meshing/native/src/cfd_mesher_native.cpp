@@ -31,6 +31,10 @@ CFD_EXPORT void cfd_mesher_free(CfdNativeMesh* mesh) {
   }
 }
 
+CFD_EXPORT void cfd_mesher_free_mesh(CfdNativeMesh* mesh) {
+  cfd_mesher_free(mesh);
+}
+
 CFD_EXPORT int32_t cfd_mesher_generate_from_surface(
     CfdNativeMesh* mesh,
     const double* points,
@@ -125,7 +129,28 @@ CFD_EXPORT int32_t cfd_mesher_generate_hexcore(
     if (config) {
       if (config->h_min > 0.0) options.h_min = config->h_min;
       if (config->h_max > 0.0) options.h_max = config->h_max;
+      if (config->grading > 0.0) options.grading = config->grading;
+      if (config->alpha_curv > 0.0) options.alpha_curv = config->alpha_curv;
+      if (config->beta_prox > 0.0) options.beta_prox = config->beta_prox;
       options.enable_rcm = (config->enable_rcm != 0);
+      if (config->num_bl_layers >= 0) options.num_bl_layers = config->num_bl_layers;
+      if (config->bl_first_height > 0.0) options.bl_first_height = config->bl_first_height;
+      if (config->bl_growth_rate > 0.0) options.bl_growth_rate = config->bl_growth_rate;
+      options.bl_pinching_enabled = (config->bl_pinching_enabled != 0);
+      if (config->bl_pinching_angle_deg > 0.0) options.bl_pinching_angle_deg = config->bl_pinching_angle_deg;
+      options.enable_cht = (config->enable_cht != 0);
+      options.enable_cyclic = (config->enable_cyclic != 0);
+      options.cyclic_angle_rad = config->cyclic_angle_rad;
+      if (config->distmesh_iters >= 0) options.distmesh_iters = config->distmesh_iters;
+      if (config->h_min > 0.0 && options.h0 > 0.0) {
+        if (config->h_min >= options.h0) {
+          options.max_depth = 0;
+        } else {
+          const int32_t raw_depth =
+              static_cast<int32_t>(std::ceil(std::log2(options.h0 / config->h_min))) + 1;
+          options.max_depth = (raw_depth < 1) ? 1 : ((raw_depth > 4) ? 4 : raw_depth);
+        }
+      }
     }
 
     cfd::OctreeHexcore hexcore;

@@ -294,7 +294,7 @@ def export_openfoam_multiregion_polymesh(
         ValueError: If regions is empty, or if region_properties references unknown regions.
     """
     if not regions:
-        raise ValueError("regions dictionary must contain at least one mesh region")
+        raise ValueError("regions dictionary cannot be empty; must contain at least one mesh region")
 
     case_dir = Path(case_path).resolve()
     poly_mesh_dirs: Dict[str, Path] = {}

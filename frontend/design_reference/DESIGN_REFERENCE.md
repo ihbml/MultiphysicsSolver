@@ -159,3 +159,43 @@ Aus der mathematischen Überprüfung der Paletten (CIE $L^*$, Oklab $\Delta E$, 
 8. **Offene Bestätigungspunkte durch den User:**
    * `#11217` $\rightarrow$ normiert als `#111217` (*Deep Obsidian*) – bitte kurz bestätigen.
    * **Aero-Colormap:** Aktuell als *Nachtblau (`#050B2E`) $\rightarrow$ Electric Blue (`#004AFD`) $\rightarrow$ Cloud (`#DFE5EB`)* definiert (oder alternativ klassisch divergierend Blau–Weiß–Rot) – bitte gewünschte Variante bestätigen.
+
+---
+
+## 6. Auswertung & Lehren aus `Qwen38maxCADRender1/2` (und Duplikat `AgentModeModelUnknownRender`) — Keine 1:1-Übernahme!
+
+> **Wichtiger Befund:** `Qwen38maxCADRender1` und `AgentModeModelUnknownRender` sind **Bit für Bit identisch** (SHA-256-geprüft). Beide Qwen-Entwürfe enthalten wertvolle Einzelmodule und UI/HUD-Ideen, dürfen aber **nicht 1:1 übernommen** werden, da ihre Geometrie-Tessellierung und Schnitt-Darstellung sichtbare Artefakte aufweisen.
+
+### Visuelle Referenz der Qwen-Prototypen (Positiv-Ideen vs. Rendering-Mängel)
+
+| Screenshot 1: Schnittebene & 3D-Bemaßungs-Callouts (`Qwen38maxCADRender2`) | Screenshot 2: Tessellierungs- & Naht-Artefakte (`Qwen38maxCADRender`) |
+| :---: | :---: |
+| ![Qwen Section & PMI Callouts](assets/qwen_ref_section_and_pmi_hud.jpg) | ![Qwen Tessellation & Seam Artifacts](assets/qwen_ref_tessellation_artifacts.jpg) |
+| **Gut (Übernehmen):** Dezente 3D-Bemaßungs-Leader (`Ø24 H7`, `29.2`), kompaktes Viewport-HUD (`60 fps · 3.6 ms cpu · tris · draws`), Untere Schnell-Umschaltleiste (`SHADED`, `SHADED + EDGES`, `WIREFRAME`, `X-RAY`).<br>**Schlecht (Vermeiden):** Flache, halbtransparente Schnittebene ohne echten Tiefenpuffer/Stencil-Cap (sieht hohl und überlappend aus). | **Gut (Übernehmen):** Umschaltbare Tessellierungs-Auflösung (`Coarse | Standard | Fine`), kompaktes Pipeline-Telemetrie-Overlay (`FPS`, `FRAME`, `TRIS`, `DRAWN`, `CULLED`, `GPU`), vertikale Schnell-Toolbar links.<br>**Schlecht (Vermeiden):** Deutliche **Sägezahn-/Z-Fighting-Artefakte** an der unterenZylinder-Flansch-Naht, facettierte Zylinder-Normalen ohne glatte Phong/B-Rep-Normalen und unsaubere Triangulationsfächer am Zylinderdeckel. |
+
+### A. Was wir gezielt als Baustein adaptieren (Rosinenpicken)
+
+1. **Aus `Qwen38maxCADRender1` (`crates/cad_renderer`, `cad_core`, `cad_plugin_api`, `cad_addons`):**
+   * **Endloses Reverse-Z CAD-Grid (`cad_grid.wgsl`):** Fullscreen-Ray-Plane-Intersection mit `fwidth()`-Filterung, Major/Minor-Teilungen, X/Z-Achsenlinien und Grazing-Angle-Fade gegen Horizontflimmern.
+   * **Topologische Kanten-Extraktion & Wasserdichtigkeits-Prüfung (`mesh.rs` + `cad_edges.wgsl`):**
+     * Trennung zwischen scharfen Konstruktionskanten (`EdgeKind::Crease` über Dihedralwinkel) und offenen Bauteilrändern (`EdgeKind::Boundary`, Kanten mit nur 1 angrenzenden Dreieck).
+     * **CFD-Geometry-Doctor:** Offene Randkanten (`Boundary`) werden im Viewport sofort warnend hervorgehoben, damit der Nutzer vor dem Vernetzen sieht, wo eine STL/STEP-Geometrie nicht wasserdicht ist.
+   * **GPU-basiertes 1-Pixel-Picking (`cad_pick.wgsl`):** `R32Uint`-Offscreen-Pass für verzögerungsfreie Patch- und Bauteil-Auswahl per Mausklick/Hover unter Beachtung aktiver Schnittebenen.
+   * **Oberflächen-Diagnose-Modi (`cad_surface.wgsl`):** Prozedurales *MatCap/Curvature*, *Gooch-Shading* (technische Zeichnung), *Zebra-Streifen* (Krümmungsstetigkeit) und *Backface-Cross-Hatching* bei aufgeschnittenen Hohlkörpern.
+   * **Zweistufiges Addon-Konzept (`bevy_ecs` + `Rhai`-Scripting):** Saubere Trennung zwischen kompilierten Rust-ECS-Plugins und leichtgewichtigen `Rhai`-Skripten für parametrische Geometrie-Generatoren oder Prüfwerkzeuge.
+2. **Aus `Qwen38maxCADRender2` (UI/HUD & Architektur):**
+   * **3D-PMI-/Mess-Callouts im Viewport:** Abgeknickte Maßhilfslinien (`Ø24 H7`, Abstände, Winkel) als scharfe Screen-Space-Overlays.
+   * **Tessellierungs-Stufen (`Coarse / Standard / Fine`) & Frame-Budget-Telemetrie:** Kompakte Anzeige von CPU-/GPU-Framezeit sowie gezieltes Frustum-Culling.
+
+### B. Was wir an `Qwen38maxCADRender1/2` zwingend korrigieren / nicht übernehmen
+
+1. **Keine facettierten Zylinder-Nähte oder Sägezahn-Artefakte:**
+   * Die prozeduralen Primitiven in `Qwen38maxCADRender1/2` teilen sich an Übergängen keine sauber verschmolzenen Topologiekanten und nutzen teils Flat-Normals pro Dreieck. Unser Renderer trennt **glatte analytische/interpolierte Vertex-Normalen** (für glatte Oberflächen) strikt vom **separaten Kanten-Indexbuffer (`EdgeVertex`)** für scharfe Feature-Kanten.
+2. **Echte geschlossene Schnittebenen (Capped Section Cuts) statt hohler 2D-Schnitte:**
+   * Statt einer bloß drübergelegten orangen Ebene wie in Screenshot 1 erzeugen wir bei massiven CAD-Körpern eine echte **Schnittflächen-Füllung (Stencil-Cap bzw. Sutherland-Hodgman Cap-Polygon mit Schraffur)** plus scharfer Schnittkonturkante (`cap_edges`).
+3. **Korrektur der halluzinierten `Cargo.toml`-Versionsnummern:**
+   * `Qwen38maxCADRender1` listet nicht-existierende Crate-Versionen (`wgpu = "30.0.1"`, `egui = "0.37.0"`, `bevy_ecs = "0.20.1"`). Beim Projekt-Setup pinnen wir ausschließlich reale, verifizierte crates.io-Releases.
+4. **Kein ACES-Tonemapping auf CFD-Skalarfeldern:**
+   * `cad_surface.wgsl` wendet pauschal `aces_tonemap()` an. Das darf **nur** im CAD-Studio-Modus aktiv sein; unser CFD-Modus (`Unlit Scientific`) umgeht Tonemapping komplett.
+5. **Reaktiver Event-Loop statt Dauer-Redraw:**
+   * `app.rs` in `Qwen38maxCADRender1` feuert in `about_to_wait` ununterbrochen `window.request_redraw()`. Wir erzwingen wie in Abschnitt 4.3 definiert `ControlFlow::Wait` (0 % GPU-Last im Idle).

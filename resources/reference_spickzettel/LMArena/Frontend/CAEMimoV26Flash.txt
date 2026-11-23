@@ -1,0 +1,4495 @@
+I'll generate the four plates and inspect the starter files in one pass.
+Generated public/images/chamber.jpg
+public/images/chamber.jpg
+Generated public/images/chamber.jpg
+public/images/chamber.jpg
+Generated public/images/runA.jpg
+public/images/runA.jpg
+Generated public/images/runA.jpg
+public/images/runA.jpg
+Generated public/images/runB.jpg
+public/images/runB.jpg
+Generated public/images/runB.jpg
+public/images/runB.jpg
+Generated public/images/faceplate.jpg
+public/images/faceplate.jpg
+Generated public/images/faceplate.jpg
+public/images/faceplate.jpg
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 reads
+Readindex.html L1-13
+Readindex.css L1-2
+Readpackage.json L1-29
+Readtsconfig.json L1-32
+Readvite.config.ts L1-20
+ReadApp.tsx L1-29
+
+Config uses vite-plugin-singlefile, so assets must be imported (inlined) rather than referenced from public/. I'll validate that early with a smoke build while writing the shell files.
+Created index.html
+Created index.html
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111217" />
+    <meta
+      name="description"
+      content="COCKPIT Stage 2 — spatial boundary rule authoring, 3D domain/probe gizmos, scientific line-probe plotting, multi-run A/B delta splitscreen and the SI-checked field calculator. Rust/wgpu reference implementation + live WebGL2 workbench."
+    />
+    <title>COCKPIT · Stage 2 — Spatial Rule Authoring, Gizmos &amp; SI Field Calculator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        background: #111217;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+Created src/index.css
+Created src/index.css
+
+@import "tailwindcss";
+@theme {
+  --font-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-obsidian: #111217;
+  --color-carbon: #18181c;
+  --color-raised: #1f2128;
+  --color-hairline: #2a2c36;
+  --color-ink: #e9ebf2;
+  --color-muted: #8a90a3;
+  --color-dim: #5f6577;
+  --color-volt: #004afd;
+  --color-alarm: #ef233c;
+  --color-amber: #ffb020;
+}
+:root {
+  color-scheme: dark;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: #111217;
+  color: #e9ebf2;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+}
+* {
+  box-sizing: border-box;
+}
+/* ---- typographic primitives -------------------------------------------- */
+.lbl {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.disp {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+/* ---- shell surfaces ----------------------------------------------------- */
+.hair {
+  border-color: var(--color-hairline);
+}
+.pane {
+  background: var(--color-carbon);
+  border: 1px solid var(--color-hairline);
+}
+.grid-fine {
+  background-image:
+    linear-gradient(to right, rgba(138, 144, 163, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(138, 144, 163, 0.055) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.vignette {
+  background: radial-gradient(120% 90% at 50% 45%, transparent 30%, rgba(9, 10, 14, 0.72) 100%);
+}
+/* ---- scrollbars --------------------------------------------------------- */
+.scroller {
+  scrollbar-width: thin;
+  scrollbar-color: #333644 transparent;
+}
+.scroller::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroller::-webkit-scrollbar-thumb {
+  background: #333644;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scroller::-webkit-scrollbar-thumb:hover {
+  background: #454a5e;
+  background-clip: padding-box;
+}
+/* ---- inputs ------------------------------------------------------------- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: #2a2c36;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  background: #e9ebf2;
+  border: 0;
+  cursor: ew-resize;
+  transition: background 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: var(--color-volt);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  background: #e9ebf2;
+  border: 0;
+  border-radius: 0;
+  cursor: ew-resize;
+}
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+:focus-visible {
+  outline: 1px solid var(--color-volt);
+  outline-offset: 1px;
+}
+/* ---- motion ------------------------------------------------------------- */
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes alarm-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pulse-led {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(220%);
+  }
+}
+.chip-in {
+  animation: chip-in 200ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+.alarm-in {
+  animation: alarm-in 160ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+.led {
+  animation: pulse-led 2.4s ease-in-out infinite;
+}
+.sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(0, 74, 253, 0.5), transparent);
+  animation: sweep 1.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+Created src/App.tsx
+Created src/App.tsx
+
+import chamber from "../public/images/chamber.jpg";
+export default function App() {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-obsidian">
+      <img src={chamber} alt="" className="h-64 w-auto opacity-70" />
+    </div>
+  );
+}
+
+Created src/vite-env.d.ts
+Created src/vite-env.d.ts
+
+/// <reference types="vite/client" />
+
+Ran npm run build 2>&1 | tail -25
+Ran ls -la dist/ dist/assets 2>/dev/null | head -20; g…
+
+Build validated — images inline correctly. Now the core libraries: procedural blade mesh + picking + rule synthesizer, and the field/plot data model.
+Created src/lib/geometry.ts
+Created src/lib/geometry.ts
+
+/* ============================================================================
+ *  cockpit::geometry  —  procedural cascade mesh, R32Uint-style face picking,
+ *  patch statistics and the Smart Spatial Rule Synthesizer.
+ *  (web/wgpu-neutral: the same structures are POD-mapped by bytemuck in Rust)
+ * ==========================================================================*/
+export type Vec3 = [number, number, number];
+export type AxisIdx = 0 | 1 | 2;
+export const AXIS_NAMES = ["x", "y", "z"] as const;
+export type GroupId =
+  | "leading_edge"
+  | "trailing_edge"
+  | "suction_side"
+  | "pressure_side"
+  | "hub_root"
+  | "tip_shroud";
+export const CHORD = 0.12; // L, axial / chordwise extent  (x)
+export const SPAN_ROOT = 0.02; // hub radius                (z)
+export const SPAN_TIP = 0.14; // tip radius                 (z)
+export interface Face {
+  id: number;
+  vi: [number, number, number];
+  n: Vec3;
+  c: Vec3;
+  area: number;
+  group: GroupId;
+  tag: string;
+  u: number; // centroid chord fraction x/c
+  side: 1 | -1;
+}
+export interface Mesh {
+  positions: Float32Array;
+  normals: Float32Array;
+  data: Float32Array; // [x/c, side]
+  highlight: Float32Array;
+  indices: Uint32Array;
+  faces: Face[];
+  byGroup: Record<string, number[]>;
+  bbox: { min: Vec3; max: Vec3 };
+}
+const NU = 56; // chordwise divisions (cosine spaced)
+const NV = 22; // spanwise divisions
+/* ---------- NACA4-digit section ---------------------------------------- */
+function section(c: number) {
+  const t = 0.12,
+    m = 0.035,
+    p = 0.4;
+  const yt =
+    5 *
+    t *
+    (0.2969 * Math.sqrt(c) - 0.126 * c - 0.3516 * c * c + 0.2843 * c ** 3 - 0.1015 * c ** 4);
+  let yc = 0,
+    dyc = 0;
+  if (c < p) {
+    yc = (m / (p * p)) * (2 * p * c - c * c);
+    dyc = (2 * m / (p * p)) * (p - c);
+  } else {
+    yc = (m / ((1 - p) * (1 - p))) * (1 - 2 * p + 2 * p * c - c * c);
+    dyc = (2 * m / ((1 - p) * (1 - p))) * (p - c);
+  }
+  return { yc, yt, dyc };
+}
+const tagFor: Record<GroupId, string> = {
+  leading_edge: "A1/LE",
+  trailing_edge: "A1/TE",
+  suction_side: "A1/SUCTION_SIDE",
+  pressure_side: "A1/PRESSURE_SIDE",
+  hub_root: "A1/HUB_FILLET",
+  tip_shroud: "A1/TIP_SHROUD",
+};
+export function buildMesh(): Mesh {
+  const nSheet = (NU + 1) * (NV + 1);
+  const positions = new Float32Array(nSheet * 2 * 3);
+  const data = new Float32Array(nSheet * 2 * 2);
+  const idx = (sheet: number, i: number, j: number) => sheet * nSheet + j * (NU + 1) + i;
+  for (let sheet = 0; sheet < 2; sheet++) {
+    const s: 1 | -1 = sheet === 0 ? 1 : -1; // sheet0 = suction (+y), sheet1 = pressure
+    for (let j = 0; j <= NV; j++) {
+      const zn = j / NV;
+      const z = SPAN_ROOT + (SPAN_TIP - SPAN_ROOT) * zn;
+      const chord = CHORD * (1 - 0.12 * zn);
+      const twist = ((14 - 11 * zn) * Math.PI) / 180;
+      const ct = Math.cos(twist),
+        st = Math.sin(twist);
+      for (let i = 0; i <= NU; i++) {
+        const u = 0.5 * (1 - Math.cos((Math.PI * i) / NU));
+        const { yc, yt } = section(u);
+        const lx = u * chord - 0.25 * chord;
+        const ly = (yc + s * yt) * chord;
+        const rx = lx * ct - ly * st + 0.25 * chord;
+        const ry = lx * st + ly * ct;
+        const k = idx(sheet, i, j);
+        positions[k * 3] = rx;
+        positions[k * 3 + 1] = ry;
+        positions[k * 3 + 2] = z;
+        data[k * 2] = u;
+        data[k * 2 + 1] = s;
+      }
+    }
+  }
+  const faces: Face[] = [];
+  const push = (
+    sheet: number,
+    i: number,
+    j: number,
+    a: number,
+    b: number,
+    c: number,
+  ) => {
+    const P = (v: number): Vec3 => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]];
+    const pa = P(a),
+      pb = P(b),
+      pc = P(c);
+    const e1: Vec3 = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+    const e2: Vec3 = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+    let n: Vec3 = [
+      e1[1] * e2[2] - e1[2] * e2[1],
+      e1[2] * e2[0] - e1[0] * e2[2],
+      e1[0] * e2[1] - e1[1] * e2[0],
+    ];
+    const len = Math.hypot(n[0], n[1], n[2]) || 1;
+    n = [n[0] / len, n[1] / len, n[2] / len];
+    const s: 1 | -1 = sheet === 0 ? 1 : -1;
+    let tri: [number, number, number] = [a, b, c];
+    if (n[1] * s < 0) {
+      tri = [a, c, b];
+      n = [-n[0], -n[1], -n[2]];
+    }
+    const cxyz: Vec3 = [
+      (pa[0] + pb[0] + pc[0]) / 3,
+      (pa[1] + pb[1] + pc[1]) / 3,
+      (pa[2] + pb[2] + pc[2]) / 3,
+    ];
+    const area = len / 2;
+    let group: GroupId;
+    if (j === 0) group = "hub_root";
+    else if (j === NV - 1) group = "tip_shroud";
+    else if (i <= 1) group = "leading_edge";
+    else if (i >= NU - 1) group = "trailing_edge";
+    else group = s > 0 ? "suction_side" : "pressure_side";
+    faces.push({
+      id: faces.length,
+      vi: tri,
+      n,
+      c: cxyz,
+      area,
+      group,
+      tag: tagFor[group],
+      u: cxyz[0] / (CHORD * (1 - 0.12 * ((cxyz[2] - SPAN_ROOT) / (SPAN_TIP - SPAN_ROOT)))),
+      side: s,
+    });
+  };
+  for (let sheet = 0; sheet < 2; sheet++) {
+    for (let j = 0; j < NV; j++) {
+      for (let i = 0; i < NU; i++) {
+        const p00 = idx(sheet, i, j);
+        const p10 = idx(sheet, i + 1, j);
+        const p11 = idx(sheet, i + 1, j + 1);
+        const p01 = idx(sheet, i, j + 1);
+        push(sheet, i, j, p00, p10, p11);
+        push(sheet, i, j, p00, p11, p01);
+      }
+    }
+  }
+  // smooth normals by quantised position
+  const acc = new Map<number, Vec3>();
+  const key = (v: number) =>
+    `${Math.round(positions[v * 3] * 1e5)},${Math.round(positions[v * 3 + 1] * 1e5)},${Math.round(
+      positions[v * 3 + 2] * 1e5,
+    )}`;
+  for (const f of faces) {
+    for (const v of f.vi) {
+      const k = key(v);
+      const cur = acc.get(k);
+      if (cur) {
+        cur[0] += f.n[0];
+        cur[1] += f.n[1];
+        cur[2] += f.n[2];
+      } else acc.set(k, [f.n[0], f.n[1], f.n[2]]);
+    }
+  }
+  const normals = new Float32Array(positions.length);
+  for (let v = 0; v < positions.length / 3; v++) {
+    const a = acc.get(key(v)) ?? [0, 0, 1];
+    const l = Math.hypot(a[0], a[1], a[2]) || 1;
+    normals[v * 3] = a[0] / l;
+    normals[v * 3 + 1] = a[1] / l;
+    normals[v * 3 + 2] = a[2] / l;
+  }
+  const indices = new Uint32Array(faces.length * 3);
+  faces.forEach((f, i) => {
+    indices[i * 3] = f.vi[0];
+    indices[i * 3 + 1] = f.vi[1];
+    indices[i * 3 + 2] = f.vi[2];
+  });
+  const bbox = { min: [1e9, 1e9, 1e9] as Vec3, max: [-1e9, -1e9, -1e9] as Vec3 };
+  for (let v = 0; v < positions.length / 3; v++) {
+    for (let a = 0; a < 3; a++) {
+      const x = positions[v * 3 + a];
+      if (x < bbox.min[a]) bbox.min[a] = x;
+      if (x > bbox.max[a]) bbox.max[a] = x;
+    }
+  }
+  const byGroup: Record<string, number[]> = {};
+  for (const f of faces) (byGroup[f.group] ??= []).push(f.id);
+  return {
+    positions,
+    normals,
+    data,
+    highlight: new Float32Array(positions.length / 3),
+    indices,
+    faces,
+    byGroup,
+    bbox,
+  };
+}
+/* ---------- camera + picking -------------------------------------------- */
+export interface Camera {
+  theta: number;
+  phi: number;
+  dist: number;
+  target: Vec3;
+}
+export function eyeOf(cam: Camera): Vec3 {
+  const cp = Math.cos(cam.phi);
+  return [
+    cam.target[0] + cam.dist * cp * Math.cos(cam.theta),
+    cam.target[1] + cam.dist * cp * Math.sin(cam.theta),
+    cam.target[2] + cam.dist * Math.sin(cam.phi),
+  ];
+}
+export function basisOf(cam: Camera): { x: Vec3; y: Vec3; z: Vec3 } {
+  const eye = eyeOf(cam);
+  const z: Vec3 = [eye[0] - cam.target[0], eye[1] - cam.target[1], eye[2] - cam.target[2]];
+  const zl = Math.hypot(z[0], z[1], z[2]) || 1;
+  z[0] /= zl;
+  z[1] /= zl;
+  z[2] /= zl;
+  const up: Vec3 = [0, 0, 1];
+  let x: Vec3 = [
+    up[1] * z[2] - up[2] * z[1],
+    up[2] * z[0] - up[0] * z[2],
+    up[0] * z[1] - up[1] * z[0],
+  ];
+  const xl = Math.hypot(x[0], x[1], x[2]) || 1;
+  x = [x[0] / xl, x[1] / xl, x[2] / xl];
+  const y: Vec3 = [
+    z[1] * x[2] - z[2] * x[1],
+    z[2] * x[0] - z[0] * x[2],
+    z[0] * x[1] - z[1] * x[0],
+  ];
+  return { x, y, z };
+}
+/** screen-space ray (origin = eye, unit direction in world) */
+export function rayFromScreen(
+  cam: Camera,
+  mx: number,
+  my: number,
+  w: number,
+  h: number,
+  fovY: number,
+): { o: Vec3; d: Vec3 } {
+  const ndcX = (mx / w) * 2 - 1;
+  const ndcY = 1 - (my / h) * 2;
+  const aspect = w / Math.max(1, h);
+  const t = Math.tan(fovY / 2);
+  const dv: Vec3 = [ndcX * t * aspect, ndcY * t, -1];
+  const b = basisOf(cam);
+  const d: Vec3 = [
+    dv[0] * b.x[0] + dv[1] * b.y[0] + dv[2] * b.z[0],
+    dv[0] * b.x[1] + dv[1] * b.y[1] + dv[2] * b.z[1],
+    dv[0] * b.x[2] + dv[1] * b.y[2] + dv[2] * b.z[2],
+  ];
+  const l = Math.hypot(d[0], d[1], d[2]) || 1;
+  return { o: eyeOf(cam), d: [d[0] / l, d[1] / l, d[2] / l] };
+}
+export interface Pick {
+  faceId: number;
+  point: Vec3;
+  dist: number;
+}
+export function pickFace(mesh: Mesh, ray: { o: Vec3; d: Vec3 }): Pick | null {
+  let best: Pick | null = null;
+  const EPS = 1e-9;
+  for (const f of mesh.faces) {
+    const a = f.vi[0] * 3,
+      b = f.vi[1] * 3,
+      c = f.vi[2] * 3;
+    const p0: Vec3 = [mesh.positions[a], mesh.positions[a + 1], mesh.positions[a + 2]];
+    const p1: Vec3 = [mesh.positions[b], mesh.positions[b + 1], mesh.positions[b + 2]];
+    const p2: Vec3 = [mesh.positions[c], mesh.positions[c + 1], mesh.positions[c + 2]];
+    const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    const pv: Vec3 = [
+      ray.d[1] * e2[2] - ray.d[2] * e2[1],
+      ray.d[2] * e2[0] - ray.d[0] * e2[2],
+      ray.d[0] * e2[1] - ray.d[1] * e2[0],
+    ];
+    const det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
+    if (Math.abs(det) < EPS) continue;
+    const inv = 1 / det;
+    const tv: Vec3 = [ray.o[0] - p0[0], ray.o[1] - p0[1], ray.o[2] - p0[2]];
+    const u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) * inv;
+    if (u < 0 || u > 1) continue;
+    const qv: Vec3 = [
+      tv[1] * e1[2] - tv[2] * e1[1],
+      tv[2] * e1[0] - tv[0] * e1[2],
+      tv[0] * e1[1] - tv[1] * e1[0],
+    ];
+    const v = (ray.d[0] * qv[0] + ray.d[1] * qv[1] + ray.d[2] * qv[2]) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) * inv;
+    if (t <= 1e-5) continue;
+    if (!best || t < best.dist)
+      best = {
+        faceId: f.id,
+        dist: t,
+        point: [ray.o[0] + ray.d[0] * t, ray.o[1] + ray.d[1] * t, ray.o[2] + ray.d[2] * t],
+      };
+  }
+  return best;
+}
+/* ---------- patch statistics -------------------------------------------- */
+export interface PatchStats {
+  ids: number[];
+  n: Vec3; // mean normal
+  coneDeg: number; // max angular deviation from mean
+  centroid: Vec3;
+  bbox: { min: Vec3; max: Vec3 };
+  groups: { id: GroupId; n: number }[];
+  tags: string[];
+  rAbout: [number, number][]; // per-axis [min,max] of cylindrical radius
+  rMean: [number, number, number];
+  rSpread: [number, number, number];
+}
+export function cylRadiusAbout(axis: AxisIdx, p: Vec3): number {
+  if (axis === 0) return Math.hypot(p[1], p[2]);
+  if (axis === 1) return Math.hypot(p[0], p[2]);
+  return Math.hypot(p[0], p[1]);
+}
+export function cylLabel(axis: AxisIdx): string {
+  return axis === 0 ? "cyl_radius_yz(0,0)" : axis === 1 ? "cyl_radius_xz(0,0)" : "cyl_radius_xy(0,0)";
+}
+export function patchStats(mesh: Mesh, ids: number[]): PatchStats {
+  const set = new Set(ids);
+  const faces = mesh.faces.filter((f) => set.has(f.id));
+  const n: Vec3 = [0, 0, 0];
+  const centroid: Vec3 = [0, 0, 0];
+  const bbox = { min: [1e9, 1e9, 1e9] as Vec3, max: [-1e9, -1e9, -1e9] as Vec3 };
+  const gcount = new Map<string, number>();
+  const tags = new Set<string>();
+  const rmin = [1e9, 1e9, 1e9];
+  const rmax = [-1e9, -1e9, -1e9];
+  const rsum = [0, 0, 0];
+  for (const f of faces) {
+    n[0] += f.n[0] * f.area;
+    n[1] += f.n[1] * f.area;
+    n[2] += f.n[2] * f.area;
+    centroid[0] += f.c[0] * f.area;
+    centroid[1] += f.c[1] * f.area;
+    centroid[2] += f.c[2] * f.area;
+    for (let a = 0; a < 3; a++) {
+      if (f.c[a] < bbox.min[a]) bbox.min[a] = f.c[a];
+      if (f.c[a] > bbox.max[a]) bbox.max[a] = f.c[a];
+      const r = cylRadiusAbout(a as AxisIdx, f.c);
+      if (r < rmin[a]) rmin[a] = r;
+      if (r > rmax[a]) rmax[a] = r;
+      rsum[a] += r;
+    }
+    gcount.set(f.group, (gcount.get(f.group) ?? 0) + 1);
+    tags.add(f.tag);
+  }
+  const area = faces.reduce((s, f) => s + f.area, 0) || 1;
+  const nl = Math.hypot(n[0], n[1], n[2]) || 1;
+  const meanN: Vec3 = [n[0] / nl, n[1] / nl, n[2] / nl];
+  centroid[0] /= area;
+  centroid[1] /= area;
+  centroid[2] /= area;
+  let cone = 0;
+  const rMean: [number, number, number] = [0, 0, 0];
+  const rSpread: [number, number, number] = [0, 0, 0];
+  for (let a = 0; a < 3; a++) rMean[a] = rsum[a] / Math.max(1, faces.length);
+  let rsq = [0, 0, 0];
+  for (const f of faces) {
+    const d = f.n[0] * meanN[0] + f.n[1] * meanN[1] + f.n[2] * meanN[2];
+    cone = Math.max(cone, (Math.acos(Math.max(-1, Math.min(1, d))) * 180) / Math.PI);
+    for (let a = 0; a < 3; a++) {
+      const r = cylRadiusAbout(a as AxisIdx, f.c);
+      rsq[a] += (r - rMean[a]) ** 2;
+    }
+  }
+  for (let a = 0; a < 3; a++) rSpread[a] = Math.sqrt(rsq[a] / Math.max(1, faces.length));
+  return {
+    ids,
+    n: meanN,
+    coneDeg: cone,
+    centroid,
+    bbox,
+    groups: [...gcount.entries()].map(([id, n]) => ({ id: id as GroupId, n })).sort((a, b) => b.n - a.n),
+    tags: [...tags],
+    rAbout: [
+      [rmin[0], rmax[0]],
+      [rmin[1], rmax[1]],
+      [rmin[2], rmax[2]],
+    ],
+    rMean,
+    rSpread,
+  };
+}
+/* ---------- rule AST ------------------------------------------------------ */
+export type Clause =
+  | { k: "normal"; axis: AxisIdx; lo: number; hi: number }
+  | { k: "plane"; axis: AxisIdx; value: number; tol: number; bboxRef: boolean }
+  | { k: "cyl"; axis: AxisIdx; lo: number; hi: number }
+  | { k: "span"; axis: AxisIdx; lo: number; hi: number }
+  | { k: "tag"; tags: string[] };
+export interface Proposal {
+  primary: Clause[];
+  alts: Clause[];
+  confidence: number;
+  basis: string[];
+}
+function fmtNum(v: number): string {
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a < 1e-3 || a >= 1e5) {
+    const e = v.toExponential(3);
+    return e.replace(/e([+-])(\d)$/, "e$1$2").replace(/(\.\d*?)0+e/, "$1e").replace(/\.e/, "e");
+  }
+  return v.toFixed(Math.max(0, Math.min(6, 4 - Math.floor(Math.log10(a)) + 1)));
+}
+export function clauseText(c: Clause): string {
+  switch (c.k) {
+    case "normal": {
+      const ax = AXIS_NAMES[c.axis];
+      const v = c.hi < 0 ? c.hi : c.lo;
+      const bound = Math.abs(c.hi) < Math.abs(c.lo) ? c.hi : c.lo;
+      if (c.lo <= -0.999) return `normal.${ax} < ${bound.toFixed(3)}`;
+      if (c.hi >= 0.999) return `normal.${ax} > ${bound.toFixed(3)}`;
+      return `abs(normal.${ax} - ${v.toFixed(3)}) < ${(c.hi - c.lo) / 2 < 0.01 ? "0.005" : ((c.hi - c.lo) / 2).toFixed(3)}`;
+    }
+    case "plane": {
+      const ax = AXIS_NAMES[c.axis];
+      const lhs = c.bboxRef ? `bbox.${ax}_${c.value <= 0 ? "min" : "max"}` : fmtNum(c.value);
+      return `abs(${ax} - ${lhs}) < ${fmtNum(c.tol)}`;
+    }
+    case "cyl":
+      return `${cylLabel(c.axis)} in [${fmtNum(c.lo)}, ${fmtNum(c.hi)}]`;
+    case "span":
+      return `${AXIS_NAMES[c.axis]} in [${fmtNum(c.lo)}, ${fmtNum(c.hi)}]`;
+    case "tag":
+      return `step_tag in {${c.tags.join(", ")}}`;
+  }
+}
+export function clauseMatch(c: Clause, f: Face, mesh: Mesh): boolean {
+  switch (c.k) {
+    case "normal": {
+      const v = f.n[c.axis];
+      return v >= c.lo - 1e-9 && v <= c.hi + 1e-9;
+    }
+    case "plane":
+      return Math.abs(f.c[c.axis] - c.value) <= c.tol;
+    case "cyl": {
+      const r = cylRadiusAbout(c.axis, f.c);
+      return r >= c.lo && r <= c.hi;
+    }
+    case "span":
+      return f.c[c.axis] >= c.lo && f.c[c.axis] <= c.hi;
+    case "tag":
+      return c.tags.includes(f.tag);
+  }
+}
+export function ruleMatch(rule: Clause[], f: Face, mesh: Mesh): boolean {
+  return rule.every((c) => clauseMatch(c, f, mesh));
+}
+/** design-intent bands the synthesiser may snap a measured interval onto */
+export const FEATURE_BANDS: { axis: AxisIdx; lo: number; hi: number; name: string }[] = [
+  { axis: 0, lo: 0.018, hi: 0.022, name: "shaft_band" },
+  { axis: 2, lo: 0.1385, hi: 0.1405, name: "tip_clearance" },
+];
+export function synthesize(mesh: Mesh, stats: PatchStats): Proposal {
+  const basis: string[] = [];
+  const diag = Math.hypot(
+    mesh.bbox.max[0] - mesh.bbox.min[0],
+    mesh.bbox.max[1] - mesh.bbox.min[1],
+    mesh.bbox.max[2] - mesh.bbox.min[2],
+  );
+  const nFaces = stats.ids.length;
+  const groups = stats.groups;
+  const purity = nFaces ? groups[0].n / nFaces : 0;
+  basis.push(`normal cone θ = ${stats.coneDeg.toFixed(2)}° over ${nFaces} faces`);
+  basis.push(`group purity ${(purity * 100).toFixed(1)}%  (${groups[0]?.id ?? "—"})`);
+  basis.push(
+    `centroid (${stats.centroid.map((v) => v.toFixed(4)).join(", ")})  ·  area ${(
+      nFaces * 0.00042
+    ).toFixed(1)} mm²`,
+  );
+  const primary: Clause[] = [];
+  const alts: Clause[] = [];
+  /* --- 1. tight normal cone -> plane-normal clause ---------------------- */
+  const ax = (Math.abs(stats.n[0]) > Math.abs(stats.n[1])
+    ? Math.abs(stats.n[0]) > Math.abs(stats.n[2])
+      ? 0
+      : 2
+    : Math.abs(stats.n[1]) > Math.abs(stats.n[2])
+      ? 1
+      : 2) as AxisIdx;
+  const dom = stats.n[ax];
+  if (stats.coneDeg < 12 && Math.abs(dom) > 0.9) {
+    const lo = dom < 0 ? -1 : Math.max(0, dom - 0.01);
+    const hi = dom < 0 ? Math.min(-0.9, dom + 0.01) : 1;
+    primary.push({ k: "normal", axis: ax, lo: Math.max(-1, lo), hi: Math.min(1, hi) });
+  }
+  /* --- 2. geometry candidate: cylinder > plane > span ------------------- */
+  let geom: Clause | null = null;
+  let geomKind = "";
+  // cylindrical: radius about an axis is (quasi) constant along the patch
+  let bestCyl = -1;
+  let bestCylAxis: AxisIdx = 0;
+  for (let a = 0; a < 3; a++) {
+    const mean = stats.rMean[a];
+    const spread = stats.rSpread[a];
+    if (mean < 1e-6) continue;
+    const score = 1 - Math.min(1, spread / (0.25 * mean));
+    // radial alignment bonus
+    let align = 0;
+    for (const id of stats.ids) {
+      const f = mesh.faces[id];
+      const r = [f.c[(a + 1) % 3], f.c[(a + 2) % 3]];
+      const rl = Math.hypot(r[0], r[1]);
+      if (rl < 1e-9) continue;
+      const radial = [0, 0, 0];
+      radial[(a + 1) % 3] = r[0] / rl;
+      radial[(a + 2) % 3] = r[1] / rl;
+      align += f.n[0] * radial[0] + f.n[1] * radial[1] + f.n[2] * radial[2];
+    }
+    align /= Math.max(1, stats.ids.length);
+    const total = score * 0.7 + Math.max(0, align) * 0.3;
+    if (total > bestCyl) {
+      bestCyl = total;
+      bestCylAxis = a as AxisIdx;
+    }
+  }
+  if (bestCyl > 0.55) {
+    const a = bestCylAxis;
+    let lo = stats.rAbout[a][0];
+    let hi = stats.rAbout[a][1];
+    const pad = Math.max(1e-4, 0.02 * stats.rMean[a]);
+    lo -= pad;
+    hi += pad;
+    const band = FEATURE_BANDS.find((b) => b.axis === a && lo >= b.lo - 0.15 * b.lo && hi <= b.hi + 0.15 * b.hi);
+    if (band) {
+      lo = band.lo;
+      hi = band.hi;
+      basis.push(`interval snapped to design band “${band.name}”`);
+    }
+    geom = { k: "cyl", axis: a as AxisIdx, lo, hi };
+    geomKind = "cylindrical";
+  }
+  if (!geom) {
+    // planar: patch sits on a global extreme face
+    let cand: Clause | null = null;
+    let candScore = -1;
+    for (let a = 0; a < 3; a++) {
+      const ext = stats.bbox.max[a] - stats.bbox.min[a];
+      if (ext > 0.02 * diag) continue;
+      const nd = stats.n[a];
+      if (Math.abs(nd) < 0.985) continue;
+      const atMin = nd < 0;
+      const value = atMin ? stats.bbox.min[a] : stats.bbox.max[a];
+      const onGlobal =
+        Math.abs(value - mesh.bbox.min[a]) < 1e-6 || Math.abs(value - mesh.bbox.max[a]) < 1e-6;
+      const spacing = Math.max(1e-4, ext * 0.6 + 1e-4);
+      const score = Math.abs(nd) + (onGlobal ? 0.4 : 0) - ext / diag;
+      if (score > candScore) {
+        candScore = score;
+        cand = {
+          k: "plane",
+          axis: a as AxisIdx,
+          value: onGlobal ? (atMin ? mesh.bbox.min[a] : mesh.bbox.max[a]) : value,
+          tol: spacing,
+          bboxRef: onGlobal,
+        };
+      }
+    }
+    if (cand) {
+      geom = cand;
+      geomKind = "planar";
+    }
+  }
+  if (!geom) {
+    // confined along an axis -> span interval
+    let bestA: AxisIdx = 0;
+    let bestExt = Infinity;
+    for (let a = 0; a < 3; a++) {
+      const ext = stats.bbox.max[a] - stats.bbox.min[a];
+      if (ext < bestExt) {
+        bestExt = ext;
+        bestA = a as AxisIdx;
+      }
+    }
+    geom = {
+      k: "span",
+      axis: bestA,
+      lo: stats.bbox.min[bestA] - 1e-4,
+      hi: stats.bbox.max[bestA] + 1e-4,
+    };
+    geomKind = "span-interval";
+  }
+  primary.push(geom);
+  /* --- alternatives ------------------------------------------------------ */
+  if (geom.kind !== "tag") {
+    alts.push({ k: "tag", tags: stats.tags.slice(0, 3) });
+  }
+  if (geom.kind !== "cyl" && bestCyl > 0.35) {
+    const a = bestCylAxis;
+    alts.push({
+      k: "cyl",
+      axis: a as AxisIdx,
+      lo: stats.rAbout[a][0] - 1e-4,
+      hi: stats.rAbout[a][1] + 1e-4,
+    });
+  }
+  if (geom.kind !== "span") {
+    const exts: [AxisIdx, number][] = [0, 1, 2].map((a) => [a as AxisIdx, stats.bbox.max[a] - stats.bbox.min[a]]);
+    exts.sort((p, q) => p[1] - q[1]);
+    alts.push({
+      k: "span",
+      axis: exts[0][0],
+      lo: stats.bbox.min[exts[0][0]] - 1e-4,
+      hi: stats.bbox.max[exts[0][0]] + 1e-4,
+    });
+  }
+  if (geom.kind !== "plane" && Math.abs(dom) > 0.9) {
+    alts.push({
+      k: "plane",
+      axis: ax,
+      value: stats.bbox.min[ax],
+      tol: Math.max(1e-4, 0.004 * diag),
+      bboxRef:
+        Math.abs(stats.bbox.min[ax] - mesh.bbox.min[ax]) < 1e-6 ||
+        Math.abs(stats.bbox.max[ax] - mesh.bbox.max[ax]) < 1e-6,
+    });
+  }
+  const conf = Math.max(
+    0.2,
+    Math.min(0.99, 0.55 + 0.3 * (1 - Math.min(1, stats.coneDeg / 25)) + 0.15 * purity),
+  );
+  basis.push(`candidate class: ${geomKind}  ·  confidence ${(conf * 100).toFixed(0)}%`);
+  return { primary, alts, confidence: conf, basis };
+}
+/* ---------- BC registry + conflicts -------------------------------------- */
+export interface BcClaim {
+  id: string;
+  ruleText: string;
+  faces: Set<number>;
+}
+export function buildClaims(mesh: Mesh): BcClaim[] {
+  const le = mesh.faces.filter((f) => f.group === "leading_edge" && f.c[2] >= 0.115);
+  return [
+    {
+      id: "bc_le_heating",
+      ruleText: "step_tag == A1/LE  and  z > 0.115",
+      faces: new Set(le.map((f) => f.id)),
+    },
+    {
+      id: "bc_hub_rotor",
+      ruleText: "z <= bbox.z_min + 5.0e-4",
+      faces: new Set(mesh.byGroup["hub_root"] ?? []),
+    },
+    {
+      id: "bc_tip_gap",
+      ruleText: "z >= bbox.z_max - 5.0e-4",
+      faces: new Set(mesh.byGroup["tip_shroud"] ?? []),
+    },
+  ];
+}
+export interface Selection {
+  picked: number[];
+  matched: number[];
+  conflicts: { bc: string; ids: number[] }[];
+  pickPoint: Vec3 | null;
+  stats: PatchStats;
+  proposal: Proposal;
+  rule: Clause[];
+}
+export function evaluate(mesh: Mesh, picked: number[], rule: Clause[], claims: BcClaim[], pickPoint: Vec3 | null) {
+  const stats = patchStats(mesh, picked);
+  const matched: number[] = [];
+  for (const f of mesh.faces) if (ruleMatch(rule, f, mesh)) matched.push(f.id);
+  const mset = new Set(matched);
+  const conflicts = claims
+    .map((c) => ({ bc: c.id, ids: [...c.faces].filter((id) => mset.has(id)) }))
+    .filter((c) => c.ids.length > 0);
+  return { stats, matched, conflicts, pickPoint };
+}
+export const PRESETS: { key: string; label: string; note: string; pick: (m: Mesh) => number[] }[] = [
+  {
+    key: "le",
+    label: "LE stagnation line",
+    note: "leading_edge · both flanks",
+    pick: (m) => (m.byGroup["leading_edge"] ?? []).slice(),
+  },
+  {
+    key: "hub",
+    label: "Hub fillet band",
+    note: "j = 0 · root section",
+    pick: (m) => (m.byGroup["hub_root"] ?? []).slice(),
+  },
+  {
+    key: "tip",
+    label: "Tip shroud strip",
+    note: "j = NV−1 · tip section",
+    pick: (m) => (m.byGroup["tip_shroud"] ?? []).slice(),
+  },
+  {
+    key: "suction",
+    label: "Suction flank mid-span",
+    note: "suction_side · j ∈ [8,16]",
+    pick: (m) =>
+      m.faces.filter((f) => f.group === "suction_side" && f.c[2] > 0.06 && f.c[2] < 0.11).map((f) => f.id),
+  },
+  {
+    key: "te",
+    label: "Trailing edge",
+    note: "trailing_edge · closure",
+    pick: (m) => (m.byGroup["trailing_edge"] ?? []).slice(),
+  },
+];
+
+Created src/lib/fields.ts
+Created src/lib/fields.ts
+
+/* ============================================================================
+ *  cockpit::fields  —  Moreland cool-warm Oklab LUT, chordwise engineering
+ *  curves (shared by the GPU curve texture and the SVG plots), line-probe
+ *  sampling, polar data, Pareto front and the A/B delta KPI table.
+ * ==========================================================================*/
+import { CHORD } from "./geometry";
+export type Run = 0 | 1; // A = baseline, B = adjoint-optimised
+export const RUN_NAME = ["Run A · baseline", "Run B · adjoint"] as const;
+/* ---------- Moreland cool-warm (Oklab-linearised) ramp ------------------- */
+const COOL_WARM: [number, number, number][] = [
+  [0x3b, 0x4c, 0xc0],
+  [0x62, 0x82, 0xee],
+  [0x8c, 0xa6, 0xf4],
+  [0xbf, 0xd0, 0xf9],
+  [0xe4, 0xe7, 0xf5],
+  [0xfd, 0xfb, 0xe6],
+  [0xf8, 0xd9, 0xa6],
+  [0xf3, 0xb2, 0x6b],
+  [0xe8, 0x85, 0x4d],
+  [0xd6, 0x54, 0x3f],
+  [0xb4, 0x04, 0x26],
+];
+export function coolWarm(t: number): string {
+  const x = Math.max(0, Math.min(1, t));
+  const s = x * (COOL_WARM.length - 1);
+  const i = Math.min(COOL_WARM.length - 2, Math.floor(s));
+  const f = s - i;
+  const a = COOL_WARM[i],
+    b = COOL_WARM[i + 1];
+  const c = [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+export function coolWarmRamp(n = 256): Uint8Array {
+  const out = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const hex = coolWarm(i / (n - 1)).match(/\d+/g)!.map(Number);
+    out[i * 4] = hex[0];
+    out[i * 4 + 1] = hex[1];
+    out[i * 4 + 2] = hex[2];
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+/* ---------- primitives ---------------------------------------------------- */
+export const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+type Pt = [number, number];
+function interp(table: Pt[], x: number): number {
+  if (x <= table[0][0]) return table[0][1];
+  const last = table[table.length - 1];
+  if (x >= last[0]) return last[1];
+  for (let i = 0; i < table.length - 1; i++) {
+    const [x0, y0] = table[i],
+      [x1, y1] = table[i + 1];
+    if (x <= x1) return lerp(y0, y1, (x - x0) / (x1 - x0));
+  }
+  return last[1];
+}
+/* ---------- chordwise tables (Cp, wall temperature) ---------------------- */
+type Side = 1 | -1;
+const CP_SUCT_A: Pt[] = [
+  [0, 1.0], [0.005, 0.35], [0.02, -0.55], [0.05, -1.3], [0.085, -1.62], [0.15, -1.42],
+  [0.24, -1.18], [0.298, -1.1], [0.303, -0.42], [0.31, -0.35], [0.35, -0.42], [0.45, -0.36],
+  [0.6, -0.24], [0.75, -0.1], [0.9, 0.05], [1.0, 0.14],
+];
+const CP_SUCT_B: Pt[] = [
+  [0, 1.0], [0.005, 0.3], [0.02, -0.42], [0.05, -1.05], [0.085, -1.34], [0.15, -1.2],
+  [0.24, -1.02], [0.338, -0.92], [0.352, -0.74], [0.365, -0.72], [0.42, -0.68], [0.55, -0.55],
+  [0.7, -0.38], [0.85, -0.18], [0.95, 0.0], [1.0, 0.12],
+];
+const CP_PRESS_A: Pt[] = [
+  [0, 1.0], [0.01, 0.72], [0.03, 0.52], [0.06, 0.38], [0.12, 0.26], [0.25, 0.16],
+  [0.4, 0.1], [0.6, 0.04], [0.8, -0.02], [1.0, -0.06],
+];
+const CP_PRESS_B: Pt[] = [
+  [0, 1.0], [0.01, 0.7], [0.03, 0.5], [0.06, 0.36], [0.12, 0.24], [0.25, 0.14],
+  [0.4, 0.08], [0.6, 0.01], [0.8, -0.05], [1.0, -0.1],
+];
+const TW_SUCT_A: Pt[] = [
+  [0, 293], [0.1, 300], [0.28, 316], [0.3, 398], [0.33, 412.1], [0.4, 388], [0.6, 352],
+  [0.8, 330], [1, 318],
+];
+const TW_SUCT_B: Pt[] = [
+  [0, 293], [0.1, 298], [0.3, 312], [0.37, 344], [0.45, 356.4], [0.6, 340], [0.8, 324], [1, 315],
+];
+const TW_PRESS_A: Pt[] = [[0, 293], [0.05, 306], [0.2, 312], [0.5, 306], [1, 298]];
+const TW_PRESS_B: Pt[] = [[0, 293], [0.05, 303], [0.2, 307], [0.5, 301], [1, 295]];
+export const FIELD_META: Record<string, { label: string; unit: string; dec: number; invert?: boolean }> = {
+  Cp: { label: "Cp", unit: "—", dec: 3, invert: true },
+  Tw: { label: "Tw", unit: "K", dec: 1 },
+  yPlus: { label: "y+", unit: "—", dec: 2 },
+  U: { label: "|U|", unit: "m/s", dec: 2 },
+  p: { label: "p", unit: "Pa", dec: 0 },
+  T: { label: "T", unit: "K", dec: 1 },
+  Mach: { label: "Ma", unit: "—", dec: 3 },
+  tau_w: { label: "τw", unit: "Pa", dec: 2 },
+  Nu: { label: "Nu", unit: "—", dec: 1 },
+};
+/** value of a chordwise field — single source of truth for GPU texture + plots */
+export function chordValue(field: string, side: Side, run: Run, c: number): number {
+  if (field === "Cp") {
+    const t = side > 0 ? (run ? CP_SUCT_B : CP_SUCT_A) : run ? CP_PRESS_B : CP_PRESS_A;
+    return interp(t, c);
+  }
+  if (field === "Tw") {
+    const t = side > 0 ? (run ? TW_SUCT_B : TW_SUCT_A) : run ? TW_PRESS_B : TW_PRESS_A;
+    return interp(t, c);
+  }
+  if (field === "yPlus") {
+    const a = run === 0;
+    const base = side > 0 ? 1 : 0.62;
+    let v =
+      (a ? 26 : 19) *
+      Math.pow(Math.sin(Math.PI * Math.pow(c, 0.62)), 0.7) *
+      base *
+      (1 + (a && c > 0.3 && c < 0.45 ? 0.32 * Math.exp(-Math.pow((c - 0.34) / 0.05, 2)) : 0));
+    v += 1.4 * Math.exp(-Math.pow(c / 0.02, 2));
+    return Math.max(0.2, v);
+  }
+  if (field === "tau_w") return 4.2 * Math.pow(chordValue("yPlus", side, run, c), 0.86) + 0.4;
+  if (field === "Nu") return 42 + 120 * Math.pow(c + 0.04, -0.42) * (run ? 0.94 : 1);
+  return 0;
+}
+/* ---------- 1D sample grids ---------------------------------------------- */
+export function sampleChord(field: string, side: Side, run: Run, n = 140): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const c = i / n;
+    out.push([c, chordValue(field, side, run, c)]);
+  }
+  return out;
+}
+export const YPLUS_BANDS = [
+  { from: 0, to: 1, color: "#004afd", label: "viscous sublayer  y⁺ = 1" },
+  { from: 30, to: 44, color: "#ffb020", label: "log-layer target  y⁺ = 30" },
+];
+/** law of the wall: u⁺ = y⁺  and  u⁺ = (1/κ)·ln(E·y⁺) */
+export function lawOfWall(yPlus: number, variant: "linear" | "log" | "blend"): number {
+  const k = 0.41,
+    E = 8.6;
+  if (variant === "linear") return yPlus;
+  if (variant === "log") return (1 / k) * Math.log(E * yPlus);
+  return yPlus < 11.61 ? yPlus : (1 / k) * Math.log(E * yPlus);
+}
+export function lawSeries(variant: "linear" | "log" | "blend", n = 90): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const yp = Math.pow(10, -0.7 + (i / n) * 3.5); // 0.2 … 630
+    out.push([yp, lawOfWall(yp, variant)]);
+  }
+  return out;
+}
+/** sampled u⁺(y⁺) from the boundary-layer rake, run dependent */
+export function lawData(run: Run, n = 16): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const yp = Math.pow(10, -0.45 + (i / (n - 1)) * 3.4);
+    const target = lawOfWall(yp, "blend");
+    const dev = run === 0 ? -0.055 - 0.11 * Math.exp(-Math.pow(Math.log10(yp / 42) / 0.45, 2)) : -0.02;
+    const wob = 0.02 * Math.sin(i * 2.1 + (run ? 1 : 0));
+    out.push([yp, Math.max(0.4, target * (1 + dev + wob))]);
+  }
+  return out;
+}
+/* ---------- line probe ---------------------------------------------------- */
+export const PROBE_FIELDS = ["U", "p", "Cp", "T", "Mach", "yPlus", "tau_w", "Nu"] as const;
+export type ProbeField = (typeof PROBE_FIELDS)[number];
+export function probeValue(field: ProbeField, t: number, run: Run): number {
+  const a = run === 0;
+  const wake = (d: number, w: number) => Math.exp(-Math.pow((t - 0.36) / w, 2)) * d;
+  switch (field) {
+    case "U":
+      return 61.4 * (1 - (a ? 0.62 : 0.47) * wake(1, a ? 0.17 : 0.13)) - 2.4 * t;
+    case "p": {
+      const u = probeValue("U", t, run);
+      return 101325 - 0.5 * 1.225 * (61.4 * 61.4 - u * u) - 118 * t;
+    }
+    case "Cp": {
+      const p = probeValue("p", t, run);
+      return (p - 101325) / (0.5 * 1.225 * 61.4 * 61.4);
+    }
+    case "T":
+      return 293.15 + (a ? 26 : 17) * wake(1, 0.2) + 4.5 * t;
+    case "Mach": {
+      const u = probeValue("U", t, run);
+      const T = probeValue("T", t, run);
+      return u / Math.sqrt(1.4 * 287.05 * T);
+    }
+    case "yPlus":
+      return Math.max(0.4, 34 * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.55)), 0.8) * (a ? 1 : 0.74));
+    case "tau_w":
+      return 3.9 * Math.pow(probeValue("yPlus", t, run), 0.85);
+    case "Nu":
+      return 38 + 118 * Math.pow(t + 0.05, -0.4) * (a ? 1 : 0.93);
+  }
+}
+export function probeSeries(field: ProbeField, run: Run, n = 120): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    out.push([t, probeValue(field, t, run)]);
+  }
+  return out;
+}
+/* ---------- acoustic directivity polar (FWH microphone ring) ------------- */
+export function polarSeries(run: Run, n = 180): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const th = (i / n) * Math.PI * 2;
+    const main = Math.max(0, Math.cos(th - 0.42));
+    const back = Math.max(0, Math.cos(th - Math.PI - 0.3));
+    const lobe = Math.pow(main, 1.5) * 15 + Math.pow(back, 2) * 6;
+    const scat = 2.4 * Math.pow(Math.max(0, Math.cos(2 * th + 1.1)), 2);
+    const v = (run === 0 ? 95.5 : 91.4) + lobe + scat;
+    out.push([(th * 180) / Math.PI, v]);
+  }
+  return out;
+}
+export const MIC_ANGLES = [0, 90, 180, 270];
+/* ---------- Pareto front -------------------------------------------------- */
+export interface Design {
+  id: string;
+  cd: number; // drag counts
+  loss: number; // Δp0 total-pressure loss  %
+  front: boolean;
+  tag?: "A" | "B";
+}
+export const DESIGNS: Design[] = (() => {
+  const d: Design[] = [];
+  const seed = (i: number) => ((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1;
+  for (let i = 0; i < 21; i++) {
+    const x = 146 + seed(i) * 27;
+    const y = 2.35 + 0.0016 * Math.pow(x - 141, 1.62) + (seed(i + 40) - 0.5) * 0.5;
+    d.push({ id: `D${(i + 1).toString().padStart(2, "0")}`, cd: x, loss: y, front: false });
+  }
+  const front = [
+    { cd: 146.8, loss: 2.44 },
+    { cd: 149.4, loss: 2.62 },
+    { cd: 152.9, loss: 2.78 },
+    { cd: 157.2, loss: 3.02 },
+    { cd: 161.5, loss: 3.34 },
+    { cd: 166.9, loss: 3.71 },
+    { cd: 171.4, loss: 4.06 },
+  ];
+  front.forEach((p, i) => d.push({ id: `P${i + 1}`, cd: p.cd, loss: p.loss, front: true }));
+  d.push({ id: "A", cd: 168.4, loss: 3.92, front: false, tag: "A" });
+  d.push({ id: "B", cd: 151.2, loss: 3.09, front: false, tag: "B" });
+  return d;
+})();
+/* ---------- delta KPI ----------------------------------------------------- */
+export interface Kpi {
+  metric: string;
+  unit: string;
+  a: number;
+  b: number;
+  dec: number;
+  good: "down" | "up";
+}
+export const KPIS: Kpi[] = [
+  { metric: "Drag coefficient Cd", unit: "counts", a: 168.4, b: 151.2, dec: 1, good: "down" },
+  { metric: "Total-pressure loss Δp₀", unit: "%", a: 3.92, b: 3.09, dec: 2, good: "down" },
+  { metric: "Max wall temperature Tmax", unit: "K", a: 412.1, b: 356.4, dec: 1, good: "down" },
+  { metric: "Isentropic efficiency η", unit: "%", a: 92.1, b: 93.5, dec: 1, good: "up" },
+  { metric: "LE shock Mach", unit: "—", a: 0.94, b: 0.88, dec: 3, good: "down" },
+  { metric: "Peak suction Cp", unit: "—", a: -1.62, b: -1.34, dec: 2, good: "up" },
+];
+/** Δφ envelope used to centre the diverging LUT strictly at zero */
+export function deltaEnvelope(field: string): number {
+  let m = 0;
+  for (let i = 0; i <= 200; i++) {
+    const c = i / 200;
+    for (const s of [1, -1] as Side[]) {
+      m = Math.max(m, Math.abs(chordValue(field, s, 1, c) - chordValue(field, s, 0, c)));
+    }
+  }
+  return Math.max(1e-6, m);
+}
+/* ---------- formatting ---------------------------------------------------- */
+export function fmt(v: number, dec = 2): string {
+  return v.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+export function signed(v: number, dec = 2): string {
+  return (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), dec);
+}
+export function exp10(v: number): string {
+  if (v === 0) return "0";
+  const e = Math.round(Math.log10(Math.abs(v)));
+  const m = v / Math.pow(10, e);
+  const SUP = "⁻⁰¹²³⁴⁵⁶⁷⁸⁹";
+  const sup = String(Math.abs(e))
+    .split("")
+    .map((d) => SUP[Number(d) + 1])
+    .join("");
+  return `${m.toFixed(1)}×10${e < 0 ? sup : sup}`;
+}
+export const chordMetres = (c: number) => (c * CHORD).toFixed(4);
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++10-8
+
+  const bbox = { min: [1e9, 1e9, 1e9] as Vec3, max: [-1e9, -1e9, -1e9] as Vec3 };
+  for (let v = 0; v < positions.length / 3; v++) {
+    for (let a = 0; a < 3; a++) {
+      const x = positions[v * 3 + a];
+      if (x < bbox.min[a]) bbox.min[a] = x;
+      if (x > bbox.max[a]) bbox.max[a] = x;
+    }
+  }
+  const bbox = { min: [1e9, 1e9, 1e9] as Vec3, max: [-1e9, -1e9, -1e9] as Vec3 };
+  const bmin = bbox.min as number[];
+  const bmax = bbox.max as number[];
+  for (let v = 0; v < positions.length / 3; v++) {
+    for (let a = 0; a < 3; a++) {
+      const x = positions[v * 3 + a];
+      if (x < bmin[a]) bmin[a] = x;
+      if (x > bmax[a]) bmax[a] = x;
+    }
+  }
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++1-1
+
+export function clauseMatch(c: Clause, f: Face, mesh: Mesh): boolean {
+export function clauseMatch(c: Clause, f: Face): boolean {
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++3-3
+
+export function ruleMatch(rule: Clause[], f: Face, mesh: Mesh): boolean {
+  return rule.every((c) => clauseMatch(c, f, mesh));
+}
+export function ruleMatch(rule: Clause[], f: Face): boolean {
+  return rule.every((c) => clauseMatch(c, f));
+}
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++4-4
+
+  if (geom.kind !== "tag") {
+    alts.push({ k: "tag", tags: stats.tags.slice(0, 3) });
+  }
+  if (geom.kind !== "cyl" && bestCyl > 0.35) {
+  if (geom.k !== "tag") {
+    alts.push({ k: "tag", tags: stats.tags.slice(0, 3) });
+  }
+  if (geom.k !== "cyl" && bestCyl > 0.35) {
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++2-2
+
+  if (geom.kind !== "span") {
+    const exts: [AxisIdx, number][] = [0, 1, 2].map((a) => [a as AxisIdx, stats.bbox.max[a] - stats.bbox.min[a]]);
+  if (geom.k !== "span") {
+    const exts: [AxisIdx, number][] = [0, 1, 2].map((a) => [a as AxisIdx, stats.bbox.max[a] - stats.bbox.min[a]]);
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++1-1
+
+  if (geom.kind !== "plane" && Math.abs(dom) > 0.9) {
+  if (geom.k !== "plane" && Math.abs(dom) > 0.9) {
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++4-4
+
+  const mset = new Set(matched);
+  const conflicts = claims
+    .map((c) => ({ bc: c.id, ids: [...c.faces].filter((id) => mset.has(id)) }))
+    .filter((c) => c.ids.length > 0);
+  const mset = new Set(matched);
+  const conflicts = claims
+    .map((c) => ({ bc: c.id, ids: [...c.faces].filter((id) => mset.has(id)) }))
+    .filter((c) => c.ids.length > 0 && !picked.every((id) => c.faces.has(id) && mset.has(id) && false));
+
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 reads
+Readgeometry.ts L176-201
+Readgeometry.ts L645-689
+Readgeometry.ts L725-746
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++1-1
+
+  const acc = new Map<number, Vec3>();
+  const acc = new Map<string, Vec3>();
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++3-5
+
+  /* --- alternatives ------------------------------------------------------ */
+  if (geom.k !== "tag") {
+    alts.push({ k: "tag", tags: stats.tags.slice(0, 3) });
+  }
+  if (geom.k !== "cyl" && bestCyl > 0.35) {
+  /* --- alternatives ------------------------------------------------------ */
+  alts.push({ k: "tag", tags: stats.tags.slice(0, 3) });
+  if (geom.k !== "cyl" && bestCyl > 0.35) {
+
+Edited src/lib/geometry.ts
++1-1
+Edited src/lib/geometry.ts
++5-5
+
+  for (const f of mesh.faces) if (ruleMatch(rule, f, mesh)) matched.push(f.id);
+  const mset = new Set(matched);
+  const conflicts = claims
+    .map((c) => ({ bc: c.id, ids: [...c.faces].filter((id) => mset.has(id)) }))
+    .filter((c) => c.ids.length > 0 && !picked.every((id) => c.faces.has(id) && mset.has(id) && false));
+  for (const f of mesh.faces) if (ruleMatch(rule, f)) matched.push(f.id);
+  const mset = new Set(matched);
+  const conflicts = claims
+    .map((c) => ({ bc: c.id, ids: [...c.faces].filter((id) => mset.has(id)) }))
+    .filter((c) => c.ids.length > 0);
+
+Now the SI dimension engine and the WebGL2 renderer (reverse-Z, GPU curve texture, Moreland LUT).
+Created src/lib/si.ts
+Created src/lib/si.ts
+
+/* ============================================================================
+ *  cockpit::si_dims  —  7-element SI dimension vector [kg, m, s, K, mol, A, cd]
+ *  propagated through every AST node.  Parse-time dimensional analysis with
+ *  human-readable superscript diagnostics; numeric evaluation on a sample cell.
+ * ==========================================================================*/
+export type Dims = [number, number, number, number, number, number, number];
+export type Rank = 0 | 1 | 2;
+export const DIM_BASES = ["kg", "m", "s", "K", "mol", "A", "cd"] as const;
+export const D0: Dims = [0, 0, 0, 0, 0, 0, 0];
+export type Vec = [number, number, number];
+export type Tens = number[]; // row-major 3×3
+export type Val = { rank: Rank; d: Dims; s?: number; v?: Vec; t?: Tens };
+/* ---------- formatting ---------------------------------------------------- */
+const SUP = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
+const SUPM = "⁻";
+function sup(n: number): string {
+  const neg = n < 0;
+  const digits = String(Math.abs(n))
+    .split("")
+    .map((c) => SUP[Number(c)])
+    .join("");
+  return (neg ? SUPM : "") + digits;
+}
+export function fmtDims(d: Dims): string {
+  const parts: string[] = [];
+  d.forEach((e, i) => {
+    if (e !== 0) parts.push(e === 1 ? DIM_BASES[i] : `${DIM_BASES[i]}${sup(e)}`);
+  });
+  return parts.length ? parts.join("·") : "1";
+}
+export function fmtDimsHtml(d: Dims): string {
+  const parts: string[] = [];
+  d.forEach((e, i) => {
+    if (e !== 0) parts.push(e === 1 ? DIM_BASES[i] : `${DIM_BASES[i]}<sup>${e < 0 ? "−" + Math.abs(e) : e}</sup>`);
+  });
+  return parts.length ? parts.join("·") : "1 <span class=\"text-dim\">dimensionless</span>";
+}
+export const addD = (a: Dims, b: Dims, sign = 1): Dims => a.map((x, i) => x + sign * b[i]) as Dims;
+export const mulD = (a: Dims, k: number): Dims => a.map((x) => x * k) as Dims;
+export const eqD = (a: Dims, b: Dims) => a.every((x, i) => x === b[i]);
+/* ---------- symbol table -------------------------------------------------- */
+export interface Sym {
+  name: string;
+  rank: Rank;
+  d: Dims;
+  unit: string;
+  val: Val;
+  doc: string;
+}
+const S = (name: string, rank: Rank, d: Dims, val: number | Vec | Tens, unit: string, doc: string): Sym => ({
+  name,
+  rank,
+  d,
+  unit,
+  val:
+    typeof val === "number"
+      ? { rank, d, s: val }
+      : rank === 1
+        ? { rank, d, v: val as Vec }
+        : { rank, d, t: val as Tens },
+  doc,
+});
+export const SYMBOLS: Sym[] = [
+  S("p", 0, [1, -1, -2, 0, 0, 0, 0], 101325, "Pa", "static pressure"),
+  S("rho", 0, [1, -3, 0, 0, 0, 0, 0], 1.225, "kg/m³", "density"),
+  S("U", 1, [0, 1, -1, 0, 0, 0, 0], [42.0, 3.1, 0.8], "m/s", "velocity vector"),
+  S("T", 0, [0, 0, 0, 1, 0, 0, 0], 300.5, "K", "static temperature"),
+  S("mu", 0, [1, -1, -1, 0, 0, 0, 0], 1.81e-5, "Pa·s", "dynamic viscosity"),
+  S("kappa", 0, [1, 1, -3, -1, 0, 0, 0], 0.0262, "W/(m·K)", "thermal conductivity"),
+  S("R", 0, [0, 2, -2, -1, 0, 0, 0], 287.05, "J/(kg·K)", "specific gas constant"),
+  S("cp", 0, [0, 2, -2, -1, 0, 0, 0], 1004.5, "J/(kg·K)", "specific heat at const. p"),
+  S("g", 0, [0, 1, -2, 0, 0, 0, 0], 9.80665, "m/s²", "gravity"),
+  S("omega", 0, [0, 0, -1, 0, 0, 0, 0], 1256.637, "rad/s", "MRF angular velocity"),
+  S("d32", 0, [0, 1, 0, 0, 0, 0, 0], 85e-6, "m", "Rosin-Rammler Sauter diameter"),
+  S("q", 0, [1, -1, -2, 0, 0, 0, 0], 528.4, "Pa", "dynamic pressure ½ρ|U|²"),
+  S("F", 1, [1, 1, -2, 0, 0, 0, 0], [0.42, -1.1, 0.03], "N", "force vector"),
+  S("Pw", 0, [1, 2, -3, 0, 0, 0, 0], 1840.0, "W", "power"),
+  S("A", 0, [0, 2, 0, 0, 0, 0, 0], 0.0144, "m²", "reference area"),
+  S("Ma", 0, D0, 0.612, "—", "Mach number"),
+  S("Re", 0, D0, 2.4e6, "—", "Reynolds number"),
+  S("yPlus", 0, D0, 18.4, "—", "wall y+"),
+];
+/** names used only to make diagnostics readable */
+const NAME_BANK: { name: string; d: Dims }[] = [
+  ...SYMBOLS.map((s) => ({ name: s.name, d: s.d })),
+  { name: "Specific Kinetic Energy", d: [0, 2, -2, 0, 0, 0, 0] },
+  { name: "Velocity", d: [0, 1, -1, 0, 0, 0, 0] },
+  { name: "Pressure", d: [1, -1, -2, 0, 0, 0, 0] },
+  { name: "Density", d: [1, -3, 0, 0, 0, 0, 0] },
+  { name: "Temperature", d: [0, 0, 0, 1, 0, 0, 0] },
+  { name: "Specific Energy", d: [0, 2, -2, 0, 0, 0, 0] },
+  { name: "Time", d: [0, 0, 1, 0, 0, 0, 0] },
+  { name: "Entropy rate", d: [1, -1, -3, -1, 0, 0, 0] },
+];
+export function quantityName(d: Dims, rank: Rank): string {
+  const hit = NAME_BANK.find((n) => eqD(n.d, d));
+  if (hit) return hit.name;
+  return rank === 1 ? "Vector quantity" : rank === 2 ? "Tensor quantity" : "Scalar quantity";
+}
+function unitOf(d: Dims): string {
+  const f = fmtDims(d);
+  return f === "1" ? "dimensionless" : f;
+}
+function findFix(delta: Dims): Sym | undefined {
+  return SYMBOLS.find((s) => eqD(s.d, delta) && s.rank === 0);
+}
+/* ---------- tokens -------------------------------------------------------- */
+export type TokKind = "num" | "id" | "op" | "lp" | "rp" | "comma" | "ws";
+export interface Tok {
+  k: TokKind;
+  t: string;
+  i: number;
+}
+export function lex(src: string): Tok[] {
+  const out: Tok[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (/\s/.test(c)) {
+      let j = i;
+      while (j < src.length && /\s/.test(src[j])) j++;
+      out.push({ k: "ws", t: src.slice(i, j), i });
+      i = j;
+      continue;
+    }
+    if (/[0-9.]/.test(c)) {
+      let j = i;
+      while (j < src.length && /[0-9._eE]/.test(src[j])) j++;
+      out.push({ k: "num", t: src.slice(i, j), i });
+      i = j;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      let j = i;
+      while (j < src.length && /[A-Za-z0-9_]/.test(src[j])) j++;
+      out.push({ k: "id", t: src.slice(i, j), i });
+      i = j;
+      continue;
+    }
+    if (c === "(") out.push({ k: "lp", t: c, i++ });
+    else if (c === ")") out.push({ k: "rp", t: c, i++ });
+    else if (c === ",") out.push({ k: "comma", t: c, i++ });
+    else if ("+-*/^".includes(c)) out.push({ k: "op", t: c, i++ });
+    else out.push({ k: "op", t: c, i++ });
+  }
+  return out;
+}
+/* ---------- AST ----------------------------------------------------------- */
+export interface Node {
+  t: "num" | "id" | "bin" | "neg" | "pow" | "call";
+  span: [number, number];
+  v?: number;
+  name?: string;
+  op?: string;
+  a?: Node;
+  b?: Node;
+  args?: Node[];
+  n?: number;
+}
+class ParseErr extends Error {
+  constructor(
+    msg: string,
+    span: [number, number],
+    public hint?: string,
+  ) {
+    super(msg);
+    this.span = span;
+  }
+  span: [number, number];
+}
+export function parse(src: string): Node {
+  const toks = lex(src).filter((t) => t.k !== "ws");
+  let p = 0;
+  const peek = () => toks[p];
+  const eat = (t: string) => {
+    const k = toks[p];
+    if (k && k.t === t) {
+      p++;
+      return true;
+    }
+    return false;
+  };
+  function expr(): Node {
+    let l = term();
+    while (peek() && (peek().t === "+" || peek().t === "-")) {
+      const op = toks[p++].t;
+      const r = term();
+      l = { t: "bin", op, a: l, b: r, span: [l.span[0], r.span[1]] };
+    }
+    return l;
+  }
+  function term(): Node {
+    let l = unary();
+    while (peek() && (peek().t === "*" || peek().t === "/")) {
+      const op = toks[p++].t;
+      const r = unary();
+      l = { t: "bin", op, a: l, b: r, span: [l.span[0], r.span[1]] };
+    }
+    return l;
+  }
+  function unary(): Node {
+    if (peek() && peek().t === "-") {
+      p++;
+      const a = unary();
+      return { t: "neg", a, span: a.span };
+    }
+    if (peek() && peek().t === "+") {
+      p++;
+      return unary();
+    }
+    return power();
+  }
+  function power(): Node {
+    const a = postfix();
+    if (peek() && peek().t === "^") {
+      p++;
+      const nTok = toks[p];
+      if (!nTok || nTok.k !== "num")
+        throw new ParseErr("'^' requires a literal exponent", a.span, "e.g. U^2 or sqrt(...)");
+      p++;
+      return { t: "pow", a, n: parseFloat(nTok.t.replace(/_/g, "")), span: [a.span[0], nTok.i + nTok.t.length] };
+    }
+    return a;
+  }
+  function postfix(): Node {
+    let n = primary();
+    return n;
+  }
+  function primary(): Node {
+    const k = peek();
+    if (!k) throw new ParseErr("unexpected end of expression", [src.length, src.length]);
+    if (k.k === "num") {
+      p++;
+      const v = parseFloat(k.t.replace(/_/g, ""));
+      if (Number.isNaN(v)) throw new ParseErr(`malformed number “${k.t}”`, [k.i, k.i + k.t.length]);
+      return { t: "num", v, span: [k.i, k.i + k.t.length] };
+    }
+    if (k.k === "id") {
+      p++;
+      if (peek() && peek().t === "(") {
+        p++;
+        const args: Node[] = [];
+        if (peek() && peek().t !== ")") {
+          args.push(expr());
+          while (peek() && peek().t === ",") {
+            p++;
+            args.push(expr());
+          }
+        }
+        const close = toks[p];
+        if (!close || close.t !== ")")
+          throw new ParseErr(`missing ')' after ${k.t}(…)`, [k.i, k.i + k.t.length], "balance the argument list");
+        p++;
+        return { t: "call", name: k.t, args, span: [k.i, close.i + 1] };
+      }
+      return { t: "id", name: k.t, span: [k.i, k.i + k.t.length] };
+    }
+    if (k.t === "(") {
+      p++;
+      const e = expr();
+      const close = toks[p];
+      if (!close || close.t !== ")") throw new ParseErr("missing ')'", [k.i, k.i + 1], "balance the parentheses");
+      p++;
+      return e;
+    }
+    throw new ParseErr(`unexpected “${k.t}”`, [k.i, k.i + Math.max(1, k.t.length)]);
+  }
+  const root = expr();
+  if (p < toks.length)
+    throw new ParseErr(`unexpected “${toks[p].t}”`, [toks[p].i, toks[p].i + toks[p].t.length], "trailing input after a complete expression");
+  return root;
+}
+/* ---------- dimensional analysis ------------------------------------------ */
+interface FnSig {
+  rank: (r: Rank[]) => Rank;
+  dims: (d: Dims[]) => Dims;
+  arity: [number, number];
+  doc: string;
+}
+const unitVec: Dims = [0, 1, -1, 0, 0, 0, 0];
+const FUNCTIONS: Record<string, FnSig> = {
+  mag: { arity: [1, 1], rank: () => 0, dims: (d) => d[0], doc: "|v| → scalar" },
+  mag_sq: { arity: [1, 1], rank: () => 0, dims: (d) => mulD(d[0], 2), doc: "|v|² → scalar, exponents ×2" },
+  dot: {
+    arity: [2, 2],
+    rank: () => 0,
+    dims: (d) => addD(d[0], d[1]),
+    doc: "a·b → scalar, dimensions add",
+  },
+  cross: {
+    arity: [2, 2],
+    rank: () => 1,
+    dims: (d) => addD(d[0], d[1]),
+    doc: "a×b → vector, dimensions add",
+  },
+  grad: {
+    arity: [1, 1],
+    rank: (r) => Math.min(2, r[0] + 1) as Rank,
+    dims: (d) => addD(d[0], [0, -1, 0, 0, 0, 0, 0]),
+    doc: "∇φ → rank+1, one power of m removed",
+  },
+  div: {
+    arity: [1, 1],
+    rank: (r) => Math.max(0, r[0] - 1) as Rank,
+    dims: (d) => addD(d[0], [0, 1, 0, 0, 0, 0, 0]),
+    doc: "∇·T → rank−1, one power of m added",
+  },
+  curl: {
+    arity: [1, 1],
+    rank: () => 1,
+    dims: (d) => addD(d[0], [0, 1, 0, 0, 0, 0, 0]),
+    doc: "∇×v → vector, one power of m added",
+  },
+  sqrt: { arity: [1, 1], rank: (r) => r[0], dims: (d) => mulD(d[0], 0.5), doc: "√x → exponents ÷2 (must be even)" },
+  abs: { arity: [1, 1], rank: (r) => r[0], dims: (d) => d[0], doc: "|x| → unchanged" },
+  sum: { arity: [1, 1], rank: (r) => r[0], dims: (d) => d[0], doc: "Σ field → unchanged" },
+  avg: { arity: [1, 1], rank: (r) => r[0], dims: (d) => d[0], doc: "⟨field⟩ → unchanged" },
+  sin: { arity: [1, 1], rank: () => 0, dims: () => D0, doc: "sin(x) requires dimensionless x" },
+  cos: { arity: [1, 1], rank: () => 0, dims: () => D0, doc: "cos(x) requires dimensionless x" },
+  exp: { arity: [1, 1], rank: () => 0, dims: () => D0, doc: "e^x requires dimensionless x" },
+  log: { arity: [1, 1], rank: () => 0, dims: () => D0, doc: "ln(x) requires dimensionless x" },
+  atan2: { arity: [2, 2], rank: () => 0, dims: () => D0, doc: "atan2(y,x) → dimensionless" },
+};
+export interface TypeError_ {
+  message: string;
+  span: [number, number];
+  hint?: string;
+}
+export interface Analysis {
+  ok: boolean;
+  node?: Node;
+  type?: { rank: Rank; d: Dims };
+  error?: TypeError_;
+  tokens: Tok[];
+}
+function describe(v: { rank: Rank; d: Dims }): string {
+  return `${quantityName(v.d, v.rank)} [${fmtDims(v.d)}]`;
+}
+export function analyze(src: string): Analysis {
+  const tokens = lex(src);
+  let node: Node;
+  try {
+    node = parse(src);
+  } catch (e) {
+    const pe = e as ParseErr;
+    return { ok: false, tokens, error: { message: pe.message, span: pe.span, hint: pe.hint } };
+  }
+  const check = (n: Node): { rank: Rank; d: Dims } => {
+    switch (n.t) {
+      case "num":
+        return { rank: 0, d: D0 };
+      case "id": {
+        const s = SYMBOLS.find((x) => x.name === n.name);
+        if (!s)
+          throw new ParseErr(
+            `unknown symbol “${n.name}”`,
+            n.span,
+            "known: " + SYMBOLS.map((x) => x.name).join(", "),
+          );
+        return { rank: s.rank, d: s.d };
+      }
+      case "neg":
+        return check(n.a!);
+      case "pow": {
+        const a = check(n.a!);
+        if (a.rank !== 0)
+          throw new ParseErr(
+            `cannot raise ${describe(a)} to a power`,
+            n.span,
+            "reduce to a scalar with mag() first",
+          );
+        if (!Number.isInteger(n.n) && n.n !== 0.5)
+          throw new ParseErr(`exponent ${n.n} is not supported`, n.span, "use an integer or 0.5 (= sqrt)");
+        if (!Number.isInteger(n.n) && mulD(a.d, n.n).some((x) => !Number.isInteger(x)))
+          throw new ParseErr(
+            `fractional exponent leaves non-integer dimensions [${fmtDims(a.d)}]^${n.n}`,
+            n.span,
+            "use sqrt() on an even-dimensioned quantity",
+          );
+        return { rank: 0, d: mulD(a.d, n.n) };
+      }
+      case "bin": {
+        const l = check(n.a!);
+        const r = check(n.b!);
+        if (n.op === "+" || n.op === "-") {
+          if (l.rank !== r.rank)
+            throw new ParseErr(
+              `cannot ${n.op === "+" ? "add" : "subtract"} ${describe(l)} and ${describe(r)}`,
+              n.span,
+              l.rank === 0 || r.rank === 0
+                ? "one side is a scalar and the other a vector — use mag() or a component"
+                : "rank mismatch",
+            );
+          if (!eqD(l.d, r.d)) {
+            const fix1 = findFix(addD(r.d, l.d, -1));
+            const fix2 = findFix(addD(l.d, r.d, -1));
+            const verb = n.op === "+" ? "add" : "subtract";
+            let hint: string;
+            if (fix1)
+              hint = `— multiply ${quantityName(r.d, r.rank).toLowerCase()} ${r.rank ? "" : ""}`.trimEnd();
+            if (fix1)
+              hint = `— multiply by ${capital(fix1.name)} [${unitOf(fix1.d)}] on the right-hand side`;
+            else if (fix2) hint = `— multiply by ${capital(fix2.name)} [${unitOf(fix2.d)}] on the left-hand side`;
+            else
+              hint = `— left [${fmtDims(l.d)}] vs right [${fmtDims(r.d)}]; insert the missing conversion factor`;
+            throw new ParseErr(`cannot ${verb} ${describe(l)} and ${describe(r)}`, n.span, hint);
+          }
+          return l;
+        }
+        if (n.op === "*") {
+          if (l.rank !== 0 && r.rank !== 0)
+            throw new ParseErr(
+              `cannot multiply ${describe(l)} by ${describe(r)}`,
+              n.span,
+              "use dot(a,b) for the scalar product or cross(a,b) for the vector product",
+            );
+          return { rank: (l.rank || r.rank) as Rank, d: addD(l.d, r.d) };
+        }
+        // divide
+        if (r.rank !== 0)
+          throw new ParseErr(
+            `cannot divide ${describe(l)} by ${describe(r)}`,
+            n.span,
+            "the divisor must be a scalar — take mag() of it first",
+          );
+        if (eqD(r.d, D0) && r.d.every((x) => x === 0) && l.rank !== 0) {
+          /* dimensionless divisor is fine */
+        }
+        const dd = addD(l.d, r.d, -1);
+        if (dd.some((x) => !Number.isInteger(x)))
+          throw new ParseErr(
+            `division produces fractional dimensions [${fmtDims(dd)}]`,
+            n.span,
+            "raise the denominator to an integer power first",
+          );
+        return { rank: l.rank, d: dd };
+      }
+      case "call": {
+        const name = n.name!;
+        const sig = FUNCTIONS[name];
+        if (!sig)
+          throw new ParseErr(
+            `unknown function “${name}”`,
+            n.span,
+            "available: " + Object.keys(FUNCTIONS).join(", "),
+          );
+        const args = n.args!;
+        if (args.length < sig.arity[0] || args.length > sig.arity[1])
+          throw new ParseErr(
+            `${name}() takes ${sig.arity[0] === sig.arity[1] ? sig.arity[0] : `${sig.arity[0]}–${sig.arity[1]}`} argument(s), got ${args.length}`,
+            n.span,
+            sig.doc,
+          );
+        const at = args.map(check);
+        if (name === "dot" || name === "cross") {
+          if (at[0].rank === 0 || at[1].rank === 0)
+            throw new ParseErr(
+              `${name}() needs two vectors, got ${describe(at[0])} and ${describe(at[1])}`,
+              n.span,
+              "wrap a scalar component in a vector literal or use '*'",
+            );
+          if (name === "dot" && at[0].rank !== at[1].rank)
+            throw new ParseErr(`rank mismatch in dot(): ${describe(at[0])} · ${describe(at[1])}`, n.span, sig.doc);
+        }
+        if ((name === "mag" || name === "mag_sq" || name === "curl") && at[0].rank === 0)
+          throw new ParseErr(`${name}() needs a vector, got ${describe(at[0])}`, n.span, sig.doc);
+        if (name === "sqrt") {
+          const d = at[0].d;
+          if (at[0].rank !== 0)
+            throw new ParseErr(`sqrt() of ${describe(at[0])} is not defined`, n.span, "take mag() first");
+          if (d.some((x) => x % 2 !== 0))
+            throw new ParseErr(
+              `sqrt() needs even exponents, got [${fmtDims(d)}]`,
+              n.span,
+              "square the quantity first, or divide by a quantity with the same odd exponents",
+            );
+        }
+        if ((name === "sin" || name === "cos" || name === "exp" || name === "log") && !eqD(at[0].d, D0))
+          throw new ParseErr(
+            `${name}() requires a dimensionless argument, got ${describe(at[0])}`,
+            n.span,
+            "normalise first, e.g. divide by a reference value",
+          );
+        if (name === "atan2" && !eqD(at[0].d, at[1].d))
+          throw new ParseErr(
+            `atan2() arguments disagree: ${describe(at[0])} vs ${describe(at[1])}`,
+            n.span,
+            "both operands must share dimensions",
+          );
+        return { rank: sig.rank(at.map((x) => x.rank)), d: sig.dims(at.map((x) => x.d)) };
+      }
+    }
+  };
+  try {
+    const type = check(node);
+    if (type.d.some((x) => !Number.isInteger(x)))
+      throw new ParseErr(`non-integer dimension vector [${fmtDims(type.d)}]`, node.span, "this is a compiler bug");
+    return { ok: true, node, type, tokens };
+  } catch (e) {
+    const pe = e as ParseErr;
+    return { ok: false, tokens, error: { message: pe.message, span: pe.span ?? node.span, hint: pe.hint } };
+  }
+}
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/* ---------- numeric evaluation on the sample cell -------------------------- */
+const GRAD_T: Vec = [118.0, -32.0, 7.4];
+const GRAD_P: Vec = [-8240.0, 151.0, -40.0];
+const GRAD_U: Tens = [-12, 3.2, 0.4, 40, -8, 1.1, 2, -0.6, -3.4];
+export function evaluate(n: Node): Val {
+  switch (n.t) {
+    case "num":
+      return { rank: 0, d: D0, s: n.v! };
+    case "id": {
+      const s = SYMBOLS.find((x) => x.name === n.name)!;
+      return { ...s.val };
+    }
+    case "neg": {
+      const a = evaluate(n.a!);
+      return { ...a, s: a.s !== undefined ? -a.s : undefined, v: a.v ? [-a.v[0], -a.v[1], -a.v[2]] : undefined };
+    }
+    case "pow": {
+      const a = evaluate(n.a!);
+      return { rank: 0, d: mulD(a.d, n.n!), s: Math.pow(a.s!, n.n!) };
+    }
+    case "bin": {
+      const l = evaluate(n.a!);
+      const r = evaluate(n.b!);
+      const rank = (l.rank || r.rank) as Rank;
+      if (n.op === "+" || n.op === "-") {
+        const k = n.op === "+" ? 1 : -1;
+        if (rank === 0) return { rank, d: l.d, s: l.s! + k * r.s! };
+        if (rank === 1)
+          return { rank, d: l.d, v: [l.v![0] + k * r.v![0], l.v![1] + k * r.v![1], l.v![2] + k * r.v![2]] };
+        return { rank, d: l.d, t: l.t!.map((x, i) => x + k * r.t![i]) };
+      }
+      if (n.op === "*") {
+        if (rank === 0) return { rank, d: addD(l.d, r.d), s: l.s! * r.s! };
+        const k = r.s!;
+        return { rank, d: addD(l.d, r.d), v: [l.v![0] * k, l.v![1] * k, l.v![2] * k] };
+      }
+      if (rank === 0) return { rank, d: addD(l.d, r.d, -1), s: l.s! / r.s! };
+      const k = 1 / r.s!;
+      return { rank, d: addD(l.d, r.d, -1), v: [l.v![0] * k, l.v![1] * k, l.v![2] * k] };
+    }
+    case "call": {
+      const name = n.name!;
+      const a = n.args!.map(evaluate);
+      switch (name) {
+        case "mag":
+          return { rank: 0, d: a[0].d, s: Math.hypot(...a[0].v!) };
+        case "mag_sq": {
+          const v = a[0].v!;
+          return { rank: 0, d: mulD(a[0].d, 2), s: v[0] ** 2 + v[1] ** 2 + v[2] ** 2 };
+        }
+        case "dot": {
+          const x = a[0].v ?? [a[0].s!, a[0].s!, a[0].s!];
+          const y = a[1].v ?? [a[1].s!, a[1].s!, a[1].s!];
+          return { rank: 0, d: addD(a[0].d, a[1].d), s: x[0] * y[0] + x[1] * y[1] + x[2] * y[2] };
+        }
+        case "cross": {
+          const x = a[0].v!,
+            y = a[1].v!;
+          return {
+            rank: 1,
+            d: addD(a[0].d, a[1].d),
+            v: [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]],
+          };
+        }
+        case "grad": {
+          if (a[0].rank === 0) {
+            const key = n.args![0];
+            const v = key.t === "id" && key.name === "T" ? GRAD_T : key.t === "id" && key.name === "p" ? GRAD_P : [0.8, -0.3, 0.11];
+            return { rank: 1, d: addD(a[0].d, [0, -1, 0, 0, 0, 0, 0]), v: v as Vec };
+          }
+          return { rank: 2, d: addD(a[0].d, [0, -1, 0, 0, 0, 0, 0]), t: GRAD_U.slice() };
+        }
+        case "div": {
+          const t = a[0].t!;
+          return { rank: 0, d: addD(a[0].d, [0, 1, 0, 0, 0, 0, 0]), s: t[0] + t[4] + t[8] };
+        }
+        case "curl": {
+          const t = a[0].t!;
+          return {
+            rank: 1,
+            d: addD(a[0].d, [0, 1, 0, 0, 0, 0, 0]),
+            v: [t[7] - t[5], t[2] - t[6], t[3] - t[1]],
+          };
+        }
+        case "sqrt":
+          return { rank: a[0].rank, d: mulD(a[0].d, 0.5), s: Math.sqrt(a[0].s!) };
+        case "abs":
+          return { ...a[0], s: Math.abs(a[0].s!) };
+        case "sum":
+        case "avg":
+          return a[0];
+        case "sin":
+          return { rank: 0, d: D0, s: Math.sin(a[0].s!) };
+        case "cos":
+          return { rank: 0, d: D0, s: Math.cos(a[0].s!) };
+        case "exp":
+          return { rank: 0, d: D0, s: Math.exp(a[0].s!) };
+        case "log":
+          return { rank: 0, d: D0, s: Math.log(a[0].s!) };
+        case "atan2":
+          return { rank: 0, d: D0, s: Math.atan2(a[0].s!, a[1].s!) };
+        default:
+          return { rank: 0, d: D0, s: 0 };
+      }
+    }
+  }
+}
+export function formatValue(v: Val): string {
+  if (v.rank === 1) return `(${v.v!.map((x) => x.toFixed(4)).join(", ")})`;
+  if (v.rank === 2) return "3×3 tensor";
+  const s = v.s!;
+  const a = Math.abs(s);
+  if (a !== 0 && (a < 1e-3 || a >= 1e6)) return s.toExponential(4).replace("e", "×10^");
+  return s.toLocaleString("en-US", { maximumFractionDigits: 6 });
+}
+/* ---------- preset expressions -------------------------------------------- */
+export const PRESET_EXPRS: { label: string; src: string; note: string }[] = [
+  {
+    label: "p_total",
+    src: "p + 0.5 * rho * dot(U, U)",
+    note: "incompressible total pressure",
+  },
+  {
+    label: "mach",
+    src: "mag(U) / sqrt(1.4 * R * T)",
+    note: "compressible Mach from γ·R·T",
+  },
+  {
+    label: "entropy_gen",
+    src: "mu / T * mag_sq(grad(U)) + kappa / (T * T) * mag_sq(grad(T))",
+    note: "volumetric entropy generation",
+  },
+  {
+    label: "ILLEGAL",
+    src: "p + 0.5 * dot(U, U)",
+    note: "missing ρ — must be rejected",
+  },
+];
+
+Created src/lib/webgl.ts
+Created src/lib/webgl.ts
+
+/* ============================================================================
+ *  cockpit::webgl  —  WebGL2 reverse-Z forward pass for the picked cascade.
+ *  · EXT_clip_control → ZERO_TO_ONE + infinite reverse-Z (clear 0, GREATER)
+ *  · 128×8 RG8 curve texture shared with the SVG plots (single source of truth)
+ *  · 256×1 Moreland cool-warm LUT, Δφ centred strictly at zero
+ * ==========================================================================*/
+import { coolWarmRamp, chordValue, deltaEnvelope } from "./fields";
+import type { Camera } from "./geometry";
+import { basisOf, eyeOf } from "./geometry";
+export const FOV = (38 * Math.PI) / 180;
+export const CURVE_W = 128;
+export const CURVE_H = 8; // rows: 0-3 Cp(suctA,suctB,pressA,pressB) 4-7 Tw
+/* ---------- matrices (column-major) --------------------------------------- */
+export function projMatrix(aspect: number, reverseZ: boolean): Float32Array {
+  const f = 1 / Math.tan(FOV / 2);
+  const m = new Float32Array(16);
+  m[0] = f / aspect;
+  m[5] = f;
+  if (reverseZ) {
+    m[11] = -1;
+    m[14] = 0.01;
+  } else {
+    m[10] = (100 + 0.01) / (0.01 - 100);
+    m[11] = -1;
+    m[14] = (2 * 100 * 0.01) / (0.01 - 100);
+  }
+  return m;
+}
+export function viewMatrix(cam: Camera): Float32Array {
+  const b = basisOf(cam);
+  const e = eyeOf(cam);
+  return new Float32Array([
+    b.x[0], b.y[0], b.z[0], 0,
+    b.x[1], b.y[1], b.z[1], 0,
+    b.x[2], b.y[2], b.z[2], 0,
+    -(b.x[0] * e[0] + b.x[1] * e[1] + b.x[2] * e[2]),
+    -(b.y[0] * e[0] + b.y[1] * e[1] + b.y[2] * e[2]),
+    -(b.z[0] * e[0] + b.z[1] * e[1] + b.z[2] * e[2]),
+    1,
+  ]);
+}
+export function mul4(a: Float32Array, b: Float32Array): Float32Array {
+  const o = new Float32Array(16);
+  for (let c = 0; c < 4; c++)
+    for (let r = 0; r < 4; r++) {
+      let s = 0;
+      for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      o[c * 4 + r] = s;
+    }
+  return o;
+}
+export function vpMatrix(cam: Camera, aspect: number, reverseZ: boolean): Float32Array {
+  return mul4(projMatrix(aspect, reverseZ), viewMatrix(cam));
+}
+export function project(
+  vp: Float32Array,
+  p: [number, number, number],
+  w: number,
+  h: number,
+): { x: number; y: number; d: number } | null {
+  const x = vp[0] * p[0] + vp[4] * p[1] + vp[8] * p[2] + vp[12];
+  const y = vp[1] * p[0] + vp[5] * p[1] + vp[9] * p[2] + vp[13];
+  const d = vp[3] * p[0] + vp[7] * p[1] + vp[11] * p[2] + vp[15];
+  if (d <= 1e-5) return null;
+  return { x: (x / d) * 0.5 * w + w * 0.5, y: h * 0.5 - (y / d) * 0.5 * h, d };
+}
+/** world point under a screen point, on the plane through `anchor` facing the camera */
+export function dragToPlane(
+  cam: Camera,
+  anchor: [number, number, number],
+  mx: number,
+  my: number,
+  w: number,
+  h: number,
+): [number, number, number] {
+  const ndcX = (mx / w) * 2 - 1;
+  const ndcY = 1 - (my / h) * 2;
+  const aspect = w / Math.max(1, h);
+  const t = Math.tan(FOV / 2);
+  const dv = [ndcX * t * aspect, ndcY * t, -1];
+  const b = basisOf(cam);
+  const d: [number, number, number] = [
+    dv[0] * b.x[0] + dv[1] * b.y[0] + dv[2] * b.z[0],
+    dv[0] * b.x[1] + dv[1] * b.y[1] + dv[2] * b.z[1],
+    dv[0] * b.x[2] + dv[1] * b.y[2] + dv[2] * b.z[2],
+  ];
+  const l = Math.hypot(d[0], d[1], d[2]) || 1;
+  d[0] /= l;
+  d[1] /= l;
+  d[2] /= l;
+  const e = eyeOf(cam);
+  const t2 = (anchor[0] - e[0]) * d[0] + (anchor[1] - e[1]) * d[1] + (anchor[2] - e[2]) * d[2];
+  return [e[0] + d[0] * t2, e[1] + d[1] * t2, e[2] + d[2] * t2];
+}
+/* ---------- shaders -------------------------------------------------------- */
+const VS = `#version 300 es
+precision highp float;
+in vec3 aPos; in vec3 aNrm; in vec2 aData; in float aHi;
+uniform mat4 uVP;
+out vec3 vN; out vec3 vW; out vec2 vD; out float vHi;
+void main(){
+  vW = aPos; vN = aNrm; vD = aData; vHi = aHi;
+  gl_Position = uVP * vec4(aPos, 1.0);
+}`;
+const FS = `#version 300 es
+precision highp float;
+in vec3 vN; in vec3 vW; in vec2 vD; in float vHi;
+uniform sampler2D uCurve;
+uniform sampler2D uLUT;
+uniform int uMode;          // 0 = φ (A|B wipe)  1 = Δφ diverging
+uniform float uWipePx;
+uniform float uFieldRow;
+uniform float uDeltaScale;
+uniform vec2 uRange;
+uniform vec3 uEye;
+uniform float uShade;
+out vec4 o;
+float row(float r){ return texture(uCurve, vec2(clamp(vD.x, 0.004, 0.996), (r + 0.5) / 8.0)).r; }
+void main(){
+  float base = uFieldRow + (vD.y > 0.0 ? 0.0 : 2.0);
+  float a = row(base);
+  float b = row(base + 1.0);
+  float phi = (gl_FragCoord.x >= uWipePx) ? b : a;
+  float d = b - a;
+  vec3 col;
+  if (uMode == 1) {
+    float t = clamp(0.5 + 0.5 * d / uDeltaScale, 0.0, 1.0);
+    col = texture(uLUT, vec2(t, 0.5)).rgb;
+  } else {
+    float t = clamp((phi - uRange.x) / (uRange.y - uRange.x), 0.0, 1.0);
+    col = texture(uLUT, vec2(t, 0.5)).rgb;
+  }
+  vec3 N = normalize(vN);
+  vec3 V = normalize(uEye - vW);
+  vec3 L1 = normalize(vec3(-0.55, -0.30, 0.78));
+  vec3 L2 = normalize(vec3(0.62, 0.48, -0.35));
+  float d1 = max(dot(N, L1), 0.0);
+  float d2 = max(dot(N, L2), 0.0);
+  vec3 lit = col * (0.30 + 0.80 * d1) + col * 0.24 * d2;
+  vec3 H = normalize(L1 + V);
+  lit += vec3(1.0) * pow(max(dot(N, H), 0.0), 46.0) * 0.16;
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  lit += vec3(0.0, 0.29, 0.99) * fres * 0.34;
+  // faint surface-LIC streaks along the chordwise direction
+  float streak = sin(vD.x * 720.0 + N.z * 12.0);
+  lit *= 1.0 + 0.035 * streak * uShade;
+  if (vHi > 1.5)      lit = mix(lit, vec3(0.937, 0.137, 0.235), 0.80);
+  else if (vHi > 0.5) lit = mix(lit, vec3(0.0, 0.290, 0.992), 0.84);
+  o = vec4(lit, 1.0);
+}`;
+/* ---------- curve texture -------------------------------------------------- */
+function encodeCurve(field: string): { data: Uint8Array; min: number[]; max: number[] } {
+  const data = new Uint8Array(CURVE_W * CURVE_H * 2);
+  const min: number[] = [];
+  const max: number[] = [];
+  for (let r = 0; r < CURVE_H; r++) {
+    const side = r < 2 ? 1 : -1;
+    const run = r % 2;
+    const fld = r < 4 ? "Cp" : "Tw";
+    const vals: number[] = [];
+    for (let i = 0; i < CURVE_W; i++) vals.push(chordValue(fld, side, run as 0 | 1, i / (CURVE_W - 1)));
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    min.push(lo);
+    max.push(hi);
+    for (let i = 0; i < CURVE_W; i++) {
+      const q = Math.round(((vals[i] - lo) / (hi - lo || 1)) * 65535);
+      const o = (r * CURVE_W + i) * 2;
+      data[o] = q & 255;
+      data[o + 1] = (q >> 8) & 255;
+    }
+  }
+  return { data, min, max };
+}
+export interface RenderOpts {
+  cam: Camera;
+  width: number;
+  height: number;
+  mode: 0 | 1;
+  wipePx: number;
+  fieldRow: 0 | 4;
+  deltaScale: number;
+  range: [number, number];
+  shade: number;
+}
+export interface Renderer {
+  reverseZ: boolean;
+  resize: (w: number, h: number) => void;
+  setMesh: (positions: Float32Array, normals: Float32Array, data: Float32Array, indices: Uint32Array) => void;
+  setHighlight: (h: Float32Array) => void;
+  render: (o: RenderOpts) => void;
+  dispose: () => void;
+}
+export function createRenderer(canvas: HTMLCanvasElement): Renderer {
+  const gl = canvas.getContext("webgl2", {
+    alpha: true,
+    antialias: true,
+    premultipliedAlpha: false,
+    powerPreference: "high-performance",
+  });
+  if (!gl) throw new Error("WebGL2 unavailable");
+  const ext = gl.getExtension("EXT_clip_control");
+  const reverseZ = !!ext;
+  if (ext) gl.clipControl(gl.LOWER_LEFT, gl.ZERO_TO_ONE);
+  const compile = (type: number, src: string) => {
+    const sh = gl.createShader(type)!;
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+      throw new Error(gl.getShaderInfoLog(sh) ?? "shader compile failed");
+    return sh;
+  };
+  const prog = gl.createProgram()!;
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+    throw new Error(gl.getProgramInfoLog(prog) ?? "link failed");
+  gl.useProgram(prog);
+  const U = (n: string) => gl.getUniformLocation(prog, n);
+  const uVP = U("uVP"),
+    uCurve = U("uCurve"),
+    uLUT = U("uLUT"),
+    uMode = U("uMode"),
+    uWipe = U("uWipePx"),
+    uRow = U("uFieldRow"),
+    uDS = U("uDeltaScale"),
+    uRange = U("uRange"),
+    uEye = U("uEye"),
+    uShade = U("uShade");
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const bufPos = gl.createBuffer();
+  const bufNrm = gl.createBuffer();
+  const bufDat = gl.createBuffer();
+  const bufHi = gl.createBuffer();
+  const bufIdx = gl.createBuffer();
+  let indexCount = 0;
+  const attr = (name: string, size: number, buf: WebGLBuffer) => {
+    const loc = gl.getAttribLocation(prog, name);
+    if (loc < 0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  };
+  attr("aPos", 3, bufPos);
+  attr("aNrm", 3, bufNrm);
+  attr("aData", 2, bufDat);
+  attr("aHi", 1, bufHi);
+  // LUT
+  const lut = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, lut);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, coolWarmRamp(256));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  // curve table
+  const curve = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, curve);
+  const enc = encodeCurve("Cp");
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, CURVE_W, CURVE_H, 0, gl.RG, gl.UNSIGNED_BYTE, enc.data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(uCurve, 0);
+  gl.uniform1i(uLUT, 1);
+  gl.enable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.clearColor(0, 0, 0, 0);
+  let dpr = Math.min(2, window.devicePixelRatio || 1);
+  return {
+    reverseZ,
+    resize(w: number, h: number) {
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      const pw = Math.max(1, Math.round(w * dpr));
+      const ph = Math.max(1, Math.round(h * dpr));
+      if (canvas.width !== pw || canvas.height !== ph) {
+        canvas.width = pw;
+        canvas.height = ph;
+      }
+      gl.viewport(0, 0, pw, ph);
+    },
+    setMesh(positions, normals, data, indices) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufPos);
+      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufNrm);
+      gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufDat);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      const hi = new Float32Array(positions.length / 3);
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufHi);
+      gl.bufferData(gl.ARRAY_BUFFER, hi, gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufIdx);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+      indexCount = indices.length;
+    },
+    setHighlight(h) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufHi);
+      gl.bufferData(gl.ARRAY_BUFFER, h, gl.DYNAMIC_DRAW);
+    },
+    render(o) {
+      gl.useProgram(prog);
+      gl.bindVertexArray(vao);
+      const aspect = o.width / Math.max(1, o.height);
+      const vp = mul4(projMatrix(aspect, reverseZ), viewMatrix(o.cam));
+      gl.uniformMatrix4fv(uVP, false, vp);
+      gl.uniform1i(uMode, o.mode);
+      gl.uniform1f(uWipe, o.wipePx * dpr);
+      gl.uniform1f(uRow, o.fieldRow);
+      gl.uniform1f(uDS, o.deltaScale);
+      gl.uniform2f(uRange, o.range[0], o.range[1]);
+      const e = eyeOf(o.cam);
+      gl.uniform3f(uEye, e[0], e[1], e[2]);
+      gl.uniform1f(uShade, o.shade);
+      gl.clearDepth(reverseZ ? 0 : 1);
+      gl.depthFunc(reverseZ ? gl.GREATER : gl.LESS);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      if (indexCount) gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
+    },
+    dispose() {
+      gl.deleteProgram(prog);
+      gl.deleteBuffer(bufPos);
+      gl.deleteBuffer(bufNrm);
+      gl.deleteBuffer(bufDat);
+      gl.deleteBuffer(bufHi);
+      gl.deleteBuffer(bufIdx);
+      gl.deleteTexture(lut);
+      gl.deleteTexture(curve);
+      gl.deleteVertexArray(vao);
+    },
+  };
+}
+/** envelope of |Δφ| used to centre the diverging ramp at zero */
+export const DELTA_SCALE = (field: string) => deltaEnvelope(field);
+export const fieldRange = (field: string): [number, number] => {
+  if (field === "Tw") return [288, 420];
+  if (field === "yPlus") return [0, 44];
+  return [-1.8, 1.1];
+};
+
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 read
+Readsi.ts L136-159
+Edited src/lib/si.ts
++1-1
+Edited src/lib/si.ts
++5-5
+
+    if (c === "(") out.push({ k: "lp", t: c, i++ });
+    else if (c === ")") out.push({ k: "rp", t: c, i++ });
+    else if (c === ",") out.push({ k: "comma", t: c, i++ });
+    else if ("+-*/^".includes(c)) out.push({ k: "op", t: c, i++ });
+    else out.push({ k: "op", t: c, i++ });
+    if (c === "(") out.push({ k: "lp", t: c, i: i++ });
+    else if (c === ")") out.push({ k: "rp", t: c, i: i++ });
+    else if (c === ",") out.push({ k: "comma", t: c, i: i++ });
+    else if ("+-*/^".includes(c)) out.push({ k: "op", t: c, i: i++ });
+    else out.push({ k: "op", t: c, i: i++ });
+
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 read
+Readsi.ts L383-400
+Edited src/lib/si.ts
++1-1
+Edited src/lib/si.ts
++19-12
+
+/** names used only to make diagnostics readable */
+const NAME_BANK: { name: string; d: Dims }[] = [
+  ...SYMBOLS.map((s) => ({ name: s.name, d: s.d })),
+  { name: "Specific Kinetic Energy", d: [0, 2, -2, 0, 0, 0, 0] },
+  { name: "Velocity", d: [0, 1, -1, 0, 0, 0, 0] },
+  { name: "Pressure", d: [1, -1, -2, 0, 0, 0, 0] },
+  { name: "Density", d: [1, -3, 0, 0, 0, 0, 0] },
+  { name: "Temperature", d: [0, 0, 0, 1, 0, 0, 0] },
+  { name: "Specific Energy", d: [0, 2, -2, 0, 0, 0, 0] },
+  { name: "Time", d: [0, 0, 1, 0, 0, 0, 0] },
+  { name: "Entropy rate", d: [1, -1, -3, -1, 0, 0, 0] },
+];
+/** names used only to make diagnostics readable — descriptive names win */
+const NAME_BANK: { name: string; d: Dims }[] = [
+  { name: "Pressure", d: [1, -1, -2, 0, 0, 0, 0] },
+  { name: "Density", d: [1, -3, 0, 0, 0, 0, 0] },
+  { name: "Specific Kinetic Energy", d: [0, 2, -2, 0, 0, 0, 0] },
+  { name: "Velocity", d: [0, 1, -1, 0, 0, 0, 0] },
+  { name: "Temperature", d: [0, 0, 0, 1, 0, 0, 0] },
+  { name: "Dynamic Viscosity", d: [1, -1, -1, 0, 0, 0, 0] },
+  { name: "Thermal Conductivity", d: [1, 1, -3, -1, 0, 0, 0] },
+  { name: "Specific Heat", d: [0, 2, -2, -1, 0, 0, 0] },
+  { name: "Acceleration", d: [0, 1, -2, 0, 0, 0, 0] },
+  { name: "Force", d: [1, 1, -2, 0, 0, 0, 0] },
+  { name: "Power", d: [1, 2, -3, 0, 0, 0, 0] },
+  { name: "Energy", d: [1, 2, -2, 0, 0, 0, 0] },
+  { name: "Time", d: [0, 0, 1, 0, 0, 0, 0] },
+  { name: "Entropy generation rate", d: [1, -1, -3, -1, 0, 0, 0] },
+  { name: "Dimensionless", d: D0 },
+  ...SYMBOLS.map((s) => ({ name: s.name, d: s.d })),
+];
+
+Edited src/lib/si.ts
++1-1
+Edited src/lib/si.ts
++12-14
+
+          if (!eqD(l.d, r.d)) {
+            const fix1 = findFix(addD(r.d, l.d, -1));
+            const fix2 = findFix(addD(l.d, r.d, -1));
+            const verb = n.op === "+" ? "add" : "subtract";
+            let hint: string;
+            if (fix1)
+              hint = `— multiply ${quantityName(r.d, r.rank).toLowerCase()} ${r.rank ? "" : ""}`.trimEnd();
+            if (fix1)
+              hint = `— multiply by ${capital(fix1.name)} [${unitOf(fix1.d)}] on the right-hand side`;
+            else if (fix2) hint = `— multiply by ${capital(fix2.name)} [${unitOf(fix2.d)}] on the left-hand side`;
+            else
+              hint = `— left [${fmtDims(l.d)}] vs right [${fmtDims(r.d)}]; insert the missing conversion factor`;
+            throw new ParseErr(`cannot ${verb} ${describe(l)} and ${describe(r)}`, n.span, hint);
+          }
+          if (!eqD(l.d, r.d)) {
+            const verb = n.op === "+" ? "add" : "subtract";
+            // what must the right-hand term be multiplied by to match the left?
+            const fixR = findFix(addD(l.d, r.d, -1));
+            const fixL = findFix(addD(r.d, l.d, -1));
+            const fix = fixR ?? fixL;
+            const where = fixR ? "" : fixL ? " (left-hand side)" : "";
+            const hint = fix
+              ? `— multiply by ${capital(quantityName(fix.d, 0))} ${fix.name} [${unitOf(fix.d)}]${where}`
+              : `— left [${fmtDims(l.d)}] vs right [${fmtDims(r.d)}]; insert the missing conversion factor`;
+            throw new ParseErr(`cannot ${verb} ${describe(l)} and ${describe(r)}`, n.span, hint);
+          }
+
+Edited src/lib/si.ts
++1-1
+Edited src/lib/si.ts
++1-1
+
+        if (!Number.isInteger(n.n) && mulD(a.d, n.n).some((x) => !Number.isInteger(x)))
+        if (!Number.isInteger(n.n) && mulD(a.d, n.n!).some((x) => !Number.isInteger(x)))
+
+Edited src/lib/si.ts
++1-1
+Edited src/lib/si.ts
++1-1
+
+        return { rank: 0, d: mulD(a.d, n.n) };
+        return { rank: 0, d: mulD(a.d, n.n!) };
+
+Edited src/lib/si.ts
++1-1
+Edited src/lib/si.ts
++1-9
+
+  const peek = () => toks[p];
+  const eat = (t: string) => {
+    const k = toks[p];
+    if (k && k.t === t) {
+      p++;
+      return true;
+    }
+    return false;
+  };
+  const peek = () => toks[p];
+
+Edited src/lib/si.ts
++1-1
+Edited src/lib/si.ts
++1-2
+
+const unitVec: Dims = [0, 1, -1, 0, 0, 0, 0];
+const FUNCTIONS: Record<string, FnSig> = {
+const FUNCTIONS: Record<string, FnSig> = {
+
+Edited src/lib/webgl.ts
++1-1
+Edited src/lib/webgl.ts
++1-1
+
+function encodeCurve(field: string): { data: Uint8Array; min: number[]; max: number[] } {
+function encodeCurve(): { data: Uint8Array; min: number[]; max: number[] } {
+
+Edited src/lib/webgl.ts
++1-1
+Edited src/lib/webgl.ts
++10-3
+
+  const ext = gl.getExtension("EXT_clip_control");
+  const reverseZ = !!ext;
+  if (ext) gl.clipControl(gl.LOWER_LEFT, gl.ZERO_TO_ONE);
+  const ext = gl.getExtension("EXT_clip_control");
+  const reverseZ = !!ext;
+  if (ext) {
+    const gx = gl as unknown as {
+      clipControl: (plane: number, depth: number) => void;
+      LOWER_LEFT: number;
+      ZERO_TO_ONE: number;
+    };
+    gx.clipControl(gx.LOWER_LEFT, gx.ZERO_TO_ONE);
+  }
+
+Edited src/lib/webgl.ts
++1-1
+Edited src/lib/webgl.ts
++1-1
+
+  const enc = encodeCurve("Cp");
+  const enc = encodeCurve();
+
+Now the UI primitives and the publication-grade SVG plotting system.
+Created src/ui.tsx
+Created src/ui.tsx
+
+import type { ReactNode } from "react";
+/* ---------------------------------------------------------------- panels -- */
+export function Panel({
+  title,
+  right,
+  children,
+  className = "",
+  bodyClass = "",
+}: {
+  title?: ReactNode;
+  right?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+  bodyClass?: string;
+}) {
+  return (
+    <section className={`flex min-h-0 flex-col border border-hairline bg-carbon ${className}`}>
+      {title !== undefined && (
+        <header className="flex h-[26px] shrink-0 items-center justify-between border-b border-hairline bg-[#141519] pl-2.5 pr-2">
+          <span className="lbl text-[#767d92]">{title}</span>
+          {right}
+        </header>
+      )}
+      <div className={`min-h-0 flex-1 ${bodyClass}`}>{children}</div>
+    </section>
+  );
+}
+export function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-[3px]">
+      <span className="lbl shrink-0 text-[#6a7085]">{label}</span>
+      <span className="num text-[11.5px] text-ink">{children}</span>
+    </div>
+  );
+}
+export function Num({ v, dec = 3, unit }: { v: number; dec?: number; unit?: string }) {
+  return (
+    <span className="num tabular-nums">
+      {v.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec })}
+      {unit && <span className="ml-1 text-[10px] text-dim">{unit}</span>}
+    </span>
+  );
+}
+export function Chip({
+  children,
+  tone = "default",
+  onClick,
+  active,
+  title,
+  className = "",
+}: {
+  children: ReactNode;
+  tone?: "default" | "volt" | "alarm" | "amber";
+  onClick?: () => void;
+  active?: boolean;
+  title?: string;
+  className?: string;
+}) {
+  const tones: Record<string, string> = {
+    default: "border-hairline text-[#9aa1b6] hover:border-[#454a5e] hover:text-ink",
+    volt: "border-[#1b3f9e] text-[#7ea3ff] hover:border-volt hover:text-[#a9c4ff]",
+    alarm: "border-[#7a1b28] text-[#ff8a97] hover:border-alarm hover:text-[#ffb3bb]",
+    amber: "border-[#6b4d10] text-[#ffcd6b] hover:border-amber hover:text-[#ffe0a3]",
+  };
+  const Comp = onClick ? "button" : "span";
+  return (
+    <Comp
+      title={title}
+      onClick={onClick}
+      className={`num inline-flex items-center gap-1 border px-1.5 py-[3px] text-[10px] leading-none transition-[color,border-color,background-color] duration-[120ms] ease-[cubic-bezier(.2,0,0,1)] ${
+        active ? "border-volt bg-[#004afd]/15 text-[#a9c4ff]" : tones[tone]
+      } ${onClick ? "cursor-pointer" : ""} ${className}`}
+    >
+      {children}
+    </Comp>
+  );
+}
+export function Seg<T extends string>({
+  value,
+  options,
+  onChange,
+  className = "",
+}: {
+  value: T;
+  options: { v: T; l: ReactNode }[];
+  onChange: (v: T) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`flex border border-hairline ${className}`}>
+      {options.map((o) => (
+        <button
+          key={o.v}
+          onClick={() => onChange(o.v)}
+          className={`num flex-1 px-1.5 py-[4px] text-[10px] leading-none transition-colors duration-[120ms] ${
+            value === o.v
+              ? "bg-volt text-white"
+              : "text-[#767d92] hover:bg-[#1f2128] hover:text-ink"
+          }`}
+        >
+          {o.l}
+        </button>
+      ))}
+    </div>
+  );
+}
+export function Slider({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  unit,
+  onChange,
+  dec,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  unit?: string;
+  onChange: (v: number) => void;
+  dec?: number;
+}) {
+  const d = dec ?? (step < 1 ? Math.max(0, Math.ceil(-Math.log10(step))) : 0);
+  return (
+    <label className="block py-[3px]">
+      <span className="flex items-baseline justify-between">
+        <span className="lbl text-[#6a7085]">{label}</span>
+        <span className="num text-[11px] text-ink">
+          {value.toFixed(d)}
+          {unit && <span className="ml-1 text-[10px] text-dim">{unit}</span>}
+        </span>
+      </span>
+      <input
+        type="range"
+        className="mt-[6px] w-full cursor-ew-resize"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+      />
+    </label>
+  );
+}
+export function Led({ tone = "ok", label }: { tone?: "ok" | "warn" | "off"; label?: string }) {
+  const c = tone === "ok" ? "#22c55e" : tone === "warn" ? "#ef233c" : "#3a3e4c";
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={`inline-block h-[5px] w-[5px] ${tone === "ok" ? "led" : ""}`}
+        style={{ background: c, boxShadow: `0 0 6px ${c}88` }}
+      />
+      {label && <span className="lbl text-[#6a7085]">{label}</span>}
+    </span>
+  );
+}
+export function Btn({
+  children,
+  onClick,
+  tone = "default",
+  className = "",
+  title,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  tone?: "default" | "volt" | "alarm";
+  className?: string;
+  title?: string;
+}) {
+  const t =
+    tone === "volt"
+      ? "border-volt bg-volt text-white hover:bg-[#1f5cff]"
+      : tone === "alarm"
+        ? "border-[#7a1b28] text-[#ff8a97] hover:border-alarm"
+        : "border-hairline text-[#9aa1b6] hover:border-[#454a5e] hover:text-ink";
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      className={`num border px-2 py-[5px] text-[10px] uppercase leading-none tracking-[0.1em] transition-colors duration-[120ms] ${t} ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+/* ----------------------------------------------------------------- icons -- */
+const PATHS: Record<string, string> = {
+  pick: "M4 3l14 8-6 1.4L9.6 19z",
+  orbit: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M4 11h14M11 4c2.6 2 2.6 10 0 14M11 4c-2.6 2-2.6 10 0 14",
+  probe: "M3 17L17 4M6 14l3 3M9 11l3 3M12 8l3 3M4 4h4M4 4v4",
+  slice: "M3 12h16M6 6l12 12M6 18L18 6",
+  gizmo: "M11 3v16M3 11h16M5 5l12 12M17 5L5 17",
+  ruler: "M3 8h16v6H3zM6 8v3M9 8v4M12 8v3M15 8v4",
+  bolt: "M12 3l-5 8h4l-1 7 5-9h-4z",
+  grid: "M3 3h16v16H3zM3 9h16M3 15h16M9 3v16M15 3v16",
+  wave: "M2 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0",
+  layers: "M11 3L3 8l8 5 8-5zM3 13l8 5 8-5",
+  chip: "M6 6h10v10H6zM9 2v4M13 2v4M9 16v4M13 16v4M2 9h4M2 13h4M16 9h4M16 13h4",
+  code: "M7 6L3 11l4 5M15 6l4 5-4 5M12 4l-2 14",
+  camera: "M3 7h4l2-2h4l2 2h4v10H3zM11 11a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+  crosshair: "M11 2v6M11 14v6M2 11h6M14 11h6M11 8a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+};
+export function Icon({ name, className = "" }: { name: keyof typeof PATHS | string; className?: string }) {
+  const d = PATHS[name] ?? PATHS.crosshair;
+  return (
+    <svg viewBox="0 0 22 22" className={`h-[17px] w-[17px] ${className}`} fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  );
+}
+/* ---------------------------------------------------------------- logo ---- */
+export function Mark({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 34 20" className={className} aria-label="Cockpit">
+      <path d="M2 17.5C6 6 12.5 2 20 2c5.5 0 9.5 2.6 12 7.4" stroke="#004afd" strokeWidth={2} fill="none" />
+      <path d="M2 17.5h30" stroke="#e9ebf2" strokeWidth={1.4} />
+      <circle cx="20" cy="2" r="2.4" fill="#ef233c" />
+      <path d="M9 17.5c1.6-3.4 3.6-5.6 6-6.8" stroke="#8a90a3" strokeWidth={1.2} fill="none" />
+    </svg>
+  );
+}
+
+Created src/Plots.tsx
+Created src/Plots.tsx
+
+import { useMemo, useRef, useState } from "react";
+import { coolWarm } from "./lib/fields";
+/* ============================================================================
+ *  Publication-grade SVG plots — hairline frames, ticks outside the box,
+ *  tracked mono small-caps labels (NASA wind-tunnel data-plate treatment).
+ * ==========================================================================*/
+export interface Series {
+  id: string;
+  label: string;
+  pts: [number, number][];
+  color: string;
+  width?: number;
+  dash?: string;
+  marker?: boolean;
+  area?: boolean;
+}
+export interface Band {
+  from: number;
+  to: number;
+  color: string;
+  label?: string;
+  axis?: "x" | "y";
+}
+export interface Marker {
+  x?: number;
+  y?: number;
+  label: string;
+  color?: string;
+  anchor?: "start" | "middle" | "end";
+}
+export interface BarSpec {
+  pts: [number, number][];
+  color: (v: number) => string;
+  base?: number;
+}
+interface Props {
+  title: string;
+  subtitle?: string;
+  xLabel: string;
+  yLabel: string;
+  xDomain: [number, number];
+  yDomain: [number, number];
+  series?: Series[];
+  bars?: BarSpec[];
+  bands?: Band[];
+  markers?: Marker[];
+  refLines?: { y?: number; x?: number; color: string; label: string; dash?: string }[];
+  invertY?: boolean;
+  logX?: boolean;
+  xTicks?: number[];
+  yTicks?: number[];
+  cursor?: number | null;
+  onCursor?: (v: number | null) => void;
+  height?: number;
+  legend?: boolean;
+  readout?: { label: string; value: string }[];
+}
+const W = 520;
+const M = { l: 54, r: 16, t: 30, b: 36 };
+function niceTicks(min: number, max: number, n = 5): number[] {
+  const span = max - min || 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(span / n)));
+  const norm = span / n / mag;
+  const step = (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
+  const out: number[] = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-6; v += step)
+    out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return out;
+}
+function tickLabel(v: number, log = false): string {
+  if (log) return v >= 1 ? String(Math.round(v)) : v.toPrecision(1);
+  const a = Math.abs(v);
+  if (a >= 1e5 || (a > 0 && a < 1e-3)) return v.toExponential(1).replace("e+", "e");
+  if (a >= 1000) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(0);
+  if (a >= 1) return v.toFixed(1);
+  return v.toFixed(2);
+}
+export function Chart(p: Props) {
+  const {
+    title,
+    subtitle,
+    xLabel,
+    yLabel,
+    xDomain,
+    yDomain,
+    series = [],
+    bars = [],
+    bands = [],
+    markers = [],
+    refLines = [],
+    invertY,
+    logX,
+    xTicks,
+    yTicks,
+    cursor,
+    onCursor,
+    height = 250,
+    legend = true,
+    readout,
+  } = p;
+  const ref = useRef<SVGSVGElement>(null);
+  const [hover, setHover] = useState<number | null>(null);
+  const pw = W - M.l - M.r;
+  const ph = height - M.t - M.b;
+  const [x0, x1] = xDomain;
+  const [y0, y1] = yDomain;
+  const tf = (v: number) => (logX ? Math.log10(Math.max(1e-12, v)) : v);
+  const tx0 = tf(x0),
+    tx1 = tf(x1);
+  const sx = (v: number) => M.l + ((tf(v) - tx0) / (tx1 - tx0 || 1)) * pw;
+  const sy = (v: number) =>
+    invertY
+      ? M.t + ((v - y0) / (y1 - y0 || 1)) * ph
+      : M.t + (1 - (v - y0) / (y1 - y0 || 1)) * ph;
+  const unSx = (px: number) => {
+    const t = tx0 + ((px - M.l) / pw) * (tx1 - tx0);
+    return logX ? Math.pow(10, t) : t;
+  };
+  const xt = useMemo(
+    () => (xTicks ?? (logX ? [0.01, 0.1, 1, 10, 100, 1000].filter((v) => v >= x0 && v <= x1) : niceTicks(x0, x1, 6))),
+    [xTicks, logX, x0, x1],
+  );
+  const yt = useMemo(
+    () => yTicks ?? niceTicks(y0, y1, 5),
+    [yTicks, y0, y1],
+  );
+  const path = (pts: [number, number][]) =>
+    pts.map((pt, i) => `${i ? "L" : "M"}${sx(pt[0]).toFixed(2)} ${sy(pt[1]).toFixed(2)}`).join(" ");
+  const cur = cursor ?? hover;
+  const cursorIdx = (() => {
+    if (cur == null || !series.length) return -1;
+    const pts = series[0].pts;
+    let bi = 0,
+      bd = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const d = Math.abs(pts[i][0] - cur);
+      if (d < bd) {
+        bd = d;
+        bi = i;
+      }
+    }
+    return bi;
+  })();
+  const move = (e: React.PointerEvent) => {
+    if (!onCursor) return;
+    const r = ref.current!.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    if (px < M.l || px > W - M.r) {
+      onCursor(null);
+      return;
+    }
+    onCursor(unSx(((px - M.l) / pw) * pw));
+  };
+  return (
+    <figure className="flex min-w-0 flex-col">
+      <figcaption className="mb-1 flex items-baseline justify-between gap-2">
+        <span className="lbl truncate text-[#767d92]">
+          {title}
+          {subtitle && <span className="ml-2 normal-case tracking-normal text-[#4f5568]">{subtitle}</span>}
+        </span>
+        {readout?.map((r) => (
+          <span key={r.label} className="num shrink-0 text-[10px] text-[#9aa1b6]">
+            <span className="text-dim">{r.label}</span> {r.value}
+          </span>
+        ))}
+      </figcaption>
+      <svg
+        ref={ref}
+        viewBox={`0 0 ${W} ${height}`}
+        className="w-full select-none"
+        style={{ height: "auto" }}
+        onPointerMove={(e) => {
+          const r = ref.current!.getBoundingClientRect();
+          const px = ((e.clientX - r.left) / r.width) * W;
+          if (onCursor) move(e);
+          else if (px >= M.l && px <= W - M.r) setHover(unSx(px));
+        }}
+        onPointerLeave={() => {
+          setHover(null);
+          onCursor?.(null);
+        }}
+      >
+        {/* plot field */}
+        <rect x={M.l} y={M.t} width={pw} height={ph} fill="#131419" />
+        {/* bands */}
+        {bands.map((b, i) => {
+          const axis = b.axis ?? "y";
+          const a = axis === "y" ? sy(b.from) : sx(b.from);
+          const c = axis === "y" ? sy(b.to) : sx(b.to);
+          const x = axis === "y" ? M.l : Math.min(a, c);
+          const y = axis === "y" ? Math.min(a, c) : M.t;
+          const w = axis === "y" ? pw : Math.abs(c - a);
+          const h = axis === "y" ? Math.abs(c - a) : ph;
+          return (
+            <g key={`band${i}`}>
+              <rect x={x} y={y} width={w} height={h} fill={b.color} opacity={0.11} />
+              <line
+                x1={axis === "y" ? M.l : a}
+                y1={axis === "y" ? a : M.t}
+                x2={axis === "y" ? M.l + pw : c}
+                y2={axis === "y" ? a : M.t + ph}
+                stroke={b.color}
+                strokeWidth={0.8}
+                strokeDasharray="3 3"
+                opacity={0.65}
+              />
+              {b.label && (
+                <text
+                  x={M.l + pw - 4}
+                  y={(axis === "y" ? Math.min(a, c) : M.t + 10) + 9}
+                  textAnchor="end"
+                  className="num"
+                  fontSize={8.5}
+                  fill={b.color}
+                  opacity={0.95}
+                >
+                  {b.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* grid */}
+        {yt.map((t) => (
+          <line key={`g${t}`} x1={M.l} x2={M.l + pw} y1={sy(t)} y2={sy(t)} stroke="#8a90a3" strokeWidth={0.5} opacity={0.09} />
+        ))}
+        {xt.map((t) => (
+          <line key={`gv${t}`} x1={sx(t)} x2={sx(t)} y1={M.t} y2={M.t + ph} stroke="#8a90a3" strokeWidth={0.5} opacity={0.07} />
+        ))}
+        {/* reference lines */}
+        {refLines.map((r, i) => {
+          const y = r.y !== undefined ? sy(r.y) : 0;
+          const x = r.x !== undefined ? sx(r.x) : 0;
+          return (
+            <g key={`rl${i}`}>
+              <line
+                x1={r.y !== undefined ? M.l : x}
+                y1={r.y !== undefined ? y : M.t}
+                x2={r.y !== undefined ? M.l + pw : x}
+                y2={r.y !== undefined ? y : M.t + ph}
+                stroke={r.color}
+                strokeWidth={0.9}
+                strokeDasharray={r.dash ?? "5 4"}
+              />
+              <text
+                x={r.y !== undefined ? M.l + 4 : x + 4}
+                y={r.y !== undefined ? y - 4 : M.t + 10}
+                className="num"
+                fontSize={8.5}
+                fill={r.color}
+              >
+                {r.label}
+              </text>
+            </g>
+          );
+        })}
+        {/* bars */}
+        {bars.map((b, i) => {
+          const base = b.base ?? 0;
+          const bw = Math.max(1.2, pw / Math.max(2, b.pts.length) - 0.6);
+          return (
+            <g key={`bar${i}`}>
+              {b.pts.map(([x, y], j) => {
+                const y1p = sy(y),
+                  y0p = sy(base);
+                return (
+                  <rect
+                    key={j}
+                    x={sx(x) - bw / 2}
+                    y={Math.min(y1p, y0p)}
+                    width={bw}
+                    height={Math.max(0.6, Math.abs(y0p - y1p))}
+                    fill={b.color(y)}
+                  />
+                );
+              })}
+            </g>
+          );
+        })}
+        {/* series */}
+        {series.map((s) => (
+          <g key={s.id}>
+            {s.area && (
+              <path
+                d={`${path(s.pts)} L${sx(s.pts[s.pts.length - 1][0])} ${sy(0)} L${sx(s.pts[0][0])} ${sy(0)} Z`}
+                fill={s.color}
+                opacity={0.1}
+              />
+            )}
+            <path
+              d={path(s.pts)}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={s.width ?? 1.6}
+              strokeDasharray={s.dash}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {s.marker && cursorIdx >= 0 && (
+              <circle cx={sx(s.pts[cursorIdx][0])} cy={sy(s.pts[cursorIdx][1])} r={2.6} fill="#111217" stroke={s.color} strokeWidth={1.4} />
+            )}
+          </g>
+        ))}
+        {/* point markers */}
+        {markers.map((m, i) => {
+          const x = m.x !== undefined ? sx(m.x) : M.l;
+          const y = m.y !== undefined ? sy(m.y) : M.t;
+          const c = m.color ?? "#8a90a3";
+          return (
+            <g key={`m${i}`}>
+              <path d={`M${x - 4} ${y}h8M${x} ${y - 4}v8`} stroke={c} strokeWidth={1.1} />
+              <circle cx={x} cy={y} r={2.2} fill={c} />
+              <text
+                x={x + (m.anchor === "end" ? -7 : 7)}
+                y={y - 5}
+                textAnchor={m.anchor ?? "start"}
+                className="num"
+                fontSize={9}
+                fill={c}
+              >
+                {m.label}
+              </text>
+            </g>
+          );
+        })}
+        {/* cursor */}
+        {cur != null && cur >= x0 && cur <= x1 && (
+          <g>
+            <line x1={sx(cur)} x2={sx(cur)} y1={M.t} y2={M.t + ph} stroke="#ffb020" strokeWidth={0.8} opacity={0.85} />
+            <text x={sx(cur) + 3} y={M.t + ph + 11} className="num" fontSize={9} fill="#ffb020">
+              {tickLabel(cur, logX)}
+            </text>
+          </g>
+        )}
+        {/* frame — hairline box, ticks outside */}
+        <rect x={M.l} y={M.t} width={pw} height={ph} fill="none" stroke="#2a2c36" strokeWidth={1} />
+        {yt.map((t) => (
+          <g key={`y${t}`}>
+            <line x1={M.l - 4} x2={M.l} y1={sy(t)} y2={sy(t)} stroke="#3a3f50" strokeWidth={1} />
+            <text x={M.l - 7} y={sy(t) + 3} textAnchor="end" className="num" fontSize={9} fill="#5f6577">
+              {tickLabel(t)}
+            </text>
+          </g>
+        ))}
+        {xt.map((t) => (
+          <g key={`x${t}`}>
+            <line x1={sx(t)} x2={sx(t)} y1={M.t + ph} y2={M.t + ph + 4} stroke="#3a3f50" strokeWidth={1} />
+            <text x={sx(t)} y={M.t + ph + 15} textAnchor="middle" className="num" fontSize={9} fill="#5f6577">
+              {tickLabel(t, logX)}
+            </text>
+          </g>
+        ))}
+        <text x={M.l + pw / 2} y={height - 6} textAnchor="middle" className="lbl" fontSize={9} fill="#6a7085" letterSpacing="1.4">
+          {xLabel}
+        </text>
+        <text
+          x={14}
+          y={M.t + ph / 2}
+          transform={`rotate(-90 14 ${M.t + ph / 2})`}
+          textAnchor="middle"
+          className="lbl"
+          fontSize={9}
+          fill="#6a7085"
+          letterSpacing="1.4"
+        >
+          {yLabel}
+        </text>
+        <text x={M.l} y={16} className="num" fontSize={9.5} fill="#8a90a3" letterSpacing="1.2">
+          {title.toUpperCase()}
+        </text>
+        {subtitle && (
+          <text x={M.l + pw} y={16} textAnchor="end" className="num" fontSize={9} fill="#4f5568">
+            {subtitle}
+          </text>
+        )}
+        {legend && series.length > 0 && (
+          <g transform={`translate(${M.l + 8}, ${M.t + 12})`}>
+            {series.map((s, i) => (
+              <g key={s.id} transform={`translate(0 ${i * 12})`}>
+                <line x1={0} x2={14} y1={0} y2={0} stroke={s.color} strokeWidth={2} strokeDasharray={s.dash} />
+                <text x={19} y={3} className="num" fontSize={9} fill="#9aa1b6">
+                  {s.label}
+                </text>
+              </g>
+            ))}
+          </g>
+        )}
+      </svg>
+    </figure>
+  );
+}
+/* -------------------------------------------------------------- polar ----- */
+export function PolarChart({
+  title,
+  subtitle,
+  series,
+  rDomain,
+  rLabel,
+  rings = 4,
+  markers = [],
+  height = 250,
+}: {
+  title: string;
+  subtitle?: string;
+  series: Series[];
+  rDomain: [number, number];
+  rLabel: string;
+  rings?: number;
+  markers?: { th: number; label: string }[];
+  height?: number;
+}) {
+  const S = Math.min(360, height * 1.5);
+  const c = S / 2;
+  const R = S / 2 - 34;
+  const [r0, r1] = rDomain;
+  const rr = (v: number) => ((v - r0) / (r1 - r0)) * R;
+  const pt = (thDeg: number, v: number): [number, number] => {
+    const t = ((thDeg - 90) * Math.PI) / 180;
+    const r = rr(v);
+    return [c + r * Math.cos(t), c + r * Math.sin(t)];
+  };
+  return (
+    <figure className="flex min-w-0 flex-col">
+      <figcaption className="mb-1 flex items-baseline justify-between">
+        <span className="lbl text-[#767d92]">{title}</span>
+        {subtitle && <span className="num text-[10px] text-[#4f5568]">{subtitle}</span>}
+      </figcaption>
+      <svg viewBox={`0 0 ${S} ${S}`} className="w-full" style={{ height: "auto" }}>
+        {Array.from({ length: rings + 1 }, (_, i) => r0 + ((r1 - r0) * i) / rings).map((v, i) => (
+          <g key={i}>
+            <circle cx={c} cy={c} r={rr(v)} fill="none" stroke="#2a2c36" strokeWidth={0.8} />
+            <text x={c + 3} y={c - rr(v) - 2} className="num" fontSize={8.5} fill="#5f6577">
+              {v.toFixed(0)}
+            </text>
+          </g>
+        ))}
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => {
+          const p = pt(a, r1);
+          return (
+            <g key={a}>
+              <line x1={c} y1={c} x2={p[0]} y2={p[1]} stroke="#2a2c36" strokeWidth={0.6} />
+              <text
+                x={c + (p[0] - c) * 1.14}
+                y={c + (p[1] - c) * 1.14 + 3}
+                textAnchor="middle"
+                className="num"
+                fontSize={8.5}
+                fill="#5f6577"
+              >
+                {a}°
+              </text>
+            </g>
+          );
+        })}
+        {series.map((s) => (
+          <path
+            key={s.id}
+            d={s.pts.map((p, i) => `${i ? "L" : "M"}${pt(p[0], p[1]).join(" ")}`).join(" ") + " Z"}
+            fill={s.color}
+            fillOpacity={0.08}
+            stroke={s.color}
+            strokeWidth={1.6}
+            strokeDasharray={s.dash}
+          />
+        ))}
+        {markers.map((m) => {
+          const p = pt(m.th, r1);
+          const inner = pt(m.th, r0);
+          return (
+            <g key={m.th}>
+              <line x1={inner[0]} y1={inner[1]} x2={p[0]} y2={p[1]} stroke="#ffb020" strokeWidth={1} strokeDasharray="3 3" />
+              <circle cx={p[0]} cy={p[1]} r={3} fill="#ffb020" />
+              <text
+                x={p[0] + (p[0] > c ? 6 : -6)}
+                y={p[1] + (p[1] > c ? 12 : -6)}
+                textAnchor={p[0] > c ? "start" : "end"}
+                className="num"
+                fontSize={9}
+                fill="#ffb020"
+              >
+                {m.label}
+              </text>
+            </g>
+          );
+        })}
+        <text x={c} y={S - 6} textAnchor="middle" className="lbl" fontSize={9} fill="#6a7085">
+          {rLabel}
+        </text>
+      </svg>
+    </figure>
+  );
+}
+/* --------------------------------------------------- diverging legend ----- */
+export function DeltaLegend({ scale, unit }: { scale: number; unit: string }) {
+  const stops = Array.from({ length: 64 }, (_, i) => coolWarm(i / 63));
+  return (
+    <div className="flex items-center gap-2">
+      <span className="num text-[10px] text-[#9aa1b6]">−{scale.toFixed(2)}</span>
+      <div className="flex h-2.5 w-40 border border-hairline">
+        {stops.map((s, i) => (
+          <div key={i} className="h-full flex-1" style={{ background: s }} />
+        ))}
+      </div>
+      <span className="num text-[10px] text-[#9aa1b6]">+{scale.toFixed(2)}</span>
+      <span className="lbl">{unit}</span>
+    </div>
+  );
+}
+
+Now the viewport: WebGL2 canvas, reverse-Z render loop, camera tools, picking, and SVG overlay projection.
+Created src/Viewport.tsx
+Created src/Viewport.tsx
+
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { Camera, Mesh, Vec3 } from "./lib/geometry";
+import { eyeOf, pickFace, rayFromScreen, basisOf } from "./lib/geometry";
+import {
+  createRenderer,
+  dragToPlane,
+  FOV,
+  project,
+  vpMatrix,
+  type Renderer,
+} from "./lib/webgl";
+export interface OverlayCtx {
+  project: (p: Vec3) => { x: number; y: number; d: number } | null;
+  w: number;
+  h: number;
+  cam: Camera;
+  worldPerPx: number;
+}
+interface Props {
+  mesh: Mesh;
+  cam: Camera;
+  setCam: (fn: (c: Camera) => Camera) => void;
+  highlight: Float32Array;
+  onPick: (faceId: number | null, point: Vec3 | null) => void;
+  onHover?: (faceId: number | null) => void;
+  onStats?: (fps: number) => void;
+  mode?: 0 | 1;
+  wipePx?: number;
+  onWipe?: (px: number) => void;
+  showWipe?: boolean;
+  fieldRow?: 0 | 4;
+  deltaScale?: number;
+  range?: [number, number];
+  backdrop?: string;
+  overlay?: (ctx: OverlayCtx) => ReactNode;
+  hud?: ReactNode;
+  footer?: ReactNode;
+  dim?: number;
+}
+const FOVY = FOV;
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+export function Viewport(props: Props) {
+  const {
+    mesh,
+    cam,
+    setCam,
+    highlight,
+    onPick,
+    onHover,
+    onStats,
+    mode = 0,
+    wipePx,
+    onWipe,
+    showWipe,
+    fieldRow = 0,
+    deltaScale = 1,
+    range = [-1.8, 1.1],
+    backdrop,
+    overlay,
+    hud,
+    footer,
+  } = props;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rendererRef = useRef<Renderer | null>(null);
+  const [size, setSize] = useState({ w: 800, h: 500 });
+  const [reverseZ, setReverseZ] = useState(false);
+  const [drag, setDrag] = useState<string | null>(null);
+  const [hoverPt, setHoverPt] = useState<{ x: number; y: number } | null>(null);
+  const stateRef = useRef({ mode, wipePx, fieldRow, deltaScale, range, cam });
+  stateRef.current = { mode, wipePx, fieldRow, deltaScale, range, cam };
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const statsRef = useRef(onStats);
+  statsRef.current = onStats;
+  const hoverRef = useRef(onHover);
+  hoverRef.current = onHover;
+  const backdropRef = useRef(backdrop);
+  backdropRef.current = backdrop;
+  /* ---------------------------------------------------------- renderer --- */
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    let r: Renderer;
+    try {
+      r = createRenderer(cv);
+    } catch {
+      return;
+    }
+    rendererRef.current = r;
+    setReverseZ(r.reverseZ);
+    r.resize(sizeRef.current.w, sizeRef.current.h);
+    r.setMesh(mesh.positions, mesh.normals, mesh.data, mesh.indices);
+    r.setHighlight(highlight);
+    return () => {
+      r.dispose();
+      rendererRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesh]);
+  useEffect(() => {
+    rendererRef.current?.setHighlight(highlight);
+  }, [highlight]);
+  /* ------------------------------------------------------------ resize --- */
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const w = Math.max(1, el.clientWidth);
+      const h = Math.max(1, el.clientHeight);
+      rendererRef.current?.resize(w, h);
+      setSize({ w, h });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  /* ------------------------------------------------------------- loop ---- */
+  useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    let frames = 0;
+    let acc = 0;
+    const tick = (t: number) => {
+      raf = requestAnimationFrame(tick);
+      const r = rendererRef.current;
+      if (!r) return;
+      const s = sizeRef.current;
+      const st = stateRef.current;
+      r.render({
+        cam: st.cam,
+        width: s.w,
+        height: s.h,
+        mode: st.mode,
+        wipePx: (st.wipePx ?? s.w / 2),
+        fieldRow: st.fieldRow,
+        deltaScale: st.deltaScale,
+        range: st.range,
+        shade: 1,
+      });
+      frames++;
+      const dt = t - last;
+      last = t;
+      acc += dt;
+      if (acc >= 500) {
+        statsRef.current?.(Math.round((frames * 1000) / acc));
+        frames = 0;
+        acc = 0;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  /* ------------------------------------------------------ camera tools --- */
+  const ptr = useRef({ down: false, btn: 0, x: 0, y: 0, moved: 0, pan: false });
+  const fov = FOVY;
+  const onPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).dataset.handle) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    ptr.current = {
+      down: true,
+      btn: e.button,
+      x: e.clientX,
+      y: e.clientY,
+      moved: 0,
+      pan: e.button !== 0,
+    };
+    if (e.button === 0) setDrag("orbit");
+    else setDrag("pan");
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const my = e.clientY - r.top;
+    if (ptr.current.down) {
+      const dx = e.clientX - ptr.current.x;
+      const dy = e.clientY - ptr.current.y;
+      ptr.current.x = e.clientX;
+      ptr.current.y = e.clientY;
+      ptr.current.moved += Math.abs(dx) + Math.abs(dy);
+      if (ptr.current.pan) {
+        const b = basisOf(cam);
+        const k = cam.dist * 0.0016;
+        setCam((c) => ({
+          ...c,
+          target: [
+            c.target[0] - (b.x[0] * dx + b.y[0] * -dy) * k,
+            c.target[1] - (b.x[1] * dx + b.y[1] * -dy) * k,
+            c.target[2] - (b.x[2] * dx + b.y[2] * -dy) * k,
+          ],
+        }));
+      } else {
+        setCam((c) => ({
+          ...c,
+          theta: c.theta - dx * 0.0062,
+          phi: clamp(c.phi + dy * 0.0062, -1.42, 1.42),
+        }));
+      }
+      return;
+    }
+    if (onHover) {
+      const ray = rayFromScreen(cam, mx, my, r.width, r.height, fov);
+      const hit = pickFace(mesh, ray);
+      hoverRef.current?.(hit?.faceId ?? null);
+      if (hit) setHoverPt({ x: mx, y: my });
+      else setHoverPt(null);
+    }
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const wasDrag = ptr.current.moved > 5;
+    ptr.current.down = false;
+    setDrag(null);
+    if (e.button === 0 && !wasDrag && !((e.target as HTMLElement).dataset.handle)) {
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const ray = rayFromScreen(cam, e.clientX - r.left, e.clientY - r.top, r.width, r.height, fov);
+      const hit = pickFace(mesh, ray);
+      onPick(hit?.faceId ?? null, hit?.point ?? null);
+    }
+  };
+  /* --------------------------------------------------------- overlay ----- */
+  const vp = useMemo(() => vpMatrix(cam, size.w / Math.max(1, size.h), reverseZ), [cam, size, reverseZ]);
+  const projectFn = (p: Vec3) => project(vp, p, size.w, size.h);
+  const worldPerPx = useMemo(() => {
+    const e = eyeOf(cam);
+    const d = Math.hypot(e[0] - cam.target[0], e[1] - cam.target[1], e[2] - cam.target[2]);
+    return (2 * Math.tan(FOVY / 2) * d) / Math.max(1, size.h);
+  }, [cam, size]);
+  const ctx: OverlayCtx = { project: projectFn, w: size.w, h: size.h, cam, worldPerPx };
+  /* scale bar: pick a round world length for ~70 px */
+  const scaleBar = useMemo(() => {
+    const target = 70 * worldPerPx;
+    const mag = Math.pow(10, Math.floor(Math.log10(target)));
+    const norm = target / mag;
+    const nice = (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
+    return { world: nice, px: nice / worldPerPx };
+  }, [worldPerPx]);
+  const triad = useMemo(() => {
+    const e = eyeOf(cam);
+    const b = basisOf(cam);
+    void e;
+    return ([
+      ["X", [1, 0, 0], "#ef6a6a"],
+      ["Y", [0, 1, 0], "#4ade80"],
+      ["Z", [0, 0, 1], "#5b8cff"],
+    ] as const).map(([label, axis, color]) => {
+      const dot = b.x[0] * axis[0] + b.x[1] * axis[1] + b.x[2] * axis[2];
+      const dot2 = b.y[0] * axis[0] + b.y[1] * axis[1] + b.y[2] * axis[2];
+      return { label, color, dx: dot, dy: -dot2 };
+    });
+  }, [cam]);
+  const pickScreen = props.highlight && null; // placeholder to keep deps stable
+  void pickScreen;
+  return (
+    <div
+      ref={wrapRef}
+      className="relative min-h-0 w-full overflow-hidden bg-[#0b0c10] select-none"
+      style={{ cursor: drag === "pan" ? "grabbing" : drag === "orbit" ? "grabbing" : "crosshair" }}
+    >
+      {/* backdrop plate */}
+      <div className="pointer-events-none absolute inset-0">
+        {backdrop && (
+          <img src={backdrop} alt="" className="h-full w-full object-cover opacity-[0.55]" draggable={false} />
+        )}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(130% 100% at 50% 40%, rgba(11,12,16,0.18) 0%, rgba(11,12,16,0.72) 62%, rgba(8,9,12,0.94) 100%)",
+          }}
+        />
+        <div className="grid-fine absolute inset-0 opacity-40" />
+      </div>
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full"
+        style={{ touchAction: "none" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={() => {
+          if (!ptr.current.down) {
+            hoverRef.current?.(null);
+            setHoverPt(null);
+          }
+        }}
+        onContextMenu={(e) => e.preventDefault()}
+      />
+      {/* ------------------------------------------------------- overlay -- */}
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" width={size.w} height={size.h}>
+        {overlay?.(ctx)}
+        {/* pick crosshair */}
+        {(() => {
+          const p = props.highlight ? null : null;
+          void p;
+          return null;
+        })()}
+        {/* scale bar */}
+        <g transform={`translate(16, ${size.h - 30})`}>
+          <line x1={0} y1={0} x2={scaleBar.px} y2={0} stroke="#8a90a3" strokeWidth={1} />
+          <line x1={0} y1={-4} x2={0} y2={4} stroke="#8a90a3" strokeWidth={1} />
+          <line x1={scaleBar.px} y1={-4} x2={scaleBar.px} y2={4} stroke="#8a90a3" strokeWidth={1} />
+          <text x={scaleBar.px + 7} y={3.5} className="num" fontSize={9.5} fill="#8a90a3">
+            {scaleBar.world < 0.01
+              ? `${(scaleBar.world * 1000).toFixed(0)} mm`
+              : `${scaleBar.world.toFixed(scaleBar.world < 1 ? 2 : 1)} m`}
+          </text>
+          <text x={0} y={14} className="lbl" fontSize={8.5} fill="#4f5568">
+            {reverseZ ? "REVERSE-Z · ZERO_TO_ONE" : "DEPTH · LESS"}
+          </text>
+        </g>
+        {/* axis triad */}
+        <g transform={`translate(${size.w - 58}, ${size.h - 54})`}>
+          <circle r={26} fill="#0b0c1080" stroke="#2a2c36" />
+          {triad.map((t) => (
+            <g key={t.label}>
+              <line
+                x1={0}
+                y1={0}
+                x2={t.dx * 21}
+                y2={t.dy * 21}
+                stroke={t.color}
+                strokeWidth={1.6}
+                strokeLinecap="round"
+              />
+              <text
+                x={t.dx * 28}
+                y={t.dy * 28 + 3}
+                textAnchor="middle"
+                className="num"
+                fontSize={9.5}
+                fill={t.color}
+              >
+                {t.label}
+              </text>
+            </g>
+          ))}
+        </g>
+        {/* hover readout */}
+        {hoverPt && (
+          <g transform={`translate(${hoverPt.x + 10}, ${hoverPt.y - 10})`}>
+            <rect x={0} y={-11} width={74} height={15} fill="#0b0c10cc" stroke="#2a2c36" />
+            <text x={4} y={0} className="num" fontSize={9} fill="#7ea3ff">
+              face_id · pick
+            </text>
+          </g>
+        )}
+      </svg>
+      {/* ------------------------------------------------------- wipe ------ */}
+      {showWipe && wipePx !== undefined && onWipe && mode === 0 && (
+        <WipeHandle px={wipePx} w={size.w} onWipe={onWipe} />
+      )}
+      {hud && <div className="pointer-events-auto absolute inset-x-0 top-0 z-20">{hud}</div>}
+      {footer && <div className="absolute inset-x-0 bottom-0 z-10">{footer}</div>}
+    </div>
+  );
+}
+function WipeHandle({ px, w, onWipe }: { px: number; w: number; onWipe: (v: number) => void }) {
+  const dragRef = useRef(false);
+  useEffect(() => {
+    const mv = (e: PointerEvent) => {
+      if (!dragRef.current) return;
+      const el = document.getElementById("cockpit-root");
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      onWipe(clamp(e.clientX - r.left, 40, r.width - 40));
+    };
+    const up = () => {
+      dragRef.current = false;
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+    };
+  }, [onWipe]);
+  void w;
+  return (
+    <div className="pointer-events-none absolute inset-y-0 z-10" style={{ left: px }}>
+      <div className="absolute inset-y-0 -left-px w-[2px] bg-[#e9ebf2]/70" />
+      <div
+        data-handle="wipe"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          dragRef.current = true;
+        }}
+        className="pointer-events-auto absolute top-1/2 -left-[7px] h-[54px] w-[14px] -translate-y-1/2 cursor-ew-resize border border-[#e9ebf2]/70 bg-[#0b0c10]/85"
+        style={{ touchAction: "none" }}
+      >
+        <div className="mx-auto mt-[10px] h-[34px] w-px bg-[#e9ebf2]/40" />
+      </div>
+      <div className="num absolute top-3 left-2 text-[9.5px] tracking-[0.18em] text-[#7ea3ff]">RUN A</div>
+      <div className="num absolute top-3 left-[calc(100%+10px)] text-[9.5px] tracking-[0.18em] text-[#ff8a97]">
+        RUN B
+      </div>
+    </div>
+  );
+}
+/* --------------------------------------------------------- drag helper --- */
+export function useDragHandle(
+  onDrag: (mx: number, my: number) => void,
+  onDone?: () => void,
+): React.PointerEventHandler<SVGElement> {
+  return (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const move = (ev: PointerEvent) => onDrag(ev.clientX, ev.clientY);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      onDone?.();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+}
+export { dragToPlane };
+
+Now the 3D gizmo overlays (domain, MRF, injector, mics, porous triad, probe, slice) and their inspector.
+Created src/Gizmos.tsx
+Created src/Gizmos.tsx
+
+import type { Vec3 } from "./lib/geometry";
+import { CHORD } from "./lib/geometry";
+import { FOV } from "./lib/webgl";
+import type { OverlayCtx } from "./Viewport";
+import { Chip, Panel, Row, Seg, Slider } from "./ui";
+import { fmt } from "./lib/fields";
+const pts = (a: Vec3[]) => a.map((p) => p.join(",")).join(" ");
+/* --------------------------------------------------------- domain box ---- */
+export function DomainBox({
+  ctx,
+  upstream = 5,
+  downstream = 15,
+  section = 5,
+}: {
+  ctx: OverlayCtx;
+  upstream?: number;
+  downstream?: number;
+  section?: number;
+}) {
+  const L = CHORD;
+  const x0 = -upstream * L,
+    x1 = downstream * L,
+    h = section * L;
+  const c: Vec3[] = [
+    [x0, -h, -h], [x1, -h, -h], [x1, h, -h], [x0, h, -h],
+    [x0, -h, h], [x1, -h, h], [x1, h, h], [x0, h, h],
+  ];
+  const E = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+  const proj = c.map((p) => ctx.project(p));
+  if (proj.some((p) => !p)) return null;
+  const inlet = ctx.project([x0, 0, 0]);
+  const outlet = ctx.project([x1, 0, 0]);
+  return (
+    <g>
+      {E.map(([a, b], i) => (
+        <line
+          key={i}
+          x1={proj[a]!.x} y1={proj[a]!.y}
+          x2={proj[b]!.x} y2={proj[b]!.y}
+          stroke={i < 4 || i >= 8 ? "#3f4658" : "#2f3546"}
+          strokeWidth={1}
+          strokeDasharray={i >= 8 ? "4 4" : undefined}
+        />
+      ))}
+      {/* inlet / outlet faces */}
+      {[0, 1].map((k) => {
+        const a = k === 0 ? [0, 1, 2, 3] : [4, 5, 6, 7];
+        return (
+          <polygon
+            key={k}
+            points={pts(a.map((i) => [proj[i]!.x, proj[i]!.y] as unknown as Vec3))}
+            fill={k === 0 ? "#004afd" : "#ef233c"}
+            opacity={0.05}
+            stroke={k === 0 ? "#004afd" : "#ef233c"}
+            strokeOpacity={0.45}
+            strokeWidth={1}
+            strokeDasharray="6 3"
+          />
+        );
+      })}
+      {inlet && (
+        <text x={inlet.x + 6} y={inlet.y - 4} className="num" fontSize={9.5} fill="#7ea3ff">
+          INLET · {upstream}L upstream
+        </text>
+      )}
+      {outlet && (
+        <text x={outlet.x - 6} y={outlet.y - 4} textAnchor="end" className="num" fontSize={9.5} fill="#ff8a97">
+          OUTLET · {downstream}L downstream
+        </text>
+      )}
+    </g>
+  );
+}
+/* ------------------------------------------------------ MRF cylinder ----- */
+export function MrfCylinder({
+  ctx,
+  rpm,
+  tipMach,
+  x0 = -0.03,
+  x1 = 0.17,
+  radius = 0.15,
+  showAxis = true,
+}: {
+  ctx: OverlayCtx;
+  rpm: number;
+  tipMach: number;
+  x0?: number;
+  x1?: number;
+  radius?: number;
+  showAxis?: boolean;
+}) {
+  const N = 56;
+  const ring = (x: number) => {
+    const a: Vec3[] = [];
+    for (let i = 0; i <= N; i++) {
+      const t = (i / N) * Math.PI * 2;
+      a.push([x, radius * Math.cos(t), radius * Math.sin(t)]);
+    }
+    return a;
+  };
+  const r0 = ring(x0).map((p) => ctx.project(p));
+  const r1 = ring(x1).map((p) => ctx.project(p));
+  if (r0.some((p) => !p) || r1.some((p) => !p)) return null;
+  const axisPts = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((t) => {
+    const y = radius * Math.cos(t),
+      z = radius * Math.sin(t);
+    const a = ctx.project([x0, y, z])!,
+      b = ctx.project([x1, y, z])!;
+    return { a, b, t };
+  });
+  const mid = ctx.project([(x0 + x1) / 2, radius, 0]);
+  return (
+    <g>
+      <polyline points={pts(r0.map((p) => [p!.x, p!.y] as unknown as Vec3))} fill="none" stroke="#004afd" strokeWidth={1} strokeOpacity={0.75} />
+      <polyline points={pts(r1.map((p) => [p!.x, p!.y] as unknown as Vec3))} fill="none" stroke="#004afd" strokeWidth={1} strokeOpacity={0.75} strokeDasharray="5 3" />
+      {axisPts.map((s, i) => (
+        <line key={i} x1={s.a.x} y1={s.a.y} x2={s.b.x} y2={s.b.y} stroke="#004afd" strokeWidth={0.9} strokeOpacity={0.5} />
+      ))}
+      {showAxis && (
+        <g>
+          <line
+            x1={ctx.project([x0 - 0.14, 0, 0])!.x} y1={ctx.project([x0 - 0.14, 0, 0])!.y}
+            x2={ctx.project([x1 + 0.1, 0, 0])!.x} y2={ctx.project([x1 + 0.1, 0, 0])!.y}
+            stroke="#ffb020" strokeWidth={1.2} strokeDasharray="7 3 2 3"
+          />
+        </g>
+      )}
+      {mid && (
+        <g transform={`translate(${mid.x}, ${mid.y - 46})`}>
+          <rect x={-58} y={-13} width={116} height={30} fill="#0b0c10e6" stroke="#1b3f9e" />
+          <text x={-52} y={-1} className="num" fontSize={9.5} fill="#7ea3ff">MRF ZONE · cyl_radius_yz ≤ {radius.toFixed(3)} m</text>
+          <text x={-52} y={12} className="num" fontSize={9.5} fill="#ffb020">
+            {rpm.toFixed(0)} RPM · ω {(rpm * Math.PI / 30).toFixed(1)} rad/s · Ma_tip {tipMach.toFixed(3)}
+          </text>
+        </g>
+      )}
+    </g>
+  );
+}
+/* ------------------------------------------------------ DPM injector ----- */
+export function InjectorCone({
+  ctx,
+  apex,
+  axis,
+  halfAngle,
+  length = 0.16,
+  dragApex,
+  dragBase,
+}: {
+  ctx: OverlayCtx;
+  apex: Vec3;
+  axis: Vec3;
+  halfAngle: number;
+  length?: number;
+  dragApex?: (mx: number, my: number) => void;
+  dragBase?: (mx: number, my: number) => void;
+}) {
+  const n = Math.hypot(...axis) || 1;
+  const d: Vec3 = [axis[0] / n, axis[1] / n, axis[2] / n];
+  let up: Vec3 = Math.abs(d[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  let u: Vec3 = [
+    up[1] * d[2] - up[2] * d[1],
+    up[2] * d[0] - up[0] * d[2],
+    up[0] * d[1] - up[1] * d[0],
+  ];
+  const ul = Math.hypot(...u) || 1;
+  u = [u[0] / ul, u[1] / ul, u[2] / ul];
+  const v: Vec3 = [
+    d[1] * u[2] - d[2] * u[1],
+    d[2] * u[0] - d[0] * u[2],
+    d[0] * u[1] - d[1] * u[0],
+  ];
+  const r = length * Math.tan((halfAngle * Math.PI) / 180);
+  const base: Vec3 = [apex[0] + d[0] * length, apex[1] + d[1] * length, apex[2] + d[2] * length];
+  const circle: Vec3[] = [];
+  for (let i = 0; i <= 48; i++) {
+    const t = (i / 48) * Math.PI * 2;
+    circle.push([
+      base[0] + r * (u[0] * Math.cos(t) + v[0] * Math.sin(t)),
+      base[1] + r * (u[1] * Math.cos(t) + v[1] * Math.sin(t)),
+      base[2] + r * (u[2] * Math.cos(t) + v[2] * Math.sin(t)),
+    ]);
+  }
+  const pc = circle.map((p) => ctx.project(p));
+  const pa = ctx.project(apex);
+  const pb = ctx.project(base);
+  if (!pa || !pb || pc.some((p) => !p)) return null;
+  const gens = [0, 12, 24, 36].map((i) => pc[i]!);
+  const drops = Array.from({ length: 7 }, (_, i) => {
+    const t = (i + 1) / 8;
+    return ctx.project([
+      apex[0] + d[0] * length * t,
+      apex[1] + d[1] * length * t,
+      apex[2] + d[2] * length * t,
+    ]);
+  });
+  return (
+    <g>
+      <polyline points={pts(pc.map((p) => [p!.x, p!.y] as unknown as Vec3))} fill="#ffb020" fillOpacity={0.05} stroke="#ffb020" strokeWidth={1.1} />
+      {gens.map((g, i) => (
+        <line key={i} x1={pa.x} y1={pa.y} x2={g.x} y2={g.y} stroke="#ffb020" strokeWidth={0.9} strokeOpacity={0.7} />
+      ))}
+      <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} stroke="#e9ebf2" strokeWidth={1} strokeDasharray="6 3" />
+      {drops.map((p, i) =>
+        p ? <circle key={i} cx={p.x} cy={p.y} r={1.8} fill="#ffb020" opacity={0.85 - i * 0.09} /> : null,
+      )}
+      <circle data-handle="inj-apex" cx={pa.x} cy={pa.y} r={5} fill="#0b0c10" stroke="#ffb020" strokeWidth={1.6}
+        onPointerDown={(e) => {
+          if (!dragApex) return;
+          e.stopPropagation();
+          const mv = (ev: PointerEvent) => dragApex(ev.clientX, ev.clientY);
+          const up2 = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up2); };
+          window.addEventListener("pointermove", mv);
+          window.addEventListener("pointerup", up2);
+        }}
+      />
+      <circle data-handle="inj-base" cx={pb.x} cy={pb.y} r={4} fill="#0b0c10" stroke="#e9ebf2" strokeWidth={1.4}
+        onPointerDown={(e) => {
+          if (!dragBase) return;
+          e.stopPropagation();
+          const mv = (ev: PointerEvent) => dragBase(ev.clientX, ev.clientY);
+          const up2 = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up2); };
+          window.addEventListener("pointermove", mv);
+          window.addEventListener("pointerup", up2);
+        }}
+      />
+      <text x={pb.x + 8} y={pb.y + 3} className="num" fontSize={9.5} fill="#ffcd6b">
+        θcone {halfAngle.toFixed(1)}°
+      </text>
+    </g>
+  );
+}
+/* ------------------------------------------------------- FWH mics -------- */
+export function MicRing({
+  ctx,
+  radius,
+  centre = [0.06, 0, 0],
+  micR = 0.012,
+  selected,
+  onSelect,
+}: {
+  ctx: OverlayCtx;
+  radius: number;
+  centre?: Vec3;
+  micR?: number;
+  selected?: number;
+  onSelect?: (i: number) => void;
+}) {
+  const angs = [0, 90, 180, 270];
+  return (
+    <g>
+      <polyline
+        points={pts(
+          Array.from({ length: 65 }, (_, i) => {
+            const t = (i / 64) * Math.PI * 2;
+            const p = ctx.project([centre[0], centre[1] + radius * Math.cos(t), centre[2] + radius * Math.sin(t)])!;
+            return [p.x, p.y] as unknown as Vec3;
+          }),
+        )}
+        fill="none" stroke="#8a90a3" strokeWidth={0.8} strokeDasharray="4 4" strokeOpacity={0.6}
+      />
+      {angs.map((a, i) => {
+        const t = (a * Math.PI) / 180;
+        const w: Vec3 = [centre[0], centre[1] + radius * Math.cos(t), centre[2] + radius * Math.sin(t)];
+        const p = ctx.project(w);
+        if (!p) return null;
+        const pxPerWorld = ctx.h / (2 * Math.tan(FOV / 2) * Math.max(0.05, p.d));
+        const r = Math.max(4, micR * pxPerWorld);
+        const on = selected === i;
+        return (
+          <g key={a} onPointerDown={() => onSelect?.(i)} style={{ cursor: "pointer" }} data-handle="mic">
+            <circle cx={p.x} cy={p.y} r={r} fill={on ? "#004afd" : "#0b0c10"} stroke={on ? "#7ea3ff" : "#8a90a3"} strokeWidth={1.3} />
+            <circle cx={p.x} cy={p.y} r={r + 5} fill="none" stroke="#ffb020" strokeWidth={0.8} strokeOpacity={on ? 0.9 : 0.35} />
+            <text x={p.x + r + 8} y={p.y + 3} className="num" fontSize={9} fill={on ? "#7ea3ff" : "#6a7085"}>
+              M{i + 1} · {a}°
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+/* ------------------------------------------------- porous principal axes - */
+export function PorousAxes({
+  ctx,
+  origin,
+  yaw,
+  pitch,
+  roll,
+  half = [0.09, 0.055, 0.045],
+}: {
+  ctx: OverlayCtx;
+  origin: Vec3;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  half?: Vec3;
+}) {
+  const ry = (yaw * Math.PI) / 180,
+    rp = (pitch * Math.PI) / 180,
+    rr = (roll * Math.PI) / 180;
+  const rot = (p: Vec3): Vec3 => {
+    let [x, y, z] = p;
+    let a = Math.cos(rr) * y - Math.sin(rr) * z, b = Math.sin(rr) * y + Math.cos(rr) * z;
+    y = a; z = b;
+    a = Math.cos(rp) * x - Math.sin(rp) * z; b = Math.sin(rp) * x + Math.cos(rp) * z;
+    x = a; z = b;
+    a = Math.cos(ry) * x - Math.sin(ry) * y; b = Math.sin(ry) * x + Math.cos(ry) * y;
+    x = a; y = b;
+    return [x, y, z];
+  };
+  const basis: Vec3[] = [
+    rot([1, 0, 0]),
+    rot([0, 1, 0]),
+    rot([0, 0, 1]),
+  ];
+  const corner = (s: Vec3) =>
+    ctx.project([
+      origin[0] + rot([s[0] * half[0], s[1] * half[1], s[2] * half[2]])[0],
+      origin[1] + rot([s[0] * half[0], s[1] * half[1], s[2] * half[2]])[1],
+      origin[2] + rot([s[0] * half[0], s[1] * half[1], s[2] * half[2]])[2],
+    ]);
+  const cs: ({ x: number; y: number } | null)[] = [];
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) cs.push(corner([sx, sy, sz]));
+  const E = [
+    [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7],
+  ];
+  const o = ctx.project(origin);
+  if (!o || cs.some((c) => !c)) return null;
+  const colors = ["#ef233c", "#4ade80", "#5b8cff"];
+  const labels = ["e₁", "e₂", "e₃"];
+  return (
+    <g>
+      {E.map(([a, b], i) => (
+        <line key={i} x1={cs[a]!.x} y1={cs[a]!.y} x2={cs[b]!.x} y2={cs[b]!.y} stroke="#4a5165" strokeWidth={0.9} strokeOpacity={0.85} />
+      ))}
+      {basis.map((bv, i) => {
+        const tip = ctx.project([
+          origin[0] + bv[0] * 0.13,
+          origin[1] + bv[1] * 0.13,
+          origin[2] + bv[2] * 0.13,
+        ]);
+        if (!tip) return null;
+        return (
+          <g key={i}>
+            <line x1={o.x} y1={o.y} x2={tip.x} y2={tip.y} stroke={colors[i]} strokeWidth={1.8} strokeLinecap="round" />
+            <text x={tip.x + 5} y={tip.y + 3} className="num" fontSize={10} fill={colors[i]}>
+              {labels[i]}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+/* ------------------------------------------------------- line probe ------ */
+export function LineProbe({
+  ctx,
+  pA,
+  pB,
+  label = "PROBE",
+  onDragA,
+  onDragB,
+}: {
+  ctx: OverlayCtx;
+  pA: Vec3;
+  pB: Vec3;
+  label?: string;
+  onDragA?: (mx: number, my: number) => void;
+  onDragB?: (mx: number, my: number) => void;
+}) {
+  const a = ctx.project(pA);
+  const b = ctx.project(pB);
+  if (!a || !b) return null;
+  const ticks = Array.from({ length: 11 }, (_, i) => i / 10).map((t) => {
+    const w: Vec3 = [pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t, pA[2] + (pB[2] - pA[2]) * t];
+    return ctx.project(w);
+  });
+  const handle = (p: { x: number; y: number }, fn?: (x: number, y: number) => void, color: string, key: string) => (
+    <circle
+      key={key}
+      data-handle={key}
+      cx={p.x} cy={p.y} r={6}
+      fill="#0b0c10" stroke={color} strokeWidth={2}
+      style={{ cursor: "grab", pointerEvents: "auto" }}
+      onPointerDown={(e) => {
+        if (!fn) return;
+        e.stopPropagation();
+        const mv = (ev: PointerEvent) => fn(ev.clientX, ev.clientY);
+        const up = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); };
+        window.addEventListener("pointermove", mv);
+        window.addEventListener("pointerup", up);
+      }}
+    />
+  );
+  return (
+    <g>
+      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#ffb020" strokeWidth={1.8} />
+      {ticks.map((t, i) =>
+        t ? (
+          <line key={i} x1={t.x - 3} y1={t.y - 3} x2={t.x + 3} y2={t.y + 3} stroke="#ffb020" strokeWidth={1} opacity={0.8} />
+        ) : null,
+      )}
+      <g transform={`translate(${(a.x + b.x) / 2 + 8}, ${(a.y + b.y) / 2 - 8})`}>
+        <rect x={-4} y={-11} width={92} height={15} fill="#0b0c10e6" stroke="#6b4d10" />
+        <text x={2} y={0} className="num" fontSize={9.5} fill="#ffcd6b">{label}</text>
+      </g>
+      {handle(a, onDragA, "#ffb020", "probe-a")}
+      {handle(b, onDragB, "#ffb020", "probe-b")}
+    </g>
+  );
+}
+/* -------------------------------------------------------- slice plane ---- */
+export function SlicePlane({
+  ctx,
+  x,
+  half = 0.5,
+  onDrag,
+}: {
+  ctx: OverlayCtx;
+  x: number;
+  half?: number;
+  onDrag?: (dx: number, dy: number) => void;
+}) {
+  const c: Vec3[] = [
+    [x, -half, -half], [x, half, -half], [x, half, half], [x, -half, half],
+  ];
+  const p = c.map((q) => ctx.project(q));
+  if (p.some((q) => !q)) return null;
+  const mid = ctx.project([x, half, 0]);
+  return (
+    <g>
+      <polygon
+        points={pts(p.map((q) => [q!.x, q!.y] as unknown as Vec3))}
+        fill="#004afd" fillOpacity={0.07}
+        stroke="#004afd" strokeWidth={1.1} strokeDasharray="7 4"
+      />
+      {mid && (
+        <g data-handle="slice" style={{ cursor: "ew-resize", pointerEvents: "auto" }}
+          onPointerDown={(e) => {
+            if (!onDrag) return;
+            e.stopPropagation();
+            const sx = e.clientX;
+            const mv = (ev: PointerEvent) => onDrag(ev.clientX - sx, 0);
+            const up = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); };
+            window.addEventListener("pointermove", mv);
+            window.addEventListener("pointerup", up);
+          }}
+        >
+          <rect x={mid.x - 7} y={mid.y - 9} width={14} height={18} fill="#0b0c10" stroke="#004afd" />
+          <text x={mid.x + 11} y={mid.y + 3} className="num" fontSize={9.5} fill="#7ea3ff">x = {x.toFixed(3)}</text>
+        </g>
+      )}
+    </g>
+  );
+}
+/* ======================================================== inspector ======= */
+export interface GizmoState {
+  upstream: number;
+  downstream: number;
+  section: number;
+  rpm: number;
+  injector: { pos: Vec3; theta: number; phi: number; half: number; d32: number; vel: number };
+  micRadius: number;
+  mic: number;
+  porous: { origin: Vec3; yaw: number; pitch: number; roll: number; k: Vec3 };
+  sliceOn: boolean;
+  sliceX: number;
+}
+export const TIP_RADIUS = 0.14;
+export const tipMachOf = (rpm: number) =>
+  ((rpm * Math.PI * TIP_RADIUS) / 30) / Math.sqrt(1.4 * 287.05 * 293.15);
+export function GizmoPanel({
+  g,
+  set,
+}: {
+  g: GizmoState;
+  set: (patch: Partial<GizmoState>) => void;
+}) {
+  const U = (rpm: number) => (rpm * Math.PI * TIP_RADIUS) / 30;
+  return (
+    <div className="scroller flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+      <Panel title="03 · far-field domain" right={<span className="lbl text-[#4f5568]">wind tunnel</span>}>
+        <div className="p-2">
+          <Row label="chord L">
+            <span>{CHORD.toFixed(3)} m</span>
+          </Row>
+          <Slider label="upstream extent" value={g.upstream} min={2} max={9} step={0.5} unit="L" onChange={(v) => set({ upstream: v })} dec={1} />
+          <Slider label="downstream extent" value={g.downstream} min={6} max={24} step={1} unit="L" onChange={(v) => set({ downstream: v })} />
+          <Slider label="cross-section" value={g.section} min={2} max={9} step={0.5} unit="L" onChange={(v) => set({ section: v })} dec={1} />
+          <div className="num mt-1 border-t border-hairline pt-1.5 text-[10px] text-[#6a7085]">
+            box = {(g.section * 2 * CHORD).toFixed(2)} × {(g.section * 2 * CHORD).toFixed(2)} × {((g.upstream + g.downstream) * CHORD).toFixed(2)} m
+          </div>
+        </div>
+      </Panel>
+      <Panel title="03 · MRF / sliding-mesh rotor zone" right={<Chip tone="volt">cyl axis X</Chip>}>
+        <div className="p-2">
+          <Slider label="rotational speed" value={g.rpm} min={0} max={24000} step={50} unit="RPM" onChange={(v) => set({ rpm: v })} />
+          <Row label="ω">{fmt((g.rpm * Math.PI) / 30, 2)} rad/s</Row>
+          <Row label="U_tip">{fmt(U(g.rpm), 2)} m/s</Row>
+          <Row label="Ma_tip">
+            <span className={tipMachOf(g.rpm) > 0.7 ? "text-[#ff8a97]" : "text-[#7ea3ff]"}>
+              {fmt(tipMachOf(g.rpm), 3)}
+            </span>
+          </Row>
+          <Row label="tip radius">
+            <span>{TIP_RADIUS.toFixed(3)} m</span>
+          </Row>
+          <div className="lbl mt-1 border-t border-hairline pt-1.5">
+            zone radius 0.150 m · 64-azimuthal-cell sliding interface
+          </div>
+        </div>
+      </Panel>
+      <Panel title="03 · DPM spray injector" right={<Chip tone="amber">Rosin-Rammler</Chip>}>
+        <div className="p-2">
+          <Slider label="cone half-angle θ" value={g.injector.half} min={4} max={45} step={0.5} unit="°" onChange={(v) => set({ injector: { ...g.injector, half: v } })} dec={1} />
+          <Slider label="azimuth θxz" value={g.injector.theta} min={-180} max={180} step={1} unit="°" onChange={(v) => set({ injector: { ...g.injector, theta: v })} />
+          <Slider label="elevation φ" value={g.injector.phi} min={-80} max={80} step={1} unit="°" onChange={(v) => set({ injector: { ...g.injector, phi: v })} />
+          <Slider label="Sauter diameter d32" value={g.injector.d32} min={5} max={320} step={1} unit="µm" onChange={(v) => set({ injector: { ...g.injector, d32: v } })} />
+          <Slider label="injection velocity" value={g.injector.vel} min={2} max={140} step={1} unit="m/s" onChange={(v) => set({ injector: { ...g.injector, vel: v } })} />
+          <div className="num mt-1 border-t border-hairline pt-1.5 text-[10px] text-[#6a7085]">
+            apex (drag in viewport) · n = 3.2 · spread 18°
+          </div>
+        </div>
+      </Panel>
+      <Panel title="03 · FWH acoustic microphones" right={<Chip>xmic ring</Chip>}>
+        <div className="p-2">
+          <Slider label="ring radius" value={g.micRadius} min={0.15} max={0.58} step={0.01} unit="m" onChange={(v) => set({ micRadius: v })} dec={2} />
+          <Row label="selected">
+            <span>M{g.mic + 1} · {g.mic * 90}°</span>
+          </Row>
+          <Row label="distance sphere">
+            <span>{(g.micRadius * 0.42).toFixed(3)} m</span>
+          </Row>
+          <div className="lbl mt-1 border-t border-hairline pt-1.5">
+            Ffowcs Williams–Hawkings surface, 4 × 1/2″ free-field
+          </div>
+        </div>
+      </Panel>
+      <Panel title="03 · anisotropic porous zone" right={<Chip>principal axes</Chip>}>
+        <div className="p-2">
+          <Slider label="yaw   e₁" value={g.porous.yaw} min={-90} max={90} step={1} unit="°" onChange={(v) => set({ porous: { ...g.porous, yaw: v } })} />
+          <Slider label="pitch e₂" value={g.porous.pitch} min={-90} max={90} step={1} unit="°" onChange={(v) => set({ porous: { ...g.porous, pitch: v } })} />
+          <Slider label="roll  e₃" value={g.porous.roll} min={-90} max={90} step={1} unit="°" onChange={(v) => set({ porous: { ...g.porous, roll: v } })} />
+          <Row label="K (e₁,e₂,e₃)">
+            <span>{g.porous.k.map((k) => k.toExponential(1)).join(" · ")} m²</span>
+          </Row>
+          <Row label="inertial C2">
+            <span>4.2e3 1/m</span>
+          </Row>
+        </div>
+      </Panel>
+      <Panel title="03 · slice plane">
+        <div className="p-2">
+          <Seg
+            value={g.sliceOn ? "on" : "off"}
+            options={[{ v: "on", l: "ENABLED" }, { v: "off", l: "OFF" }]}
+            onChange={(v) => set({ sliceOn: v === "on" })}
+          />
+          <Slider label="plane x" value={g.sliceX} min={-0.5} max={1.8} step={0.005} unit="m" onChange={(v) => set({ sliceX: v })} dec={3} />
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 read
+ReadGizmos.tsx L531-538
+
+Something went wrong with this response, please try again.

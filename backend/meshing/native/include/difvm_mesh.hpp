@@ -161,7 +161,16 @@ public:
 double computeNodalScaledJacobian(const Vec3& e1, const Vec3& e2, const Vec3& e3, double max_elem_edge);
 double computeElementNormalizedScaledJacobian(double js_min, CellType type);
 double checkPyramidBaseFictitiousHex(const std::vector<Vec3>& points, const std::vector<int64_t>& base_nodes, const Vec3& apex);
+double prismJacobianBound(const std::vector<Vec3>& points, const std::array<int64_t, 6>& v);
+bool checkPyramidBaseConvexity(const std::vector<Vec3>& points, const std::vector<int64_t>& base_nodes, const Vec3& apex);
 double computeCellJENS(const std::vector<Vec3>& points, const std::vector<int64_t>& nodes, CellType type);
+double computeCellJENS(
+    const std::vector<Vec3>& points,
+    const std::vector<int64_t>& nodes,
+    CellType type,
+    const std::vector<std::vector<int64_t>>& cell_faces
+);
+std::vector<double> computeMeshJENS(const NativeMeshData& mesh);
 
 } // namespace cfd
 

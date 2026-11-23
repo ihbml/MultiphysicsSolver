@@ -229,7 +229,11 @@ class IPCService:
             raise ValueError("Missing mandatory 'file_path'")
 
         source_unit = params.get("source_unit", "mm")
-        scale_factor = 0.001 if source_unit.lower() == "mm" else 1.0
+        scale_factor = (
+            float(params["scale_factor"])
+            if params.get("scale_factor") is not None
+            else (0.001 if str(source_unit).lower() == "mm" else 1.0)
+        )
         chordal_tol = float(params.get("chordal_tolerance_m", 0.0001))
         angular_tol = float(params.get("angular_deflection_deg", 10.0))
         is_async = bool(params.get("async", False))
@@ -245,6 +249,8 @@ class IPCService:
                 deflection=chordal_tol,
                 angular_tolerance=np.radians(angular_tol),
             )
+            if abs(scale_factor - 1.0) > 1e-12:
+                engine.scale(scale_factor=scale_factor, verify_invariants=False)
             audit = engine.audit()
             mesh = engine.current_mesh
             if mesh is None:
@@ -376,6 +382,7 @@ class IPCService:
         cad_path = params.get("cad_path")
         case_dir = params.get("case_dir")
         base_h = float(params.get("base_cell_size_m", 0.05))
+        domain_mode = str(params.get("domain_mode", "internal_fluid"))
         is_async = bool(params.get("async", False))
 
         def _do_meshing(job_rec: Optional[JobRecord] = None) -> Dict[str, Any]:
@@ -383,13 +390,21 @@ class IPCService:
 
             if geo_id and geo_id in self._geometry_cache:
                 surf_mesh = self._geometry_cache[geo_id]["mesh"]
-                unstructured = mesh_engine.generate_mesh(surf_mesh, config=MeshingConfig(
-                    sizing=CurvatureSizingConfig(h0=base_h, h_min=base_h * 0.2, h_max=base_h * 2.0)
-                ))
+                unstructured = mesh_engine.generate_mesh(
+                    surf_mesh,
+                    config=MeshingConfig(
+                        domain_mode=domain_mode,
+                        sizing=CurvatureSizingConfig(h0=base_h, h_min=base_h * 0.2, h_max=base_h * 2.0),
+                    ),
+                )
             elif cad_path:
-                unstructured = mesh_engine.generate_mesh(cad_path, config=MeshingConfig(
-                    sizing=CurvatureSizingConfig(h0=base_h, h_min=base_h * 0.2, h_max=base_h * 2.0)
-                ))
+                unstructured = mesh_engine.generate_mesh(
+                    cad_path,
+                    config=MeshingConfig(
+                        domain_mode=domain_mode,
+                        sizing=CurvatureSizingConfig(h0=base_h, h_min=base_h * 0.2, h_max=base_h * 2.0),
+                    ),
+                )
             else:
                 # Built-in sample grid for testing/validation
                 from backend.meshing.distmesh_core import ear_clipping_triangulate
@@ -420,14 +435,54 @@ class IPCService:
                     delta_f=df, k_f=kf, boundaries={"wall": (0, 6)}, faces=faces,
                 )
 
-            # Compute quality arrays
+            # Compute real per-cell quality arrays from DiFVM error_map & J_ENS
+            from backend.meshing.models import compute_mesh_j_ens
+
             n_cells = unstructured.num_cells
+            err_map = unstructured.error_map if isinstance(unstructured.error_map, dict) else {}
             skewness = np.zeros(n_cells, dtype=np.float32)
             non_ortho = np.zeros(n_cells, dtype=np.float32)
-            aspect_ratio = np.ones(n_cells, dtype=np.float32)
+            no_raw = np.asarray(
+                err_map.get("non_orthogonality", err_map.get("non_ortho", np.zeros(0))),
+                dtype=np.float32,
+            )
+            sk_raw = np.asarray(
+                err_map.get("skewness", err_map.get("skew", np.zeros(0))),
+                dtype=np.float32,
+            )
+            if n_cells > 0:
+                internal_mask = unstructured.neighbour >= 0
+                if len(no_raw) == unstructured.num_faces:
+                    np.maximum.at(non_ortho, unstructured.owner, no_raw)
+                    if np.any(internal_mask):
+                        np.maximum.at(
+                            non_ortho,
+                            unstructured.neighbour[internal_mask],
+                            no_raw[internal_mask],
+                        )
+                elif len(no_raw) == n_cells:
+                    non_ortho = no_raw.copy()
+                if len(sk_raw) == unstructured.num_faces:
+                    np.maximum.at(skewness, unstructured.owner, sk_raw)
+                    if np.any(internal_mask):
+                        np.maximum.at(
+                            skewness,
+                            unstructured.neighbour[internal_mask],
+                            sk_raw[internal_mask],
+                        )
+                elif len(sk_raw) == n_cells:
+                    skewness = sk_raw.copy()
+
+            ar_raw = np.asarray(err_map.get("aspect_ratio", np.zeros(0)), dtype=np.float32)
+            aspect_ratio = ar_raw.copy() if len(ar_raw) == n_cells else np.ones(n_cells, dtype=np.float32)
             volume = np.asarray(unstructured.cell_volumes, dtype=np.float32)
-            wsrd = np.ones(n_cells, dtype=np.float32)
-            amips = np.ones(n_cells, dtype=np.float32)
+            wsrd_raw = np.asarray(err_map.get("wsrd_weights", np.zeros(0)), dtype=np.float32)
+            wsrd = wsrd_raw.copy() if len(wsrd_raw) == n_cells else np.ones(n_cells, dtype=np.float32)
+            if n_cells > 0 and unstructured.cells and len(unstructured.cells) == n_cells:
+                j_ens, _ = compute_mesh_j_ens(unstructured)
+                amips = (1.0 / np.clip(j_ens, 1e-3, 1.0)).astype(np.float32)
+            else:
+                amips = np.ones(n_cells, dtype=np.float32)
 
             mesh_id = f"mesh_{uuid.uuid4().hex[:8]}"
             rev = 1
@@ -436,6 +491,10 @@ class IPCService:
             poly_path = None
             if case_dir:
                 poly_path = str(export_openfoam_polymesh(unstructured, case_dir=case_dir))
+
+            max_skew_val = float(np.max(skewness)) if len(skewness) > 0 else 0.0
+            max_no_val = float(np.max(non_ortho)) if len(non_ortho) > 0 else 0.0
+            min_vol_val = float(np.min(volume)) if len(volume) > 0 else 0.0
 
             # Pack Paket 2 binary buffer
             buf, descriptor = pack_mesh_quality_buffer(
@@ -450,9 +509,9 @@ class IPCService:
                     "n_cells": n_cells,
                     "n_points": unstructured.num_points,
                     "n_faces": unstructured.num_faces,
-                    "max_skewness": float(np.max(skewness)),
-                    "max_non_ortho": float(np.max(non_ortho)),
-                    "min_volume": float(np.min(volume)),
+                    "max_skewness": max_skew_val,
+                    "max_non_ortho": max_no_val,
+                    "min_volume": min_vol_val,
                 },
                 mesh_id=mesh_id,
                 mesh_revision=rev,
@@ -469,14 +528,15 @@ class IPCService:
             return {
                 "mesh_id": mesh_id,
                 "mesh_revision": rev,
+                "cell_count": n_cells,
                 "polyMesh_path": poly_path,
                 "quality_report": {
                     "n_cells": n_cells,
                     "n_points": unstructured.num_points,
                     "n_faces": unstructured.num_faces,
-                    "max_skewness": float(np.max(skewness)),
-                    "max_non_ortho": float(np.max(non_ortho)),
-                    "min_volume": float(np.min(volume)),
+                    "max_skewness": max_skew_val,
+                    "max_non_ortho": max_no_val,
+                    "min_volume": min_vol_val,
                 },
                 "binary_descriptor": descriptor.to_dict(),
                 "binary_buffer_bytes": len(buf),
@@ -578,7 +638,9 @@ class IPCService:
 
         return {
             "is_valid": len(errors) == 0,
+            "valid": len(errors) == 0,
             "selected_solver": solver,
+            "recommended_solver": solver,
             "errors": errors,
             "warnings": warnings,
         }

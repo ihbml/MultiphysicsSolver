@@ -1,0 +1,3576 @@
+Plan
+Build the four-module telemetry interface and browser numerical kernels
+Implement the C++20 SoA/FVM reference solver and executable verification suite
+Connect exports, controls, source documentation, and verification reports
+Compile C++, run numerical checks, and verify the production web build
+
+I’ll build the four-module telemetry workbench with a downloadable C++20 reference solver and verification tests. I’ll also distinguish live numerical results from illustrative telemetry and make the physical assumptions explicit.
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 list
+List/
+Ran pwd && node --version && npm --version && g++ --ve…
+Farassat formulation 1A thickness loading noise equations 1 Mr NASA 5 results
+Ni current conservative inductionless MHD four step projection finite volume current density reconstruction face flux 3 results
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 reads
+Readpackage.json L1-29
+ReadApp.tsx L1-29
+Readindex.css L1-2
+Readmain.tsx L1-11
+NASA 2007 214853 Farassat formulation 1A derivation full equations permeable surface Q L 5 results
+Hatchard Spotnitz lithium ion thermal runaway kinetics SEI negative electrode positive electrolyte parameters Patankar thermal heat sign discharge irreversible heat 3 results
+Ran npm install lucide-react framer-motion
+Fetching https://ntrs.nasa.gov/citations/20070010579 failed
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 reads
+Readtsconfig.json L1-32
+Readindex.html L1-13
+
+The workbench will use a dark, instrument-style layout with interactive fields, controls, and plots for each module. One sign convention needs care: with discharge-positive current, the requested I(Vterm−UOCV)I(Vterm​−UOCV​) is negative. I’ll expose that signed term and use the opposite sign for overpotential heat generation.
+Applied patch to src/physics.ts
++299-0
+Applied patch to src/components/Charts.tsx
++161-0
+Applied patch to src/components/Charts.tsx
++216-1
+Applying patch failed
+Applied patch to src/index.css
++27-2
+Running npx tsc --noEmit 2>&1; command -v chromium || comm… failed
+Running curl -L -s https://ntrs.nasa.gov/api/citations/200… failed
+Applied patch to public/solver/cluster_c.cpp
++552-0
+Ran g++ -std=c++20 -O2 -Wall -Wextra -Wpedantic public…
+Ran python3 - <<'PY' from pathlib import Path p=Path('…
+
+The first native verification run passed 23 checks, covering heat-sign consistency, stiff-source boundedness, reaction-energy closure, the Curle limit, PSD normalization, Hartmann profiles, skew-mesh current reconstruction, and ALE geometric conservation.
+
+The interface labels the execution boundary explicitly: browser kernels drive the interactive preview; the downloadable C++ implementation and its build-time report are separate.
+Ran npx tsc --noEmit && (/tmp/cluster_c --verify --jso…
+Ran for module in battery fwh mhd tps; do /tmp/cluster…
+Applied patch to scripts/check-workbench.mjs
++321-0
+Running node scripts/check-workbench.mjs failed
+Ran npm run build && g++ -std=c++20 -O2 -DCLUSTER_C_LI…
+Ran npx playwright install-deps chromium
+Ran python3 - <<'PY' from pathlib import Path for name…
+Running node scripts/check-workbench.mjs failed
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 reads
+Readworkbench-desktop.png
+ReadApp.tsx L1-55
+Applied patch to src/physics.ts
++11-7
+Running node scripts/check-workbench.mjs failed
+Ran node --input-type=module <<'JS' import ts from 'ty…
+Applied patch to src/components/FieldViews.tsx
++4-3
+Ran node scripts/check-workbench.mjs
+Ran node --input-type=module <<'JS' import ts from 'ty…
+Applied patch to src/physics.ts
++19-6
+Applied patch to src/physics.ts
++5-3
+Applied patch to public/solver/cluster_c.cpp
++37-8
+Ran python3 - <<'PY' from pathlib import Path p=Path('…
+Ran g++ -std=c++20 -O2 -Wall -Wextra -Wpedantic public…
+
+The workbench now supports field selection, time scrubbing, parameter changes, microphone selection, saved-run restoration, and CSV/JSON export. All eight browser checks pass, and the native suite has expanded to 26 passing checks, including the full SoA electric projection and skew-mesh DGCL correction.
+
+I’m finishing the integration notes and validation. They explicitly avoid claiming experimental validation or automatic Hartmann-layer balance from charge conservation alone.
+Applied patch to public/solver/cluster_c.cpp
++83-0
+Applied patch to public/solver/cluster_c.cpp
++11-4
+Ran bash scripts/verify-native.sh && g++ -std=c++20 -O…
+Ran node scripts/check-workbench.mjs
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 reads
+,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 searches
+Readworkbench-desktop.png
+Readworkbench-mobile.png
+Readworkbench-tps.png
+ReadCharts.tsx L1-237
+SearchCoolant temperature|Conductivity|Through-thickness response|Virgin density|spectralMode ===|xMax=\{1\}|ANALYTICAL BENCHMARK
+Searchconst bands|const frequency = 1000|return \{ psd
+Readcheck-workbench.mjs L1-154
+ReadApp.tsx L120-269
+ReadApp.tsx L880-1114
+ReadApp.tsx L1135-1249
+Applied patch to src/components/Charts.tsx
++59-64
+Applied patch to src/components/Charts.tsx
++28-10
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 search
+SearchFor multiple|porous|gas|Constituent|1/3-octave|harmonic|verification|h_pyrolysis
+Ran npx --yes prettier --write src/App.tsx src/physics…
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 reads
+Readworkbench-mobile.png
+Readworkbench-tps.png
+ReadREADME.md L185-254
+Readphysics.ts L280-349
+Applied patch to public/solver/cluster_c.cpp
++77-0
+Applying patch failed
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 search
+SearchALE geometry topology mismatch|cluster_c_ale_geometry|auto tet_J|recompiles the native|monolithic|scrollTo
+Ran bash scripts/verify-native.sh
+Applied patch to public/solver/cluster_c.cpp
++9-2
+Applied patch to public/solver/README.md
++58-10
+Applied patch to scripts/check-workbench.mjs
++1-0
+Applied patch to public/solver/cluster_c.cpp
++18-0
+Applied patch to src/physics.ts
++89-6
+Applied patch to public/solver/README.md
++8-0
+Applied patch to src/App.tsx
++1-1
+
+The native reference now includes multi-constituent pyrolysis, conservative 3D Darcy gas transport, Joule-to-energy coupling, and moving-polyhedron geometry utilities with a checked BDF2 swept-volume identity. Desktop and mobile interaction checks also pass.
+
+The remaining boundary is documented: this is a numerical reference, not a drop-in mapping to an unknown ABI or a validated monolithic 3D TPS simulation. The coupled ALE TPS demonstration is 1D; the 3D transport and geometry kernels have separate verification tests.
+Ran bash scripts/verify-native.sh && g++ -std=c++20 -O…
+Ran npx --yes prettier --write src/App.tsx src/physics…
+Applied patch to public/favicon.svg
++7-0
+Ran npm run build && (npm run preview -- --host 0.0.0.…
+
+Built the four-module VECTOR workbench with interactive fields, parameter controls, playback, saved runs, CSV/JSON export, and verification views.
+
+    C++20 reference: public/solver/cluster_c.cpp
+    Equations, ABI contract, and limitations: public/solver/README.md
+    Numerical results: public/verification.json
+    Reproduce native checks: bash scripts/verify-native.sh
+
+Verified
+35 native numerical checks, eight browser-kernel checks, all four native demos, ASan/UBSan, shared-library compilation, desktop/mobile interactions, and npm run build passed.
+
+Scope
+Browser telemetry runs independent numerical previews, not a connected C++ process. Your proprietary CAbiSpan layout was not supplied, so the documented adapter still requires mapping.
+
+The native MHD implementation is Ni-style current-conservative, not a complete production Ni flow solver. TPS includes a coupled 1D ALE demonstration and separately verified 3D porous-transport and moving-geometry kernels; a validated monolithic 3D ALE TPS simulation is not claimed.
+Show More
+Option B
+ExploringExplored,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 read
+s
+,0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9 list
+List/
+Readpackage.json L1-29
+Readcn.ts battery
+Readmain.tsx L1-11
+Readindex.css L1-2
+ReadApp.tsx L1-29
+Read stopping vite.config.ts
+Readindex.html L1-13
+Readtsconfig.json L1-32
+
+Starter facts are clear: a bare Vite + React 19 + Tailwind v4 scaffold with a placeholder App.tsx, no extra dependencies. Before writing the solver code I want two references pinned down exactly (Hatchard/Spotnitz kinetics constants and the Farassat 1A source terms) and I want to confirm a g++ toolchain is available in the sandbox so I can actually compile-verify the C++20 code.
+Hatchard thermal runaway model kinetic parameters SEI decomposition negative electrode positive electrode electrolyte A s^-1 Ea J/mol H J/kg four side reactions 5 results
+Farassat Formulation 1A thickness noise loading noise equation U_n dot M_r dot 1-M_r squared r squared 1-M_r cubed 5 results
+Ran which g++ gcc clang++ cc 2>/dev/null; g++ --versio…
+Created src/cpp/cabi_span.hpp
+Created src/cpp/cabi_span.hpp
+
+// ============================================================================
+//  Cluster C - Multiphysics Solver Suite : C-ABI SoA data lake
+//  CAbiSpan  : a non-owning, standard-layout, trivially-copyable view whose
+//              memory layout is {T* data; size_t size;} and is therefore safe
+//              to pass across a plain C ABI boundary.
+//  SoALake   : column-oriented ("Structure of Arrays") store with 64-byte
+//              aligned columns and stable integer column handles.
+//  Compile: g++ -std=c++20 -O2 -I. <file.cpp>
+// ============================================================================
+#pragma once
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <new>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <vector>
+namespace mp {
+template <class T>
+struct CAbiSpan {
+    static_assert(std::is_trivially_copyable_v<T>, "CAbiSpan requires trivially copyable elements");
+    static_assert(std::is_standard_layout_v<CAbiSpan<T>>, "CAbiSpan must keep the C ABI layout");
+    using element_type = T;
+    using value_type = std::remove_cv_t<T>;
+    T* data = nullptr;          // <-- C ABI: pointer
+    std::size_t size = 0;       // <-- C ABI: length
+    constexpr CAbiSpan() noexcept = default;
+    constexpr CAbiSpan(T* p, std::size_t n) noexcept : data(p), size(n) {}
+    template <std::size_t N>
+    constexpr CAbiSpan(T (&arr)[N]) noexcept : data(arr), size(N) {}
+    constexpr CAbiSpan(std::vector<value_type>& v) noexcept : data(v.data()), size(v.size()) {}
+    constexpr CAbiSpan(std::span<T> s) noexcept : data(s.data()), size(s.size()) {}
+    constexpr bool empty() const noexcept { return size == 0; }
+    constexpr T& operator[](std::size_t i) const noexcept { return data[i]; }
+    constexpr T* begin() const noexcept { return data; }
+    constexpr T* end() const noexcept { return data + size; }
+    constexpr operator std::span<T>() const noexcept { return std::span<T>(data, size); }
+    constexpr CAbiSpan<T> subspan(std::size_t off, std::size_t n) const noexcept { return CAbiSpan<T>(data + off, n); }
+    constexpr CAbiSpan<T> first(std::size_t n) const noexcept { return CAbiSpan<T>(data, n); }
+};
+// ---------------------------------------------------------------------------
+// Column-oriented data lake.  add_column<T>() before allocate(); column<T>()
+// afterwards.  Column handles are plain integers (stable across the C ABI).
+// ---------------------------------------------------------------------------
+class SoALake {
+public:
+    explicit SoALake(std::size_t rows, std::size_t alignment = 64) : rows_(rows), align_(alignment) {}
+    ~SoALake() { release(); }
+    SoALake(const SoALake&) = delete;
+    SoALake& operator=(const SoALake&) = delete;
+    SoALake(SoALake&& o) noexcept
+        : rows_(o.rows_), align_(o.align_), bytes_(o.bytes_), buf_(o.buf_), cols_(std::move(o.cols_)) {
+        o.buf_ = nullptr;
+        o.bytes_ = 0;
+    }
+    template <class T>
+    std::size_t add_column(std::string_view name) {
+        Column c;
+        c.offset = round_up(bytes_, align_);
+        c.stride = sizeof(T) * rows_;
+        c.elem = sizeof(T);
+        c.name.assign(name);
+        bytes_ = c.offset + c.stride;
+        cols_.push_back(std::move(c));
+        return cols_.size() - 1;
+    }
+    void allocate() {
+        release();
+        if (bytes_ == 0) return;
+        buf_ = ::operator new(bytes_, std::align_val_t{align_});
+        std::memset(buf_, 0, bytes_);
+    }
+    template <class T>
+    CAbiSpan<T> column(std::size_t id) {
+        check(id, sizeof(T));
+        return CAbiSpan<T>(reinterpret_cast<T*>(static_cast<char*>(buf_) + cols_[id].offset), rows_);
+    }
+    template <class T>
+    CAbiSpan<const T> column(std::size_t id) const {
+        check(id, sizeof(T));
+        return CAbiSpan<const T>(reinterpret_cast<const T*>(static_cast<const char*>(buf_) + cols_[id].offset), rows_);
+    }
+    std::size_t rows() const noexcept { return rows_; }
+    std::size_t n_columns() const noexcept { return cols_.size(); }
+    std::size_t bytes() const noexcept { return bytes_; }
+    const std::string& name(std::size_t id) const { return cols_[id].name; }
+private:
+    struct Column {
+        std::size_t offset = 0, stride = 0, elem = 0;
+        std::string name;
+    };
+    static std::size_t round_up(std::size_t v, std::size_t a) { return (v + a - 1) / a * a; }
+    void check(std::size_t id, std::size_t esz) const {
+        if (id >= cols_.size()) throw std::out_of_range("SoALake: bad column id");
+        if (cols_[id].elem != esz) throw std::invalid_argument("SoALake: element size mismatch");
+        if (!buf_) throw std::logic_error("SoALake: allocate() not called");
+    }
+    void release() {
+        if (buf_) {
+            ::operator delete(buf_, std::align_val_t(align_));
+            buf_ = nullptr;
+        }
+    }
+    std::size_t rows_, align_, bytes_ = 0;
+    void* buf_ = nullptr;
+    std::vector<Column> cols_;
+};
+}  // namespace mp
+
+Created src/cpp/poly_fvm.hpp
+Created src/cpp/poly_fvm.hpp
+
+// ============================================================================
+//  Cluster C : polyhedral finite-volume topology + over-relaxed non-orthogonal
+//  Laplacian decomposition (Demirdzic et al.; Muhassein & Shyy).
+//
+//  For an internal face f between owner P and neighbour N:
+//     d      = x_N - x_P,            S_f   = outward area vector of P
+//     dhat   = d/|d|,                nhat  = S_f/|S_f|
+//     alpha_f = |S_f|^2 / (d . S_f)                       (implicit coefficient)
+//     k_f^corr = |S_f| ( nhat - dhat/(dhat.nhat) )        (explicit correction)
+//  Face normal flux of a Laplacian:  Gamma_f ( alpha_f (phi_N - phi_P) + k_f^corr . grad(phi)_f )
+//  Compile: g++ -std=c++20 -O2
+// ============================================================================
+#pragma once
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <vector>
+namespace mp::fvm {
+struct Vec3 {
+    double x{0.0}, y{0.0}, z{0.0};
+    constexpr Vec3() = default;
+    constexpr Vec3(double a, double b, double c) : x(a), y(b), z(c) {}
+};
+constexpr Vec3 operator+(const Vec3& a, const Vec3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+constexpr Vec3 operator-(const Vec3& a, const Vec3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+constexpr Vec3 operator-(const Vec3& a) { return {-a.x, -a.y, -a.z}; }
+constexpr Vec3 operator*(const Vec3& a, double s) { return {a.x * s, a.y * s, a.z * s}; }
+constexpr Vec3 operator*(double s, const Vec3& a) { return a * s; }
+constexpr Vec3 operator/(const Vec3& a, double s) { return {a.x / s, a.y / s, a.z / s}; }
+constexpr Vec3& operator+=(Vec3& a, const Vec3& b) { a.x += b.x; a.y += b.y; a.z += b.z; return a; }
+constexpr Vec3& operator-=(Vec3& a, const Vec3& b) { a.x -= b.x; a.y -= b.y; a.z -= b.z; return a; }
+constexpr double dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+constexpr Vec3 cross(const Vec3& a, const Vec3& b) {
+    return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+}
+inline double norm(const Vec3& a) { return std::sqrt(dot(a, a)); }
+inline Vec3 normalize(const Vec3& a) { return a / norm(a); }
+struct PolyMesh {
+    std::size_t n_cells{0}, n_faces{0}, n_nodes{0};
+    std::vector<Vec3> node_xyz;
+    std::vector<std::int32_t> face_node_start;  // [n_faces+1]
+    std::vector<std::int64_t> face_nodes;       // CSR into node_xyz
+    std::vector<std::int64_t> face_owner;       // [n_faces]
+    std::vector<std::int64_t> face_neighbor;    // [n_faces], -1 = boundary
+    std::vector<std::int32_t> face_patch;       // [n_faces], -1 = internal, else patch id
+    std::vector<std::string> patch_names;
+    // ---- geometry, filled by finish() ----
+    std::vector<Vec3> face_centroid, face_area;  // S_f points out of owner
+    std::vector<Vec3> cell_centroid;
+    std::vector<double> cell_volume;
+    std::vector<double> alpha_f;      // over-relaxed implicit coefficient
+    std::vector<Vec3> kf_corr;        // over-relaxed non-orthogonal correction vector
+    std::vector<double> face_weight;  // |x_f - x_P| / |d| for internal faces
+    std::vector<std::int32_t> cell_face_start;  // [n_cells+1]
+    std::vector<std::int64_t> cell_faces;       // CSR (owner + neighbour faces)
+    bool finished{false};
+    bool is_boundary(std::size_t f) const { return face_neighbor[f] < 0; }
+    std::size_t n_face_nodes(std::size_t f) const { return static_cast<std::size_t>(face_node_start[f + 1] - face_node_start[f]); }
+    std::size_t n_internal() const {
+        std::size_t c = 0;
+        for (auto n : face_neighbor)
+            if (n >= 0) ++c;
+        return c;
+    }
+    std::size_t n_faces_of_cell(std::size_t c) const { return static_cast<std::size_t>(cell_face_start[c + 1] - cell_face_start[c]); }
+    void finish();
+    // Green-Gauss cell gradient (zero-gradient at boundaries)
+    void green_gauss(const double* phi, Vec3* grad) const;
+    // Face gradient from owner/neighbour gradients (distance weighted)
+    void face_gradient(const Vec3* grad, Vec3* grad_f) const;
+};
+inline void PolyMesh::finish() {
+    if (finished) return;
+    if (face_node_start.size() != n_faces + 1 || face_nodes.size() != static_cast<std::size_t>(face_node_start.back()))
+        throw std::logic_error("PolyMesh::finish: inconsistent face CSR");
+    // --- cell -> face CSR ---------------------------------------------------
+    std::vector<std::int64_t> cnt(n_cells, 0);
+    for (std::size_t f = 0; f < n_faces; ++f) {
+        ++cnt[static_cast<std::size_t>(face_owner[f])];
+        if (face_neighbor[f] >= 0) ++cnt[static_cast<std::size_t>(face_neighbor[f])];
+    }
+    cell_face_start.assign(n_cells + 1, 0);
+    for (std::size_t c = 0; c < n_cells; ++c) cell_face_start[c + 1] = cell_face_start[c] + static_cast<std::int32_t>(cnt[c]);
+    cell_faces.assign(static_cast<std::size_t>(cell_face_start[n_cells]), 0);
+    std::fill(cnt.begin(), cnt.end(), 0);
+    for (std::size_t f = 0; f < n_faces; ++f) {
+        auto o = static_cast<std::size_t>(face_owner[f]);
+        cell_faces[static_cast<std::size_t>(cell_face_start[o]) + static_cast<std::size_t>(cnt[o]++)] = static_cast<std::int64_t>(f);
+        auto nb = face_neighbor[f];
+        if (nb >= 0) cell_faces[static_cast<std::size_t>(cell_face_start[static_cast<std::size_t>(nb)]) + static_cast<std::size_t>(cnt[static_cast<std::size_t>(nb)]++)] = static_cast<std::int64_t>(f);
+    }
+    // --- face geometry -----------------------------------------------------
+    face_centroid.assign(n_faces, Vec3{});
+    face_area.assign(n_faces, Vec3{});
+    std::vector<Vec3> prelim(n_cells, Vec3{});
+    std::vector<std::int64_t> nfc(n_cells, 0);
+    for (std::size_t f = 0; f < n_faces; ++f) {
+        const auto s = static_cast<std::size_t>(face_node_start[f]);
+        const auto e = static_cast<std::size_t>(face_node_start[f + 1]);
+        Vec3 c{};
+        for (std::size_t k = s; k < e; ++k) c += node_xyz[static_cast<std::size_t>(face_nodes[k])];
+        c = c / double(e - s);
+        face_centroid[f] = c;
+        const auto o = static_cast<std::size_t>(face_owner[f]);
+        prelim[o] += c;
+        ++nfc[o];
+    }
+    for (std::size_t c = 0; c < n_cells; ++c) {
+        if (nfc[c] == 0) throw std::logic_error("PolyMesh::finish: cell without faces");
+        prelim[c] = prelim[c] / double(nfc[c]);
+    }
+    // outward orientation (area vector by fan triangulation about the origin)
+    for (std::size_t f = 0; f < n_faces; ++f) {
+        const auto s = static_cast<std::size_t>(face_node_start[f]);
+        const auto m = n_face_nodes(f);
+        Vec3 A{};
+        for (std::size_t k = 0; k < m; ++k) {
+            const Vec3& p = node_xyz[static_cast<std::size_t>(face_nodes[s + k])];
+            const Vec3& q = node_xyz[static_cast<std::size_t>(face_nodes[s + (k + 1) % m])];
+            A += cross(p, q);
+        }
+        face_area[f] = A * 0.5;
+        const auto o = static_cast<std::size_t>(face_owner[f]);
+        if (dot(face_area[f], face_centroid[f] - prelim[o]) < 0.0) {
+            std::reverse(face_nodes.begin() + static_cast<std::ptrdiff_t>(s), face_nodes.begin() + static_cast<std::ptrdiff_t>(s + m));
+            face_area[f] = -face_area[f];
+        }
+    }
+    // --- cell volume / centroid (pyramid decomposition about an interior point)
+    cell_volume.assign(n_cells, 0.0);
+    cell_centroid.assign(n_cells, Vec3{});
+    for (std::size_t c = 0; c < n_cells; ++c) {
+        double V = 0.0;
+        Vec3 xc{};
+        for (auto it = cell_faces.begin() + cell_face_start[c]; it != cell_faces.begin() + cell_face_start[c + 1]; ++it) {
+            const std::size_t f = static_cast<std::size_t>(*it);
+            const double sgn = (static_cast<std::size_t>(face_owner[f]) == c) ? 1.0 : -1.0;
+            const Vec3 S = face_area[f] * sgn;
+            const double vf = dot(face_centroid[f] - prelim[c], S) / 3.0;
+            V += vf;
+            xc += (prelim[c] * 0.25 + face_centroid[f] * 0.75) * vf;
+        }
+        if (V <= 0.0) throw std::logic_error("PolyMesh::finish: non-positive cell volume");
+        cell_volume[c] = V;
+        cell_centroid[c] = xc / V;
+    }
+    // --- over-relaxed non-orthogonal decomposition ---------------------------
+    alpha_f.assign(n_faces, 0.0);
+    kf_corr.assign(n_faces, Vec3{});
+    face_weight.assign(n_faces, 1.0);
+    for (std::size_t f = 0; f < n_faces; ++f) {
+        const auto o = static_cast<std::size_t>(face_owner[f]);
+        const Vec3& xp = cell_centroid[o];
+        const Vec3& S = face_area[f];
+        const double mS = norm(S);
+        if (face_neighbor[f] >= 0) {
+            const auto nb = static_cast<std::size_t>(face_neighbor[f]);
+            const Vec3 d = cell_centroid[nb] - xp;
+            const double dS = dot(d, S);
+            if (dS <= 0.0) throw std::logic_error("PolyMesh::finish: face with d.S <= 0");
+            const Vec3 nhat = S / mS, dhat = d / norm(d);
+            const double dn = dot(dhat, nhat);
+            alpha_f[f] = mS * mS / dS;
+            kf_corr[f] = (nhat - dhat / dn) * mS;
+            face_weight[f] = norm(face_centroid[f] - xp) / norm(d);
+        } else {
+            const Vec3 d = face_centroid[f] - xp;
+            const double dS = dot(d, S);
+            if (dS <= 0.0) throw std::logic_error("PolyMesh::finish: boundary face with d.S <= 0");
+            alpha_f[f] = mS * mS / dS;
+            kf_corr[f] = Vec3{};
+            face_weight[f] = 1.0;
+        }
+    }
+    finished = true;
+}
+inline void PolyMesh::green_gauss(const double* phi, Vec3* grad) const {
+    std::fill(grad, grad + n_cells, Vec3{});
+    for (std::size_t f = 0; f < n_faces; ++f) {
+        const auto o = static_cast<std::size_t>(face_owner[f]);
+        const auto nb = face_neighbor[f];
+        const double pf = (nb >= 0) ? face_weight[f] * phi[static_cast<std::size_t>(nb)] + (1.0 - face_weight[f]) * phi[o] : phi[o];
+        grad[o] += face_area[f] * pf;
+        if (nb >= 0) grad[static_cast<std::size_t>(nb)] -= face_area[f] * pf;
+    }
+    for (std::size_t c = 0; c < n_cells; ++c) grad[c] = grad[c] / cell_volume[c];
+}
+inline void PolyMesh::face_gradient(const Vec3* grad, Vec3* grad_f) const {
+    for (std::size_t f = 0; f < n_faces; ++f) {
+        const auto o = static_cast<std::size_t>(face_owner[f]);
+        const auto nb = face_neighbor[f];
+        if (nb >= 0) {
+            const double w = face_weight[f];
+            grad_f[f] = grad[o] * (1.0 - w) + grad[static_cast<std::size_t>(nb)] * w;
+        } else {
+            grad_f[f] = grad[o];
+        }
+    }
+}
+// ---------------------------------------------------------------------------
+//  Structured (i,j,k)-box generator that emits a genuine polyhedral topology
+//  (hexahedra, face->node CSR, owner/neighbour, boundary patches).
+//  Optional symmetric tanh clustering per axis (beta = 0 -> uniform).
+//  cell_index(i,j,k) = (i*ny + j)*nz + k ; patches: 0 xmin 1 xmax 2 ymin 3 ymax 4 zmin 5 zmax
+// ---------------------------------------------------------------------------
+inline PolyMesh make_structured_box(std::size_t nx, std::size_t ny, std::size_t nz, double Lx, double Ly, double Lz,
+                                    double beta_x = 0.0, double beta_y = 0.0, double beta_z = 0.0) {
+    auto axis = [](std::size_t n, double L, double beta) {
+        std::vector<double> x(n + 1);
+        for (std::size_t k = 0; k <= n; ++k) {
+            const double eta = double(k) / double(n);
+            x[k] = beta > 0.0 ? 0.5 * L * (1.0 + std::tanh(beta * (2.0 * eta - 1.0)) / std::tanh(beta)) : L * eta;
+        }
+        return x;
+    };
+    const auto X = axis(nx, Lx, beta_x), Y = axis(ny, Ly, beta_y), Z = axis(nz, Lz, beta_z);
+    PolyMesh m;
+    m.n_cells = nx * ny * nz;
+    m.n_nodes = (nx + 1) * (ny + 1) * (nz + 1);
+    m.node_xyz.reserve(m.n_nodes);
+    auto nid = [&](std::size_t i, std::size_t j, std::size_t k) { return static_cast<std::int64_t>((i * (ny + 1) + j) * (nz + 1) + k); };
+    for (std::size_t i = 0; i <= nx; ++i)
+        for (std::size_t j = 0; j <= ny; ++j)
+            for (std::size_t k = 0; k <= nz; ++k) m.node_xyz.push_back({X[i], Y[j], Z[k]});
+    m.patch_names = {"xmin", "xmax", "ymin", "ymax", "zmin", "zmax"};
+    std::map<std::array<std::int64_t, 4>, std::size_t> registry;
+    auto add_face = [&](std::array<std::int64_t, 4> cyc, std::int64_t cell, std::int32_t patch) {
+        auto key = cyc;
+        std::sort(key.begin(), key.end());
+        auto it = registry.find(key);
+        if (it == registry.end()) {
+            registry.emplace(key, m.n_faces);
+            for (auto n : cyc) m.face_nodes.push_back(n);
+            m.face_owner.push_back(cell);
+            m.face_neighbor.push_back(-1);
+            m.face_patch.push_back(patch);
+            ++m.n_faces;
+        } else {
+            const std::size_t f = it->second;
+            if (m.face_neighbor[f] != -1) throw std::logic_error("make_structured_box: face shared by more than two cells");
+            m.face_neighbor[f] = cell;
+        }
+    };
+    for (std::size_t i = 0; i < nx; ++i)
+        for (std::size_t j = 0; j < ny; ++j)
+            for (std::size_t k = 0; k < nz; ++k) {
+                const std::int64_t c = static_cast<std::int64_t>((i * ny + j) * nz + k);
+                const auto n000 = nid(i, j, k), n100 = nid(i + 1, j, k), n110 = nid(i + 1, j + 1, k), n010 = nid(i, j + 1, k);
+                const auto n001 = nid(i, j, k + 1), n101 = nid(i + 1, j, k + 1), n111 = nid(i + 1, j + 1, k + 1), n011 = nid(i, j + 1, k + 1);
+                add_face({n000, n010, n011, n001}, c, i == 0 ? 0 : -1);
+                add_face({n100, n101, n111, n110}, c, i == nx - 1 ? 1 : -1);
+                add_face({n000, n001, n101, n100}, c, j == 0 ? 2 : -1);
+                add_face({n010, n110, n111, n011}, c, j == ny - 1 ? 3 : -1);
+                add_face({n000, n100, n110, n010}, c, k == 0 ? 4 : -1);
+                add_face({n001, n011, n111, n101}, c, k == nz - 1 ? 5 : -1);
+            }
+    m.face_node_start.assign(m.n_faces + 1, 0);
+    for (std::size_t f = 0; f < m.n_faces; ++f) m.face_node_start[f + 1] = static_cast<std::int32_t>(4 * (f + 1));
+    m.finish();
+    return m;
+}
+}  // namespace mp::fvm
+
+Created src/cpp/linalg.hpp
+Created src/cpp/linalg.hpp
+
+// ============================================================================
+//  Cluster C : sparse / structured linear algebra
+//   * CsrMatrix + Jacobi-PCG (generic polyhedral path)
+//   * thomas()  tridiagonal solver (ADI + tensor-product direct solver)
+//   * TensorProductPoisson : direct Poisson solver for cell-centred
+//     (y uniform) x (z stretched) FVM grids with zero-flux (Neumann) walls:
+//     DCT-II eigen-decomposition along y, tridiagonal solves along z.
+//   Compile: g++ -std=c++20 -O2
+// ============================================================================
+#pragma once
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <numeric>
+#include <stdexcept>
+#include <vector>
+namespace mp::linalg {
+struct CsrMatrix {
+    std::size_t n{0};
+    std::vector<std::int64_t> row_start;  // n+1
+    std::vector<std::int64_t> col;        // nnz
+    std::vector<double> val;              // nnz
+    void from_triplets(std::size_t n_rows, const std::vector<std::int64_t>& r, const std::vector<std::int64_t>& c, const std::vector<double>& v) {
+        n = n_rows;
+        row_start.assign(n + 1, 0);
+        for (auto rr : r) ++row_start[static_cast<std::size_t>(rr) + 1];
+        for (std::size_t i = 0; i < n; ++i) row_start[i + 1] += row_start[i];
+        const std::size_t nnz = static_cast<std::size_t>(row_start[n]);
+        col.assign(nnz, 0);
+        val.assign(nnz, 0.0);
+        auto cursor = row_start;
+        for (std::size_t t = 0; t < r.size(); ++t) {
+            const std::size_t p = static_cast<std::size_t>(cursor[static_cast<std::size_t>(r[t])]++);
+            col[p] = c[t];
+            val[p] = v[t];
+        }
+    }
+    void multiply(const double* x, double* y) const {
+        for (std::size_t i = 0; i < n; ++i) {
+            double s = 0.0;
+            for (std::int64_t p = row_start[i]; p < row_start[i + 1]; ++p) s += val[static_cast<std::size_t>(p)] * x[static_cast<std::size_t>(col[static_cast<std::size_t>(p)])];
+            y[i] = s;
+        }
+    }
+};
+// Jacobi-preconditioned conjugate gradient. Returns iteration count or -1.
+inline int pcg(const CsrMatrix& A, const std::vector<double>& b, std::vector<double>& x, double tol, int max_iter) {
+    const std::size_t n = A.n;
+    std::vector<double> r(n), z(n), p(n), Ap(n), ddiag(n, 1.0);
+    for (std::size_t i = 0; i < n; ++i)
+        for (std::int64_t q = A.row_start[i]; q < A.row_start[i + 1]; ++q)
+            if (static_cast<std::size_t>(A.col[static_cast<std::size_t>(q)]) == i) ddiag[i] = 1.0 / A.val[static_cast<std::size_t>(q)];
+    x.assign(n, 0.0);
+    A.multiply(x.data(), r.data());
+    for (std::size_t i = 0; i < n; ++i) r[i] = b[i] - r[i];
+    const double bnorm = std::sqrt(std::inner_product(b.begin(), b.end(), b.begin(), 0.0)) + 1e-300;
+    for (std::size_t i = 0; i < n; ++i) { z[i] = ddiag[i] * r[i]; p[i] = z[i]; }
+    double rz = std::inner_product(z.begin(), z.end(), r.begin(), 0.0);
+    int it = 0;
+    for (; it < max_iter; ++it) {
+        A.multiply(p.data(), Ap.data());
+        const double pAp = std::inner_product(p.begin(), p.end(), Ap.begin(), 0.0);
+        if (pAp <= 0.0) break;
+        const double alpha = rz / pAp;
+        for (std::size_t i = 0; i < n; ++i) { x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+        const double rnorm = std::sqrt(std::inner_product(r.begin(), r.end(), r.begin(), 0.0));
+        if (rnorm / bnorm < tol) return static_cast<int>(it) + 1;
+        for (std::size_t i = 0; i < n; ++i) z[i] = ddiag[i] * r[i];
+        const double rz_new = std::inner_product(z.begin(), z.end(), r.begin(), 0.0);
+        const double beta = rz_new / rz;
+        rz = rz_new;
+        for (std::size_t i = 0; i < n; ++i) p[i] = z[i] + beta * p[i];
+    }
+    return -1;
+}
+// Thomas algorithm. a=sub, b=diag, c=super (all length n, a[0]/c[n-1] unused); modifies b,c,d.
+inline void thomas(const double* a, double* b, double* c, double* d, std::size_t n) {
+    for (std::size_t i = 1; i < n; ++i) {
+        const double w = a[i] / b[i - 1];
+        b[i] -= w * c[i - 1];
+        d[i] -= w * d[i - 1];
+    }
+    d[n - 1] /= b[n - 1];
+    for (std::size_t i = n - 1; i-- > 0;) d[i] = (d[i] - c[i] * d[i + 1]) / b[i];
+}
+// ---------------------------------------------------------------------------
+class TensorProductPoisson {
+public:
+    TensorProductPoisson(std::size_t ny, std::size_t nz, double Ly, const std::vector<double>& zfaces)
+        : ny_(ny), nz_(nz), dy_(Ly / double(ny)) {
+        if (zfaces.size() != nz + 1) throw std::invalid_argument("TensorProductPoisson: need nz+1 face coordinates");
+        dz_.resize(nz);
+        dzf_.resize(nz > 0 ? nz - 1 : 0);
+        for (std::size_t i = 0; i < nz; ++i) dz_[i] = zfaces[i + 1] - zfaces[i];
+        for (std::size_t i = 0; i + 1 < nz; ++i) dzf_[i] = zfaces[i + 1];
+        cos_.resize(ny * ny);
+        for (std::size_t k = 0; k < ny; ++k)
+            for (std::size_t j = 0; j < ny; ++j) cos_[k * ny + j] = std::cos(M_PI * double(k) * (double(j) + 0.5) / double(ny));
+    }
+    // Solve  div(grad phi) = rhs  with J.n = 0 (Neumann) on all walls.
+    // Layout: index(j, i) = j*nz + i (j: y cell, i: z cell). Solution has zero mean.
+    void solve(const double* rhs, double* phi) const {
+        std::vector<double> rh(ny_ * nz_), ph(ny_ * nz_);
+        // forward DCT-II along y
+        for (std::size_t i = 0; i < nz_; ++i)
+            for (std::size_t k = 0; k < ny_; ++k) {
+                double s = 0.0;
+                for (std::size_t j = 0; j < ny_; ++j) s += rhs[j * nz_ + i] * cos_[k * ny_ + j];
+                rh[k * nz_ + i] = s;
+            }
+        // tridiagonal solves along z for every y-mode
+        std::vector<double> a(nz_), b(nz_), c(nz_), d(nz_);
+        for (std::size_t k = 0; k < ny_; ++k) {
+            const double sk = std::sin(M_PI * double(k) / (2.0 * double(ny_)));
+            const double lambda = -4.0 * sk * sk / (dy_ * dy_);
+            assemble_z(lambda, a.data(), b.data(), c.data());
+            for (std::size_t i = 0; i < nz_; ++i) d[i] = rh[k * nz_ + i];
+            if (k == 0) {  // singular constant mode: drop the (dependent) last equation and pin phi = 0 there
+                a[nz_ - 1] = 0.0; b[nz_ - 1] = 1.0; c[nz_ - 1] = 0.0; d[nz_ - 1] = 0.0;
+            }
+            thomas(a.data(), b.data(), c.data(), d.data(), nz_);
+            for (std::size_t i = 0; i < nz_; ++i) ph[k * nz_ + i] = d[i];
+        }
+        // inverse DCT (orthonormal DCT-II/III pair)
+        for (std::size_t i = 0; i < nz_; ++i)
+            for (std::size_t j = 0; j < ny_; ++j) {
+                double s = ph[0 * nz_ + i];
+                for (std::size_t k = 1; k < ny_; ++k) s += 2.0 * ph[k * nz_ + i] * cos_[k * ny_ + j];
+                phi[j * nz_ + i] = s / double(ny_);
+            }
+    }
+private:
+    void assemble_z(double lambda, double* a, double* b, double* c) const {
+        for (std::size_t i = 0; i < nz_; ++i) { a[i] = 0.0; b[i] = 0.0; c[i] = 0.0; }
+        for (std::size_t i = 0; i < nz_; ++i) {
+            double down = 0.0, up = 0.0;
+            if (i > 0) { down = 1.0 / (dz_[i] * dzf_[i - 1]); a[i] = down; }
+            if (i + 1 < nz_) { up = 1.0 / (dz_[i] * dzf_[i]); c[i] = up; }
+            b[i] = -(down + up) + lambda;
+        }
+    }
+    std::size_t ny_, nz_;
+    double dy_;
+    std::vector<double> dz_, dzf_;  // cell sizes, centre-to-centre spacings
+    std::vector<double> cos_;       // cos(pi k (j+1/2)/ny)
+};
+}  // namespace mp::linalg
+
+Created src/cpp/stiff_integrators.hpp
+Created src/cpp/stiff_integrators.hpp
+
+// ============================================================================
+//  Cluster C : stiff source integrators
+//   Ros2            - 2-stage Rosenbrock-W (ROS2 of Verwer & Sportisse 1998)
+//                     with a Patankar-diagonalised W = I - gamma*dt*diag(J_stiff).
+//                     gamma = 1 + 1/sqrt2 -> L-stable; order 2 for the exact
+//                     Jacobian; the diagonal (W-)approximation keeps the
+//                     L-stability so Arrhenius sources never collapse the step.
+//   Bdf2Patankar    - BDF2 with Patankar negative-slope source linearisation,
+//                     used by the ALE ablation solver (DGCL consistent).
+//   Compile: g++ -std=c++20 -O2
+// ============================================================================
+#pragma once
+#include <cmath>
+#include <cstddef>
+#include <vector>
+namespace mp::stiff {
+struct Ros2 {
+    static constexpr double gamma = 1.0 + 0.7071067811865476;  // 1 + 1/sqrt(2)
+    static constexpr double a21 = 1.0 / (2.0 * gamma);
+    static constexpr double gamma31 = -1.0;
+    static constexpr double b1 = 0.5, b2 = 0.5;
+    // f(y, dydt) : right-hand side ; diag(y, d) : stiff diagonal of the Jacobian (d_i = df_i/dy_i)
+    template <class Rhs, class Diag>
+    static void step(double* y, std::size_t n, double dt, Rhs&& f, Diag&& diag, double* k1, double* k2, double* ys, double* tmp, double* d) {
+        diag(y, d);
+        f(y, tmp);
+        for (std::size_t i = 0; i < n; ++i) k1[i] = dt * tmp[i] / (1.0 - gamma * dt * d[i]);
+        for (std::size_t i = 0; i < n; ++i) ys[i] = y[i] + a21 * k1[i];
+        f(ys, tmp);
+        for (std::size_t i = 0; i < n; ++i) k2[i] = (dt * tmp[i] + gamma31 * dt * d[i] * k1[i]) / (1.0 - gamma * dt * d[i]);
+        for (std::size_t i = 0; i < n; ++i) y[i] += b1 * k1[i] + b2 * k2[i];
+    }
+};
+struct Bdf2Patankar {
+    // (3 y^{n+1} - 4 y^n + y^{n-1}) / (2 dt) = f(y^n) + d (y^{n+1} - y^n)
+    //   =>  y^{n+1} = [ (4 y^n - y^{n-1}) / (2 dt) + f^n - d y^n ] / [ 3/(2 dt) - d ]
+    template <class Rhs, class Diag>
+    static void step(const double* yn, const double* ynm1, double* ynp1, std::size_t n, double dt, Rhs&& f, Diag&& diag, double* fn, double* d) {
+        diag(yn, d);
+        f(yn, fn);
+        const double c0 = 3.0 / (2.0 * dt), c1 = 1.0 / (2.0 * dt);
+        for (std::size_t i = 0; i < n; ++i) ynp1[i] = ((4.0 * yn[i] - ynm1[i]) * c1 + fn[i] - d[i] * yn[i]) / (c0 - d[i]);
+    }
+    // first step: implicit Euler with the same Patankar linearisation
+    template <class Rhs, class Diag>
+    static void startup(const double* yn, double* ynp1, std::size_t n, double dt, Rhs&& f, Diag&& diag, double* fn, double* d) {
+        diag(yn, d);
+        f(yn, fn);
+        for (std::size_t i = 0; i < n; ++i) ynp1[i] = (yn[i] + dt * fn[i] - dt * d[i] * yn[i]) / (1.0 - dt * d[i]);
+    }
+};
+}  // namespace mp::stiff
+
+Created src/index.css
+Created src/index.css
+
+@import "tailwindcss";
+:root {
+  --bg: #191b1f;
+  --bg-2: #202329;
+  --bg-3: #272b32;
+  --bg-4: #2f343c;
+  --line: #343941;
+  --line-2: #444a55;
+  --text: #e8e6e1;
+  --muted: #a0a5ad;
+  --dim: #6b717c;
+  --amber: #f2a93b;
+  --amber-2: #ffcf70;
+  --copper: #d0793f;
+  --teal: #4fb3a9;
+  --red: #e2574c;
+  --green: #62b87a;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.panel { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; }
+.inset { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.dim { color: var(--dim); }
+.muted { color: var(--muted); }
+.etch {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.tab {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 7px; cursor: pointer;
+  color: var(--muted); font-weight: 500; border: 1px solid transparent;
+  transition: background-color 150ms ease, color 150ms ease;
+  user-select: none; white-space: nowrap;
+}
+.tab:hover { background: var(--bg-3); color: var(--text); }
+.tab[data-active="true"] { background: var(--bg-3); color: var(--text); border-color: var(--line-2); }
+.tab .idx { font-family: var(--font-mono); font-size: 11px; color: var(--dim); }
+.tab[data-active="true"] .idx { color: var(--amber); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 7px 14px; border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--line-2); background: var(--bg-3); color: var(--text);
+  transition: background-color 150ms ease, transform 80ms ease, border-color 150ms ease;
+}
+.btn:hover { background: var(--bg-4); border-color: var(--dim); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--amber); border-color: var(--amber); color: #1b1405; }
+.btn-primary:hover { background: var(--amber-2); border-color: var(--amber-2); }
+.btn-danger { background: var(--red); border-color: var(--red); color: #1d0907; }
+.btn-danger:hover { background: #ee6a60; border-color: #ee6a60; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; border: 1px solid var(--line-2); color: var(--muted);
+  background: var(--bg-3);
+}
+.chip-ok { color: var(--green); border-color: rgba(98, 184, 122, 0.5); }
+.chip-warn { color: var(--amber); border-color: rgba(242, 169, 59, 0.5); }
+.chip-bad { color: var(--red); border-color: rgba(226, 87, 76, 0.5); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field-head { display: flex; justify-content: space-between; align-items: baseline; }
+.field-head .val { font-family: var(--font-mono); font-size: 12px; color: var(--amber-2); }
+input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: pointer; margin: 0;
+}
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; background: var(--bg-4); border-radius: 2px; }
+input[type="range"]::-moz-range-track { height: 4px; background: var(--bg-4); border-radius: 2px; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--amber); margin-top: -5px; border: 2px solid #1b1405; transition: transform 100ms ease;
+}
+input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--amber); border: 2px solid #1b1405; }
+input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.12); }
+input[type="range"]:focus-visible { outline: none; }
+input[type="number"], input[type="text"], select {
+  background: var(--bg); border: 1px solid var(--line-2); color: var(--text); border-radius: 6px;
+  padding: 5px 8px; font-family: var(--font-mono); font-size: 13px; width: 100%; outline: none;
+}
+input[type="number"]:focus, input[type="text"]:focus, select:focus { border-color: var(--amber); }
+select { cursor: pointer; }
+.scroll { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+.readout { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.readout .k { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.readout .v { font-family: var(--font-mono); font-size: 16px; color: var(--text); font-variant-numeric: tabular-nums; }
+.readout .v small { font-size: 11px; color: var(--muted); margin-left: 3px; }
+.kv { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }
+.kv:last-child { border-bottom: none; }
+.kv .k { color: var(--muted); }
+.kv .v { font-family: var(--font-mono); color: var(--text); }
+.code-token-kw { color: #f2a93b; }
+.code-token-type { color: #7cc7e8; }
+.code-token-num { color: #e3a3a3; }
+.code-token-str { color: #a6d38c; }
+.code-token-com { color: #6b717c; font-style: italic; }
+.code-token-pre { color: #d0793f; }
+.code-token-fn { color: #ffcf70; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.status-dot.ok { background: var(--green); }
+.status-dot.warn { background: var(--amber); }
+.status-dot.bad { background: var(--red); }
+.status-dot.idle { background: var(--dim); }
+.pulse { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--bg-3); border: 1px solid var(--line-2); color: var(--text);
+  padding: 8px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: toast-in 200ms ease-out; z-index: 50;
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+Created src/vite-env.d.ts
+Created src/vite-env.d.ts
+
+/// <reference types="vite/client" />
+
+Created index.html
+Created index.html
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cluster C · Multiphysics Solver Suite — Telemetry Workbench</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+Foundation layer is in. Now the first two physics modules in C++20 — the battery ECM + 4-stage abuse kinetics pack model with a block-diagonal Rosenbrock-W integrator (the stiff (T_core, c_k) block stays on the diagonal so runaway never collapses the step), and the Farassat 1A / Formulation 1 cross-verifiable aeroacoustics solver with the FFT/1/3-octave analyzer — plus their verification mains. I'm also revising the ROS2 signature to carry time for the non-autonomous heater term.
+Created src/cpp/stiff_integrators.hpp
+Created src/cpp/stiff_integrators.hpp
+
+// ============================================================================
+//  Cluster C : stiff source integrators
+//   Ros2            - 2-stage Rosenbrock-W (ROS2 of Verwer & Sportisse 1998)
+//                     with a Patankar-diagonalised W = I - gamma*dt*J_stiff,
+//                     where J_stiff is the cell-local (block-)diagonal of the
+//                     Jacobian.  gamma = 1 + 1/sqrt2 -> L-stable; order 2 for
+//                     the exact Jacobian; inter-cell couplings are treated
+//                     explicitly (W-method), so Arrhenius runaway sources never
+//                     collapse the step.
+//   Bdf2Patankar    - BDF2 with Patankar negative-slope source linearisation,
+//                     used by the ALE ablation solver (BDF2 DGCL consistent).
+//   Compile: g++ -std=c++20 -O2
+// ============================================================================
+#pragma once
+#include <cmath>
+#include <cstddef>
+#include <vector>
+namespace mp::stiff {
+struct Ros2 {
+    static constexpr double gamma = 1.0 + 0.7071067811865476;  // 1 + 1/sqrt(2)
+    static constexpr double a21 = 1.0 / (2.0 * gamma);
+    static constexpr double gamma31 = -1.0;
+    static constexpr double b1 = 0.5, b2 = 0.5;
+    // f(t, y, dydt) : right-hand side ; diag(y, d) : stiff diagonal of the Jacobian (d_i = df_i/dy_i)
+    template <class Rhs, class Diag>
+    static void step(double* y, std::size_t n, double t, double dt, Rhs&& f, Diag&& diag, double* k1, double* k2, double* ys, double* tmp, double* d) {
+        diag(y, d);
+        f(t, y, tmp);
+        for (std::size_t i = 0; i < n; ++i) k1[i] = dt * tmp[i] / (1.0 - gamma * dt * d[i]);
+        for (std::size_t i = 0; i < n; ++i) ys[i] = y[i] + a21 * k1[i];
+        f(t + a21 * dt, ys, tmp);
+        for (std::size_t i = 0; i < n; ++i) k2[i] = (dt * tmp[i] + gamma31 * dt * d[i] * k1[i]) / (1.0 - gamma * dt * d[i]);
+        for (std::size_t i = 0; i < n; ++i) y[i] += b1 * k1[i] + b2 * k2[i];
+    }
+};
+struct Bdf2Patankar {
+    // (3 y^{n+1} - 4 y^n + y^{n-1}) / (2 dt) = f(t^n, y^n) + d (y^{n+1} - y^n)
+    //   =>  y^{n+1} = [ (4 y^n - y^{n-1}) / (2 dt) + f^n - d y^n ] / [ 3/(2 dt) - d ]
+    template <class Rhs, class Diag>
+    static void step(double t, const double* yn, const double* ynm1, double* ynp1, std::size_t n, double dt, Rhs&& f, Diag&& diag, double* fn, double* d) {
+        diag(yn, d);
+        f(t, yn, fn);
+        const double c0 = 3.0 / (2.0 * dt), c1 = 1.0 / (2.0 * dt);
+        for (std::size_t i = 0; i < n; ++i) ynp1[i] = ((4.0 * yn[i] - ynm1[i]) * c1 + fn[i] - d[i] * yn[i]) / (c0 - d[i]);
+    }
+    // first step: implicit Euler with the same Patankar linearisation
+    template <class Rhs, class Diag>
+    static void startup(double t, const double* yn, double* ynp1, std::size_t n, double dt, Rhs&& f, Diag&& diag, double* fn, double* d) {
+        diag(yn, d);
+        f(t, yn, fn);
+        for (std::size_t i = 0; i < n; ++i) ynp1[i] = (yn[i] + dt * fn[i] - dt * d[i] * yn[i]) / (1.0 - dt * d[i]);
+    }
+};
+// Small dense LU with partial pivoting (block-diagonal W for pack cells).
+template <int N>
+struct DenseLu {
+    double a[N][N];
+    int piv[N];
+    void factor(const double J[N][N], double id_scale) {  // builds W = I - id_scale*J and factors it
+        for (int i = 0; i < N; ++i)
+            for (int j = 0; j < N; ++j) a[i][j] = (i == j ? 1.0 : 0.0) - id_scale * J[i][j];
+        for (int k = 0; k < N; ++k) {
+            int p = k;
+            for (int i = k + 1; i < N; ++i)
+                if (std::fabs(a[i][k]) > std::fabs(a[p][k])) p = i;
+            piv[k] = p;
+            if (p != k)
+                for (int j = 0; j < N; ++j) std::swap(a[k][j], a[p][j]);
+            if (std::fabs(a[k][k]) < 1e-300) a[k][k] = 1e-300;
+            for (int i = k + 1; i < N; ++i) {
+                const double w = a[i][k] / a[k][k];
+                a[i][k] = w;
+                for (int j = k + 1; j < N; ++j) a[i][j] -= w * a[k][j];
+            }
+        }
+    }
+    void solve(double* b) const {
+        for (int k = 0; k < N; ++k) {
+            const int p = piv[k];
+            if (p != k) std::swap(b[k], b[p]);
+            for (int i = k + 1; i < N; ++i) b[i] -= a[i][k] * b[k];
+        }
+        for (int i = N - 1; i >= 0; --i) {
+            for (int j = i + 1; j < N; ++j) b[i] -= a[i][j] * b[j];
+            b[i] /= a[i][i];
+        }
+    }
+};
+}  // namespace mp::stiff
+
+Created src/cpp/battery_runaway.hpp
+Created src/cpp/battery_runaway.hpp
+
+// ============================================================================
+//  Cluster C : Electrochemical-thermal 2-RC ECM + 4-stage Arrhenius thermal
+//              runaway on a liquid-cooled pack (lumped cell zones + conduction
+//              network), integrated with a block-diagonal Rosenbrock-W.
+//
+//  ECM (per cell, I > 0 discharge):
+//     dSOC/dt = -I / (3600 Q_nom)
+//     dV_k/dt = -V_k / (R_k(T,SOC) C_k) + I / C_k,          k = 1,2
+//     V_term  = U_ocv(SOC) - I R0(T,SOC) - V1 - V2
+//     q_rev   = I T dU_ocv/dT,   q_irr = I (V_term - U_ocv)
+//  Abuse kinetics (Hatchard 2001 / Spotnitz 2007), per m^3 of jelly roll:
+//     d(rho_k)/dt = -Gamma_k (rho_k - rho_c,k)^{n_k} A_k exp(-E_k / R T)
+//     Q_abuse    =  sum_k H_k * rate_k
+//  Compile: g++ -std=c++20 -O2 -I src/cpp test_battery.cpp
+// ============================================================================
+#pragma once
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <stdexcept>
+#include <vector>
+#include "stiff_integrators.hpp"
+namespace mp::battery {
+constexpr double R_GAS = 8.31446261815324;
+inline double arrhenius_resistance(double R_ref, double Ea, double T, double T_ref) {
+    return R_ref * std::exp(Ea / R_GAS * (1.0 / T - 1.0 / T_ref));
+}
+struct EcmParams {
+    double Q_nom_Ah = 5.0;
+    double T_ref = 298.15;
+    double R0 = 0.018, R1 = 0.010, R2 = 0.007;   // ohm at T_ref, SOC = 0.5
+    double C1 = 2200.0, C2 = 9000.0;             // F
+    double Ea_R0 = 25.0e3, Ea_R1 = 25.0e3, Ea_R2 = 25.0e3;
+    std::array<double, 4> ocv{3.30, 0.60, 0.30, -0.10};  // U_ocv(s) = c0 + c1 s + c2 s^2 + c3 s^3
+    double dUdT = -1.5e-4;                       // V/K
+    double u_ocv(double soc) const { return ocv[0] + soc * (ocv[1] + soc * (ocv[2] + soc * ocv[3])); }
+    double r0(double T, double soc) const { return arrhenius_resistance(R0 * (1.0 + 0.3 * (0.5 - soc)), Ea_R0, T, T_ref); }
+    double r1(double T, double soc) const { return arrhenius_resistance(R1 * (1.0 + 0.5 * (0.5 - soc)), Ea_R1, T, T_ref); }
+    double r2(double T, double soc) const { return arrhenius_resistance(R2 * (1.0 + 0.5 * (0.5 - soc)), Ea_R2, T, T_ref); }
+};
+// One abuse stage.  rho_v : initial reactive content [kg/m^3]; n : reaction order;
+// m : exponent of the progress function Gamma_k = ((rho_v - rho)/rho_v)^m  (m = 1 & autocatalytic for the cathode)
+struct AbuseStage {
+    double A{0}, Ea{0}, n{1}, m{0}, rho_v{0}, H{0};
+};
+struct AbuseKinetics {
+    std::array<AbuseStage, 4> st{};
+    double gamma(int k, double rem) const {
+        const auto& s = st[static_cast<std::size_t>(k)];
+        if (s.m == 0.0 || s.rho_v <= 0.0) return 1.0;
+        return std::pow(std::clamp((s.rho_v - rem) / s.rho_v, 0.0, 1.0), s.m);
+    }
+    double arrhenius(int k, double T) const { return st[static_cast<std::size_t>(k)].A * std::exp(-st[static_cast<std::size_t>(k)].Ea / (R_GAS * T)); }
+    double rate(int k, double T, double rem) const {  // kg m^-3 s^-1, >= 0
+        if (rem <= 0.0) return 0.0;
+        return gamma(k, rem) * std::pow(rem, st[static_cast<std::size_t>(k)].n) * arrhenius(k, T);
+    }
+    double drate_dT(int k, double T, double rem) const { return rate(k, T, rem) * st[static_cast<std::size_t>(k)].Ea / (R_GAS * T * T); }
+    double drate_drem(int k, double T, double rem) const {
+        if (rem <= 0.0) return 0.0;
+        const auto& s = st[static_cast<std::size_t>(k)];
+        const double g = gamma(k, rem), a = arrhenius(k, T);
+        double dgam = 0.0;
+        if (s.m != 0.0 && s.rho_v > 0.0) {
+            const double x = std::clamp((s.rho_v - rem) / s.rho_v, 1e-300, 1.0);
+            dgam = -s.m * std::pow(x, s.m - 1.0) / s.rho_v;
+        }
+        const double dg_drem = (s.n == 1.0) ? a : s.n * std::pow(rem, s.n - 1.0) * a;
+        return dg_drem * g + a * std::pow(rem, s.n) * dgam;
+    }
+    double heat(double T, const double* rem) const {  // W/m^3
+        double q = 0.0;
+        for (int k = 0; k < 4; ++k) q += st[static_cast<std::size_t>(k)].H * rate(k, T, rem[k]);
+        return q;
+    }
+    static AbuseKinetics hatchard() {
+        AbuseKinetics k;
+        k.st = {{
+            {1.667e15, 1.3508e5, 1.0, 0.0, 610.4 * 0.15, 2.57e5},   // SEI decomposition (W_c = 610.4, c_sei0 = 0.15)
+            {2.5e13, 1.3508e5, 1.0, 0.0, 610.4 * 0.75, 1.714e6},     // negative electrode - electrolyte (c_ne0 = 0.75)
+            {6.667e13, 1.396ee5, 1.0, 1.0, 1221.0, 3.14e5},          // positive electrode decomposition, alpha(1-alpha), alpha0 = 0.04
+            {5.14e25, 2.74e5, 1.0, 0.0, 406.9, 1.55e5},              // electrolyte decomposition
+        }};
+        return k;
+    }
+};
+struct PackParams {
+    int nx = 4, ny = 2;
+    double V_cell = 2.354e-5;                    // m^3 (21700 cylindrical)
+    double rho_cp = 1700.0 * 830.0;              // J/m^3/K
+    double core_fraction = 0.9;
+    double R_cs = 1.2, R_cc = 3.0, R_cool = 2.5; // K/W : core-surface, cell-cell, surface-coolant
+    double T_cool = 298.15;
+    double I_load = 0.0;                         // A, pack current (discharge > 0)
+    double T_cutoff = 423.15;                    // BMS opens the contactor above this cell temperature
+    int heater_cell = 0;
+    double P_heater = 100.0, t_heater = 60.0;    // internal-short surrogate: W into the core, duration s
+};
+class PackModel {
+public:
+    static constexpr int NS = 9;   // per cell: Tc Ts soc v1 v2 rem[4]
+    static constexpr int NB = 5;   // stiff block: Tc + rem[4]
+    EcmParams ecm;
+    AbuseKinetics kin = AbuseKinetics::hatchard();
+    PackParams pk;
+    int ncells() const { return pk.nx * pk.ny; }
+    static constexpr int state_offset(int c) { return c * NS; }
+    void initial_state(std::vector<double>& y, double T0, double soc0) const {
+        y.assign(static_cast<std::size_t>(ncells() * NS), 0.0);
+        for (int c = 0; c < ncells(); ++c) {
+            double* yc = &y[static_cast<std::size_t>(state_offset(c))];
+            yc[0] = yc[1] = T0;
+            yc[2] = soc0;
+            for (int k = 0; k < 4; ++k) yc[5 + k] = (k == 2) ? kin.st[2].rho_v * (1.0 - 0.04) : kin.st[static_cast<std::size_t>(k)].rho_v;
+        }
+    }
+    int neighbors(int c, int* out) const {
+        const int i = c / pk.ny, j = c % pk.ny;
+        int n = 0;
+        if (i > 0) out[n++] = c - pk.ny;
+        if (i + 1 < pk.nx) out[n++] = c + pk.ny;
+        if (j > 0) out[n++] = c - 1;
+        if (j + 1 < pk.ny) out[n++] = c + 1;
+        return n;
+    }
+    bool contactor_closed(const double* y) const {
+        for (int c = 0; c < ncells(); ++c)
+            if (y[state_offset(c)] > pk.T_cutoff) return false;
+        return true;
+    }
+    void rhs(double t, const double* y, double* dy) const {
+        const double I = contactor_closed(y) ? pk.I_load : 0.0;
+        const double Cc = pk.rho_cp * pk.V_cell * pk.core_fraction, Cs = pk.rho_cp * pk.V_cell * (1.0 - pk.core_fraction);
+        for (int c = 0; c < ncells(); ++c) {
+            const double* yc = y + state_offset(c);
+            double* d = dy + state_offset(c);
+            const double Tc = yc[0], Ts = yc[1], soc = yc[2], v1 = yc[3], v2 = yc[4];
+            const double* rem = yc + 5;
+            // ECM
+            const double R0 = ecm.r0(Tc, soc), R1 = ecm.r1(Tc, soc), R2 = ecm.r2(Tc, soc);
+            d[2] = (soc <= 0.0 && I > 0.0) || (soc >= 1.0 && I < 0.0) ? 0.0 : -I / (3600.0 * ecm.Q_nom_Ah);
+            d[3] = -v1 / (R1 * ecm.C1) + I / ecm.C1;
+            d[4] = -v2 / (R2 * ecm.C2) + I / ecm.C2;
+            const double U = ecm.u_ocv(soc), Vt = U - I * R0 - v1 - v2;
+            const double q_ecm = I * (Vt - U) + I * Tc * ecm.dUdT;  // q_irr + q_rev [W]
+            // abuse heat into the core
+            const double q_ab = kin.heat(Tc, rem) * pk.V_cell * pk.core_fraction;
+            const double P = (c == pk.heater_cell && t < pk.t_heater) ? pk.P_heater : 0.0;
+            // thermal network
+            const double q_cs = (Tc - Ts) / pk.R_cs;
+            double q_cc = 0.0;
+            int nb[4];
+            const int nn = neighbors(c, nb);
+            for (int q = 0; q < nn; ++q) q_cc += (Ts - y[state_offset(nb[q]) + 1]) / pk.R_cc;
+            const double q_cool = (Ts - pk.T_cool) / pk.R_cool;
+            d[0] = (q_ecm + q_ab + P - q_cs) / Cc;
+            d[1] = (q_cs - q_cc - q_cool) / Cs;
+            for (int k = 0; k < 4; ++k) d[5 + k] = -kin.rate(k, Tc, rem[k]);
+        }
+    }
+    // Stiff cell-local block: rows/cols {Tc, rem0..rem3}
+    void block_jacobian(const double* y, int c, double J[NB][NB]) const {
+        const double* yc = y + state_offset(c);
+        const double Tc = yc[0];
+        const double Cc = pk.rho_cp * pk.V_cell * pk.core_fraction;
+        const double scale = pk.V_cell * pk.core_fraction / Cc;
+        for (int i = 0; i < NB; ++i)
+            for (int j = 0; j < NB; ++j) J[i][j] = 0.0;
+        for (int k = 0; k < 4; ++k) {
+            J[0][0] += kin.st[static_cast<std::size_t>(k)].H * kin.drate_dT(k, Tc, yc[5 + k]) * scale;
+            J[0][1 + k] = kin.st[static_cast<std::size_t>(k)].H * kin.drate_drem(k, Tc, yc[5 + k]) * scale;
+            J[1 + k][0] = -kin.drate_dT(k, Tc, yc[5 + k]);
+            J[1 + k][1 + k] = -kin.drate_drem(k, Tc, yc[5 + k]);
+        }
+    }
+    double block_spectral_bound(const double* y) const {  // max_i sum_j |J_ij| over cells (explicit-Euler stability proxy)
+        double worst = 0.0;
+        for (int c = 0; c < ncells(); ++c) {
+            double J[NB][NB];
+            block_jacobian(y, c, J);
+            for (int i = 0; i < NB; ++i) {
+                double s = 0.0;
+                for (int j = 0; j < NB; ++j) s += std::fabs(J[i][j]);
+                worst = std::max(worst, s);
+            }
+        }
+        return worst;
+    }
+    // One ROS2 Rosenbrock-W step with block-diagonal W (cell-local stiff block).
+    void step(std::vector<double>& y, double& t, double dt) const {
+        const int n = ncells();
+        const std::size_t N = static_cast<std::size_t>(n * NS);
+        std::vector<double> f(N), fs(N), k1(N), k2(N), ys(N);
+        std::vector<stiff::DenseLu<NB>> W(static_cast<std::size_t>(n));
+        rhs(t, y.data(), f.data());
+        for (int c = 0; c < n; ++c) {
+            double J[NB][NB];
+            block_jacobian(y.data(), c, J);
+            W[static_cast<std::size_t>(c)].factor(J, stiff::Ros2::gamma * dt);
+            double b[NB];
+            for (int i = 0; i < NB; ++i) b[i] = dt * f[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))];
+            W[static_cast<std::size_t>(c)].solve(b);
+            for (int i = 0; i < NB; ++i) k1[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))] = b[i];
+            for (int comp : {1, 2, 3, 4}) k1[static_cast<std::size_t>(state_offset(c) + comp)] = dt * f[static_cast<std::size_t>(state_offset(c) + comp)];
+        }
+        for (std::size_t i = 0; i < N; ++i) ys[i] = y[i] + stiff::Ros2::a21 * k1[i];
+        clip(ys);
+        rhs(t + stiff::Ros2::a21 * dt, ys.data(), fs.data());
+        for (int c = 0; c < n; ++c) {
+            double J[NB][NB];
+            block_jacobian(y.data(), c, J);
+            double b[NB];
+            for (int i = 0; i < NB; ++i) {
+                double Jk = 0.0;
+                for (int j = 0; j < NB; ++j) Jk += J[i][j] * k1[static_cast<std::size_t>(state_offset(c) + (j == 0 ? 0 : 4 + j))];
+                const double fi = fs[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))];
+                b[i] = dt * fi + stiff::Ros2::gamma31 * dt * Jk;
+            }
+            W[static_cast<std::size_t>(c)].solve(b);
+            for (int i = 0; i < NB; ++i) k2[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))] = b[i];
+            for (int comp : {1, 2, 3, 4}) k2[static_cast<std::size_t>(state_offset(c) + comp)] = dt * fs[static_cast<std::size_t>(state_offset(c) + comp)];
+        }
+        for (std::size_t i = 0; i < N; ++i) y[i] += stiff::Ros2::b1 * k1[i] + stiff::Ros2::b2 * k2[i];
+        clip(y);
+        t += dt;
+    }
+    // ---- diagnostics --------------------------------------------------------
+    double vterm(const std::vector<double>& y, int c) const {
+        const double* yc = &y[static_cast<std::size_t>(state_offset(c))];
+        const double I = contactor_closed(y.data()) ? pk.I_load : 0.0;
+        const double cne = yc[6] / kin.st[1].rho_v;                 // fraction of reactive anode left
+        const double alive = std::clamp((cne - 0.05) / 0.70, 0.0, 1.0);  // voltage collapse with anode consumption
+        return ecm.u_ocv(yc[2]) * alive - I * ecm.r0(yc[0], yc[2]) - yc[3] - yc[4];
+    }
+    double cell_heat_ecm(const std::vector<double>& y, int c) const {
+        const double* yc = &y[static_cast<std::size_t>(state_offset(c))];
+        const double I = contactor_closed(y.data()) ? pk.I_load : 0.0;
+        const double U = ecm.u_ocv(yc[2]);
+        return I * (I * ecm.r0(yc[0], yc[2]) + yc[3] + yc[4]) + I * yc[0] * ecm.dUdT;
+    }
+    double cell_heat_abuse(const std::vector<double>& y, int c) const {
+        const double* yc = &y[static_cast<std::size_t>(state_offset(c))];
+        return kin.heat(yc[0], yc + 5) * pk.V_cell * pk.core_fraction;
+    }
+private:
+    static void clip(std::vector<double>& y) {
+        for (std::size_t i = 0; i < y.size(); i += NS) {
+            if (y[i] < 200.0) y[i] = 200.0;
+            y[i + 2] = std::clamp(y[i + 2], 0.0, 1.0);
+            for (int k = 0; k < 4; ++k) y[i + 5 + static_cast<std::size_t>(k)] = std::max(y[i + 5 + static_cast<std::size_t>(k)], 0.0);
+        }
+    }
+};
+}  // namespace mp::battery
+
+Created src/cpp/fwh_farassat1a.hpp
+Created src/cpp/fwh_farassat1a.hpp
+
+// ============================================================================
+//  Cluster C : Ffowcs Williams-Hawkings / Curle aeroacoustics
+//   Farassat Formulation 1A (time domain, source-time dominant retarded time)
+//   over compact FWH patches (solid or permeable), plus Formulation 1 with
+//   numerical observer derivatives for verification, a Newton retarded-time
+//   solver, and a radix-2 Hann-windowed FFT spectral analyzer (PSD, 1/3 octave,
+//   OASPL).
+//
+//   Notation at the retarded time tau:  r = |x - y|, rhat = (x-y)/r,
+//   M_r = v.rhat/c, M = |v|/c, e = 1 - M_r, L_r = L'.rhat, L_M = L'.M
+//   kappa = M_r (1 - M_r) + r Mdot_r / c = (M_r - M^2) + r (a.rhat)/c^2
+//   4 pi p'_T = [ rho0 Udot_n/(r e^2) + rho0 c U_n kappa/(r^2 e^3) ] dS
+//   4 pi p'_L = [ Ldot_r/(c r e^2) + (L_r - L_M)/(r^2 e^2) + L_r kappa/(r^2 e^3) ] dS
+//   Compile: g++ -std=c++20 -O2 -I src/cpp test_fwh.cpp
+// ============================================================================
+#pragma once
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <vector>
+#include "poly_fvm.hpp"
+namespace mp::fwh {
+using fvm::Vec3;
+using fvm::dot;
+using fvm::cross;
+using fvm::norm;
+constexpr double PI = 3.14159265358979323846;
+struct Medium {
+    double c{340.0}, rho0{1.2};
+};
+struct SourceState {         // everything evaluated at the retarded (source) time tau
+    Vec3 y, v, a, n;         // position, velocity, acceleration, outward unit normal
+    double Un{0}, Undot{0};  // v.n and d/dtau (v.n)   -> thickness source
+    Vec3 L, Ldot;            // loading force per unit area L' = (p - p0) n (+ permeable mass-flux term), dL'/dtau
+    double area{0};          // panel area dS (compact-panel quadrature)
+};
+class Panel {
+public:
+    virtual ~Panel() = default;
+    virtual void evaluate(double tau, SourceState& s) const = 0;
+};
+// Retarded time: g(tau) = tau + |x - y(tau)|/c - t = 0, g' = 1 - M_r (> 0 subsonic)
+inline double retarded_time(const Panel& p, const Vec3& x, double t, double c, double tau0, int& iters, double tol = 1e-12) {
+    double tau = tau0;
+    iters = 0;
+    for (int it = 0; it < 60; ++it) {
+        SourceState s;
+        p.evaluate(tau, s);
+        const Vec3 r = x - s.y;
+        const double rn = norm(r);
+        const double g = tau + rn / c - t;
+        const double gp = 1.0 - dot(s.v, r / rn) / c;
+        const double dtau = -g / gp;
+        tau += dtau;
+        ++iters;
+        if (std::fabs(dtau) < tol * (1.0 + std::fabs(tau))) break;
+    }
+    return tau;
+}
+struct AcousticPressure {
+    double pT{0}, pL{0};
+    double p() const { return pT + pL; }
+};
+inline AcousticPressure farassat1a_panel(const SourceState& s, const Vec3& x, const Medium& m) {
+    const Vec3 r = x - s.y;
+    const double rn = norm(r);
+    const Vec3 rh = r / rn;
+    const double Mr = dot(s.v, rh) / m.c, M2 = dot(s.v, s.v) / (m.c * m.c);
+    const double e = 1.0 - Mr;
+    const double kappa = (Mr - M2) + rn * dot(s.a, rh) / (m.c * m.c);
+    const double inv4pi = s.area / (4.0 * PI);
+    AcousticPressure p;
+    p.pT = m.rho0 * (s.Undot / (rn * e * e) + m.c * s.Un * kappa / (rn * rn * e * e * e)) * inv4pi;
+    const double Lr = dot(s.L, rh), Lrdot = dot(s.Ldot, rh), LM = dot(s.L, s.v) / m.c;
+    p.pL = (Lrdot / (m.c * rn * e * e) + (Lr - LM) / (rn * rn * e * e) + Lr * kappa / (rn * rn * e * e * e)) * inv4pi;
+    return p;
+}
+// Sum over panels. tau_hint = previous retarded time (warm start) or any guess.
+inline AcousticPressure farassat1a(const std::vector<const Panel*>& panels, const Vec3& x, double t, const Medium& m, double tau_hint) {
+    AcousticPressure acc;
+    for (const Panel* p : panels) {
+        int it = 0;
+        const double tau = retarded_time(*p, x, t, m.c, tau_hint, it);
+        SourceState s;
+        p->evaluate(tau, s);
+        const AcousticPressure q = farassat1a_panel(s, x, m);
+        acc.pT += q.pT;
+        acc.pL += q.pL;
+    }
+    return acc;
+}
+// ---- Formulation 1 (observer derivatives) : 4 pi p'_T = d/dt Int[rho0 U_n/(r e)] dS,
+//      4 pi p'_L = -d/dx_i Int[L_i/(r e)] dS  (central differences, for verification)
+inline void f1_integrals(const std::vector<const Panel*>& panels, const Vec3& x, double t, const Medium& m, double& psi, Vec3& chi) {
+    psi = 0.0;
+    chi = Vec3{};
+    for (const Panel* p : panels) {
+        int it = 0;
+        const double tau = retarded_time(*p, x, t, m.c, t, it);
+        SourceState s;
+        p->evaluate(tau, s);
+        const Vec3 r = x - s.y;
+        const double rn = norm(r);
+        const double e = 1.0 - dot(s.v, r / rn) / m.c;
+        psi += m.rho0 * s.Un / (rn * e) * s.area;
+        chi += s.L * (s.area / (rn * e));
+    }
+}
+inline AcousticPressure formulation1(const std::vector<const Panel*>& panels, const Vec3& x, double t, const Medium& m, double ht, double hx) {
+    AcousticPressure p;
+    double pm, pp;
+    Vec3 cm, cp;
+    f1_integrals(panels, x, t - ht, m, pm, cm);
+    f1_integrals(panels, x, t + ht, m, pp, cp);
+    p.pT = (pp - pm) / (2.0 * ht) / (4.0 * PI);
+    double div = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        Vec3 xp = x, xm = x;
+        (i == 0 ? xp.x : i == 1 ? xp.y : xp.z) += hx;
+        (i == 0 ? xm.x : i == 1 ? xm.y : xm.z) -= hx;
+        double a, b;
+        Vec3 ca, cb;
+        f1_integrals(panels, xp, t, m, a, ca);
+        f1_integrals(panels, xm, t, m, b, cb);
+        div += ((i == 0 ? cp.x : i == 1 ? cp.y : cp.z) * 0.0);  // placeholder (chi at x is not needed)
+        div += ((i == 0 ? ca.x : i == 1 ? ca.y : ca.z) - (i == 0 ? cb.x : i == 1 ? cb.y : cb.z)) / (2.0 * hx);
+    }
+    (void)cm;
+    (void)div;
+    // recompute the divergence cleanly
+    double d = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        Vec3 xp = x, xm = x;
+        (i == 0 ? xp.x : i == 1 ? xp.y : xp.z) += hx;
+        (i == 0 ? xm.x : i == 1 ? xm.y : xm.z) -= hx;
+        double a, b;
+        Vec3 ca, cb;
+        f1_integrals(panels, xp, t, m, a, ca);
+        f1_integrals(panels, xm, t, m, b, cb);
+        d += ((i == 0 ? ca.x : i == 1 ? ca.y : ca.z) - (i == 0 ? cb.x : i == 1 ? cb.y : cb.z)) / (2.0 * hx);
+    }
+    p.pL = -d / (4.0 * PI);
+    return p;
+}
+// ---- Rotor source models (compact panels on a rigid blade in the x-y plane, thrust along z)
+class RotorLoadingPanel : public Panel {
+public:
+    double R{1.0}, s{0.0}, Omega{100.0}, theta0{0.0}, dp0{500.0}, a1{0.3}, phi1{0.0}, area{0.05};
+    void evaluate(double tau, SourceState& st) const override {
+        const double th = theta0 + Omega * tau;
+        const Vec3 rh(std::cos(th), std::sin(th), 0.0), thh(-std::sin(th), std::cos(th), 0.0), zh(0.0, 0.0, 1.0);
+        st.y = rh * R + thh * s;
+        st.v = cross(zh, st.y) * Omega;
+        st.a = st.y * (-Omega * Omega);
+        st.n = zh;
+        st.Un = 0.0;
+        st.Undot = 0.0;
+        const double dp = dp0 * (1.0 + a1 * std::cos(th - phi1)), dpdot = -dp0 * a1 * Omega * std::sin(th - phi1);
+        st.L = zh * dp;
+        st.Ldot = zh * dpdot;
+        st.area = area;
+    }
+};
+class RotorEdgePanel : public Panel {  // leading (+1) / trailing (-1) edge thickness source, n = sign * that
+public:
+    double R{1.0}, s{0.0}, Omega{100.0}, theta0{0.0}, area{0.02};
+    int sign{1};
+    void evaluate(double tau, SourceState& st) const override {
+        const double th = theta0 + Omega * tau;
+        const Vec3 rh(std::cos(th), std::sin(th), 0.0), thh(-std::sin(th), std::cos(th), 0.0), zh(0.0, 0.0, 1.0);
+        st.y = rh * R + thh * s;
+        st.v = cross(zh, st.y) * Omega;
+        st.a = st.y * (-Omega * Omega);
+        st.n = thh * double(sign);
+        st.Un = dot(st.v, st.n);
+        st.Undot = dot(st.a, st.n) + dot(st.v, cross(zh, st.n) * Omega);
+        st.L = Vec3{};
+        st.Ldot = Vec3{};
+        st.area = area;
+    }
+};
+// ---- FFT / spectral analysis ------------------------------------------------
+class Fft {
+public:
+    explicit Fft(std::size_t n) : n_(n), rev_(n), tw_(n / 2) {
+        std::size_t bits = 0;
+        while ((std::size_t{1} << bits) < n_) ++bits;
+        for (std::size_t i = 0; i < n_; ++i) rev_[i] = (rev_[i >> 1] >> 1) | ((i & 1) << (bits - 1));
+        for (std::size_t k = 0; k < n_ / 2; ++k) tw_[k] = std::polar(1.0, -2.0 * PI * double(k) / double(n_));
+    }
+    void forward(std::vector<double>& re, std::vector<double>& im) const {
+        for (std::size_t i = 0; i < n_; ++i) {
+            const std::size_t j = rev_[i];
+            if (j > i) { std::swap(re[i], re[j]); std::swap(im[i], im[j]); }
+        }
+        for (std::size_t len = 2; len <= n_; len <<= 1) {
+            const std::size_t step = n_ / len;
+            for (std::size_t i = 0; i < n_; i += len) {
+                for (std::size_t k = 0; k < len / 2; ++k) {
+                    const auto w = tw_[k * step];
+                    const double wr = w.real(), wi = w.imag();
+                    const std::size_t a = i + k, b = i + k + len / 2;
+                    const double xr = re[b] * wr - im[b] * wi, xi = re[b] * wi + im[b] * wr;
+                    re[b] = re[a] - xr;
+                    im[b] = im[a] - xi;
+                    re[a] += xr;
+                    im[a] += xi;
+                }
+            }
+        }
+    }
+private:
+    std::size_t n_;
+    std::vector<std::size_t> rev_;
+    std::vector<std::complex<double>> tw_;
+};
+struct Spectrum {
+    std::vector<double> f, psd, spl;          // narrowband
+    std::vector<double> band_f, band_level;   // 1/3 octave
+    double oaspl{0}, prms{0}, fs{0};
+};
+inline Spectrum analyze(const std::vector<double>& p, double fs, double p_ref = 20e-6) {
+    const std::size_t n = p.size();
+    Spectrum sp;
+    sp.fs = fs;
+    double mean = 0.0;
+    for (double v : p) mean += v;
+    mean /= double(n);
+    double ms = 0.0;
+    for (double v : p) ms += (v - mean) * (v - mean);
+    ms /= double(n);
+    sp.prms = std::sqrt(ms);
+    sp.oaspl = 20.0 * std::log10(sp.prms / p_ref + 1e-300);
+    std::vector<double> re(n), im(n, 0.0), w(n);
+    double w2 = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        w[i] = 0.5 * (1.0 - std::cos(2.0 * PI * double(i) / double(n)));
+        w2 += w[i] * w[i];
+        re[i] = (p[i] - mean) * w[i];
+    }
+    Fft(n).forward(re, im);
+    const double df = fs / double(n);
+    for (std::size_t k = 0; k <= n / 2; ++k) {
+        const double two = (k == 0 || k == n / 2) ? 1.0 : 2.0;
+        sp.f.push_back(double(k) * df);
+        sp.psd.push_back(two * (re[k] * re[k] + im[k] * im[k]) / (fs * w2));
+        sp.spl.push_back(10.0 * std::log10(sp.psd.back() / (p_ref * p_ref) + 1e-300));
+    }
+    // 1/3 octave (base-10, ISO 266)
+    for (int ib = -16; ib <= 40; ++ib) {
+        const double fc = std::pow(10.0, double(ib) / 10.0);
+        const double lo = fc * std::pow(2.0, -1.0 / 6.0), hi = fc * std::pow(2.0, 1.0 / 6.0);
+        if (hi >= 0.5 * fs || fc < 0.5 * df) continue;
+        double sum = 0.0;
+        for (std::size_t k = 0; k < sp.f.size(); ++k)
+            if (sp.f[k] >= lo && sp.f[k] < hi) sum += sp.psd[k] * df;
+        sp.band_f.push_back(fc);
+        sp.band_level.push_back(10.0 * std::log10(sum / (p_ref * p_ref) + 1e-300));
+    }
+    return sp;
+}
+}  // namespace mp::fwh
+
+Created src/cpp/test_battery.cpp
+Created src/cpp/test_battery.cpp
+
+// Verification driver: g++ -std=c++20 -O2 -I src/cpp src/cpp/test_battery.cpp -o test_battery && ./test_battery
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <vector>
+#include "battery_runaway.hpp"
+using namespace mp;
+static double ros2_scalar_test() {
+    // y' = -1000 (y - cos t) - sin t,  y(0) = 1,  exact y = cos t ; stiff (lambda = -1000) at dt = 0.1
+    double y = 1.0, t = 0.0;
+    const double dt = 0.1;
+    double maxerr = 0.0, k1, k2, ys, tmp, d;
+    for (int n = 0; n < 20; ++n) {
+        stiff::Ros2::step(&y, 1, t, dt,
+                          [](double tt, const double* yy, double* f) { *f = -1000.0 * (*yy - std::cos(tt)) - std::sin(tt); },
+                          [](const double*, double* dd) { *dd = -1000.0; }, &k1, &k2, &ys, &tmp, &d);
+        t += dt;
+        maxerr = std::max(maxerr, std::fabs(y - std::cos(t)));
+    }
+    return maxerr;
+}
+int main() {
+    const double err = ros2_scalar_test();
+    std::printf("[battery] ROS2 scalar stiff test  : max|y - cos t| = %.3e over t in [0,2] at dt = 0.1 (lambda = -1000)  %s\n", err, err < 5e-3 ? "PASS" : "FAIL");
+    battery::PackModel m;
+    m.pk.nx = 4;
+    m.pk.ny = 2;
+    const int nc = m.ncells();
+    std::vector<double> y;
+    m.initial_state(y, 298.15, 0.8);
+    const double T0 = 298.15, dt = 0.5, t_end = 400.0;
+    double t = 0.0;
+    std::vector<double> tr(static_cast<std::size_t>(nc), -1.0);
+    double Tmax = 0.0, min_explicit_dt = 1e300, E_cool = 0.0, E_heater = 0.0, E_ecm = 0.0, E_in_peak = 0.0;
+    int steps = 0;
+    const std::vector<double> rem0 = y;
+    while (t < t_end) {
+        for (int c = 0; c < nc; ++c) {
+            const std::size_t o = static_cast<std::size_t>(battery::PackModel::state_offset(c));
+            E_cool += dt * (y[o + 1] - m.pk.T_cool) / m.pk.R_cool;
+            E_ecm += dt * m.cell_heat_ecm(y, c);
+            if (c == m.pk.heater_cell && t < m.pk.t_heater) E_heater += dt * m.pk.P_heater;
+        }
+        min_explicit_dt = std::min(min_explicit_dt, 2.0 / std::max(1e-9, m.block_spectral_bound(y.data())));
+        E_in_peak = std::max(E_in_peak, m.cell_heat_abuse(y, m.pk.heater_cell));
+        m.step(y, t, dt);
+        ++steps;
+        for (int c = 0; c < nc; ++c) {
+            const std::size_t o = static_cast<std::size_t>(battery::PackModel::state_offset(c));
+            if (tr[static_cast<std::size_t>(c)] < 0.0 && y[o] > 423.15) tr[static_cast<std::size_t>(c)] = t;
+            Tmax = std::max(Tmax, y[o]);
+        }
+    }
+    // energy balance: released abuse + heater + ECM - coolant loss = sensible energy change
+    double E_rel = 0.0, dU = 0.0;
+    for (int c = 0; c < nc; ++c) {
+        const std::size_t o = static_cast<std::size_t>(battery::PackModel::state_offset(c));
+        for (int k = 0; k < 4; ++k) E_rel += m.kin.st[static_cast<std::size_t>(k)].H * (rem0[o + 5 + static_cast<std::size_t>(k)] - y[o + 5 + static_cast<std::size_t>(k)]) * m.pk.V_cell * m.pk.core_fraction;
+        dU += m.pk.rho_cp * m.pk.V_cell * (m.pk.core_fraction * (y[o] - T0) + (1.0 - m.pk.core_fraction) * (y[o + 1] - T0));
+    }
+    const double resid = (E_rel + E_heater + E_ecm - E_cool - dU) / std::max(1.0, E_rel + E_heater);
+    int propagated = 0;
+    for (int c = 0; c < nc; ++c)
+        if (tr[static_cast<std::size_t>(c)] >= 0.0) ++propagated;
+    std::printf("[battery] pack 4x2 21700, heater %g W x %g s on cell %d: TR onset (Tc > 150 C) trigger = %.1f s, propagated to %d/%d cells, peak Tc = %.0f K\n",
+                m.pk.P_heater, m.pk.t_heater, m.pk.heater_cell, tr[static_cast<std::size_t>(m.pk.heater_cell)], propagated, nc, Tmax);
+    std::printf("[battery] fixed ROS2-W step dt = %.2f s (%d steps, no rejection); explicit-Euler stability limit at peak = %.4f s -> %.0fx fewer steps\n",
+                dt, steps, min_explicit_dt, dt / min_explicit_dt);
+    std::printf("[battery] peak abuse heat release = %.0f W ; pack energy balance residual = %.2f %%  %s\n", E_in_peak, 100.0 * resid, std::fabs(resid) < 0.05 ? "PASS" : "FAIL");
+    std::printf("[battery] cell TR onset times [s]:");
+    for (int c = 0; c < nc; ++c) std::printf(" %6.1f", tr[static_cast<std::size_t>(c)]);
+    std::printf("\n");
+    return (err < 5e-3 && std::fabs(resid) < 0.05) ? 0 : 1;
+}
+
+Created src/cpp/test_fwh.cpp
+Created src/cpp/test_fwh.cpp
+
+// Verification driver: g++ -std=c++20 -O2 -I src/cpp src/cpp/test_fwh.cpp -o test_fwh && ./test_fwh
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <vector>
+#include "fwh_farassat1a.hpp"
+using namespace mp;
+using namespace mp::fwh;
+// stationary harmonic compact dipole (M = 0) -> analytic p' = (1/4pi)[Ldot_r/(c r) + L_r/r^2]
+class HarmonicDipole : public Panel {
+public:
+    Vec3 y0, nhat;
+    double L0, omega, area;
+    void evaluate(double tau, SourceState& st) const override {
+        st.y = y0;
+        st.v = Vec3{};
+        st.a = Vec3{};
+        st.n = nhat;
+        st.Un = 0.0;
+        st.Undot = 0.0;
+        st.L = nhat * (L0 * std::cos(omega * tau));
+        st.Ldot = nhat * (-L0 * omega * std::sin(omega * tau));
+        st.area = area;
+    }
+};
+int main() {
+    const Medium air;
+    // ---- 1) M = 0 dipole vs analytic ------------------------------------------------------
+    {
+        HarmonicDipole d;
+        d.y0 = Vec3{0.0, 0.0, 0.0};
+        d.nhat = Vec3{0.0, 0.0, 1.0};
+        d.L0 = 500.0;
+        d.omega = 2.0 * PI * 300.0;
+        d.area = 0.05;
+        const Vec3 x(4.0, 1.0, -2.0);
+        double worst = 0.0;
+        for (int i = 0; i < 50; ++i) {
+            const double t = 0.01 * i;
+            const AcousticPressure p = farassat1a({&d}, x, t, air, t);
+            const double r = norm(x - d.y0), tau = t - r / air.c;
+            const double Lr = d.L0 * std::cos(d.omega * tau) * d.area * dot(d.nhat, (x - d.y0) / r);
+            const double Lrd = -d.L0 * d.omega * std::sin(d.omega * tau) * d.area * dot(d.nhat, (x - d.y0) / r);
+            const double exact = (Lrd / (air.c * r) + Lr / (r * r)) / (4.0 * PI);
+            worst = std::max(worst, std::fabs(p.pL - exact) / std::fabs(exact + 1e-300) * (std::fabs(exact) > 1e-6 * d.L0 ? 1.0 : 0.0));
+        }
+        std::printf("[fwh] Formulation 1A vs analytic (stationary harmonic dipole, M = 0): max rel. error = %.2e  %s\n", worst, worst < 1e-9 ? "PASS" : "FAIL");
+    }
+    // ---- 2) rotating loading + edge panels : 1A vs Formulation 1 --------------------------
+    {
+        RotorLoadingPanel load;
+        load.R = 1.0;
+        load.Omega = 0.65 * air.c / 1.0;  // tip Mach 0.65
+        load.dp0 = 1200.0;
+        load.a1 = 0.4;
+        load.area = 0.08;
+        RotorEdgePanel le;
+        le.R = 1.0;
+        le.s = 0.08;
+        le.Omega = load.Omega;
+        le.sign = 1;
+        le.area = 0.02;
+        RotorEdgePanel te = le;
+        te.s = -0.08;
+        te.sign = -1;
+        std::vector<const Panel*> panels{&load, &le, &te};
+        const Vec3 x(6.0, 2.0, -4.0);
+        double worstT = 0.0, worstL = 0.0;
+        for (int i = 0; i < 25; ++i) {
+            const double t = 0.002 * i;
+            const AcousticPressure a1 = farassat1a(panels, x, t, air, t);
+            const AcousticPressure f1 = formulation1(panels, x, t, air, 1e-6, 1e-5);
+            worstT = std::max(worstT, std::fabs(a1.pT - f1.pT) / (std::fabs(f1.pT) + 1.0));
+            worstL = std::max(worstL, std::fabs(a1.pL - f1.pL) / (std::fabs(f1.pL) + 1.0));
+        }
+        std::printf("[fwh] rotating loading (M_t = 0.65) : |1A - F1| / |F1| thickness = %.2e, loading = %.2e  %s\n", worstT, worstL, worstT < 1e-5 && worstL < 1e-5 ? "PASS" : "FAIL");
+    }
+    // ---- 3) FFT analyzer self-test: two tones ------------------------------------------------
+    {
+        const std::size_t n = 4096;
+        const double fs = 16384.0;
+        std::vector<double> p(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            const double t = double(i) / fs;
+            p[i] = 1.0 * std::sin(2.0 * PI * 1024.0 * t) + 0.5 * std::sin(2.0 * PI * 3072.0 * t + 0.3);
+        }
+        const Spectrum sp = analyze(p, fs);
+        const double exact_oaspl = 20.0 * std::log10(std::sqrt(0.5 * (1.0 + 0.25)) / 20e-6);
+        std::printf("[fwh] FFT analyzer: OASPL = %.2f dB (exact %.2f dB, err %.3f dB)  %s\n", sp.oaspl, exact_oaspl, sp.oaspl - exact_oaspl, std::fabs(sp.oaspl - exact_oaspl) < 0.05 ? "PASS" : "FAIL");
+    }
+    // ---- 4) 4-blade rotor radiation: BPF tones + 1/r far-field decay ------------------------
+    {
+        const int B = 4;
+        const double Mt = 0.6, R = 1.0, Omega = Mt * air.c / R;
+        std::vector<RotorLoadingPanel> loads(static_cast<std::size_t>(B));
+        std::vector<const Panel*> panels;
+        for (int b = 0; b < B; ++b) {
+            loads[static_cast<std::size_t>(b)].R = R;
+            loads[static_cast<std::size_t>(b)].Omega = Omega;
+            loads[static_cast<std::size_t>(b)].theta0 = 2.0 * PI * double(b) / double(B);
+            loads[static_cast<std::size_t>(b)].dp0 = 1500.0;
+            loads[static_cast<std::size_t>(b)].a1 = 0.0;
+            loads[static_cast<std::size_t>(b)].area = 0.08;
+            panels.push_back(&loads[static_cast<std::size_t>(b)]);
+        }
+        const double bpf = double(B) * Omega / (2.0 * PI);
+        const std::size_t n = 4096;
+        const double fs = bpf * double(n) / 8.0;  // 8 blade-passing periods
+        std::vector<double> p10(n), p20(n);
+        double tau10 = 0.0, tau20 = 0.0;
+        const Vec3 x10(10.0 * std::cos(0.5), 0.0, 10.0 * std::sin(-0.5)), x20 = x10 * 2.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            const double t = double(i) / fs;
+            p10[i] = farassat1a(panels, x10, t, air, tau10).p();
+            tau10 = t - norm(x10) / air.c;
+            p20[i] = farassat1a(panels, x20, t, air, tau20).p();
+            tau20 = t - norm(x20) / air.c;
+        }
+        const Spectrum s10 = analyze(p10, fs), s20 = analyze(p20, fs);
+        auto tone = [&](const Spectrum& s, double f0) {
+            std::size_t best = 0;
+            for (std::size_t k = 0; k < s.f.size(); ++k)
+                if (std::fabs(s.f[k] - f0) < std::fabs(s.f[best] - f0)) best = k;
+            return s.spl[best];
+        };
+        std::printf("[fwh] 4-blade rotor, M_t = %.2f, mic r = 10 m (-28.6 deg): OASPL10 = %.1f dB, OASPL20 = %.1f dB, decay = %.2f dB (far field 6.0 dB)  %s\n",
+                    Mt, s10.oaspl, s20.oaspl, s10.oaspl - s20.oaspl, std::fabs(s10.oaspl - s20.oaspl - 6.0) < 0.5 ? "PASS" : "FAIL");
+        std::printf("[fwh] narrowband tones at BPF = %.1f Hz: 1x = %.1f dB, 2x = %.1f dB, 3x = %.1f dB, 4x = %.1f dB\n", bpf, tone(s10, bpf), tone(s10, 2 * bpf), tone(s10, 3 * bpf), tone(s10, 4 * bpf));
+        std::size_t pk = 0;
+        for (std::size_t k = 1; k < s10.band_level.size(); ++k)
+            if (s10.band_level[k] > s10.band_level[pk]) pk = k;
+        std::printf("[fwh] 1/3-octave peak band = %.1f Hz at %.1f dB; %zu bands\n", s10.band_f[pk], s10.band_level[pk], s10.band_f.size());
+    }
+    return 0;
+}
+
+Before compiling I need to fix a typo I introduced (1.396ee5) and clean the Formulation-1 helper, then add the remaining two C++ modules (Ni four-step MHD projection with ADI momentum on the polyhedral mesh, and the BDF2-ALE charring ablator) with their verification drivers.
+Edited src/cpp/battery_runaway.hpp
++1-1
+Edited src/cpp/battery_runaway.hpp
++1-1
+
+            {6.667e13, 1.396ee5, 1.0, 1.0, 1221.0, 3.14e5},          // positive electrode decomposition, alpha(1-alpha), alpha0 = 0.04
+            {6.667e13, 1.396e5, 1.0, 1.0, 1221.0, 3.14e5},           // positive electrode decomposition, alpha(1-alpha), alpha0 = 0.04
+
+Edited src/cpp/fwh_farassat1a.hpp
++1-1
+Edited src/cpp/fwh_farassat1a.hpp
++21-36
+
+inline AcousticPressure formulation1(const std::vector<const Panel*>& panels, const Vec3& x, double t, const Medium& m, double ht, double hx) {
+    AcousticPressure p;
+    double pm, pp;
+    Vec3 cm, cp;
+    f1_integrals(panels, x, t - ht, m, pm, cm);
+    f1_integrals(panels, x, t + ht, m, pp, cp);
+    p.pT = (pp - pm) / (2.0 * ht) / (4.0 * PI);
+    double div = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        Vec3 xp = x, xm = x;
+        (i == 0 ? xp.x : i == 1 ? xp.y : xp.z) += hx;
+        (i == 0 ? xm.x : i == 1 ? xm.y : xm.z) -= hx;
+        double a, b;
+        Vec3 ca, cb;
+        f1_integrals(panels, xp, t, m, a, ca);
+        f1_integrals(panels, xm, t, m, b, cb);
+        div += ((i == 0 ? cp.x : i == 1 ? cp.y : cp.z) * 0.0);  // placeholder (chi at x is not needed)
+        div += ((i == 0 ? ca.x : i == 1 ? ca.y : ca.z) - (i == 0 ? cb.x : i == 1 ? cb.y : cb.z)) / (2.0 * hx);
+    }
+    (void)cm;
+    (void)div;
+    // recompute the divergence cleanly
+    double d = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        Vec3 xp = x, xm = x;
+        (i == 0 ? xp.x : i == 1 ? xp.y : xp.z) += hx;
+        (i == 0 ? xm.x : i == 1 ? xm.y : xm.z) -= hx;
+        double a, b;
+        Vec3 ca, cb;
+        f1_integrals(panels, xp, t, m, a, ca);
+        f1_integrals(panels, xm, t, m, b, cb);
+        d += ((i == 0 ? ca.x : i == 1 ? ca.y : ca.z) - (i == 0 ? cb.x : i == 1 ? cb.y : cb.z)) / (2.0 * hx);
+    }
+    p.pL = -d / (4.0 * PI);
+    return p;
+}
+inline AcousticPressure formulation1(const std::vector<const Panel*>& panels, const Vec3& x, double t, const Medium& m, double ht, double hx) {
+    AcousticPressure p;
+    double pm, pp;
+    Vec3 cm, cp;
+    f1_integrals(panels, x, t - ht, m, pm, cm);
+    f1_integrals(panels, x, t + ht, m, pp, cp);
+    p.pT = (pp - pm) / (2.0 * ht) / (4.0 * PI);                 // d/dt of the retarded integral
+    double d = 0.0;                                              // -d/dx_i of the retarded loading integral
+    for (int i = 0; i < 3; ++i) {
+        Vec3 xp = x, xm = x;
+        (i == 0 ? xp.x : i == 1 ? xp.y : xp.z) += hx;
+        (i == 0 ? xm.x : i == 1 ? xm.y : xm.z) -= hx;
+        double a, b;
+        Vec3 ca, cb;
+        f1_integrals(panels, xp, t, m, a, ca);
+        f1_integrals(panels, xm, t, m, b, cb);
+        d += ((i == 0 ? ca.x : i == 1 ? ca.y : ca.z) - (i == 0 ? cb.x : i == 1 ? cb.y : cb.z)) / (2.0 * hx);
+    }
+    p.pL = -d / (4.0 * PI);
+    return p;
+}
+
+Created src/cpp/mhd_projection.hpp
+Created src/cpp/mhd_projection.hpp
+
+// ============================================================================
+//  Cluster C : Inductionless MHD (Re_m << 1) - Ni et al. current-conservative
+//  four-step projection on collocated polyhedral FVM grids.
+//   (1) div(sigma grad phi_E) = div(sigma (u x B0))     over-relaxed non-orthogonal Laplacian
+//   (2) J_n,f = sigma_f ( -alpha_f (phi_N - phi_P) - grad phi_f . k_f^corr + (u_f x B0,f) . S_f )
+//   (3) J_P   = (1/V_P) sum_f J_n,f (x_f - x_P)         exactly charge conservative
+//   (4) F_L   = J_P x B0,   q_J = |J_P|^2 / sigma_P
+//  plus a Peaceman-Rachford ADI diffusion operator for the (x-)momentum.
+//  Compile: g++ -std=c++20 -O2 -I src/cpp test_mhd.cpp
+// ============================================================================
+#pragma once
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+#include "linalg.hpp"
+#include "poly_fvm.hpp"
+namespace mp::mhd {
+using fvm::Vec3;
+using fvm::PolyMesh;
+class FourStepProjection {
+public:
+    FourStepProjection(const PolyMesh& mesh, double sigma, Vec3 B0) : m_(mesh), sigma_(sigma), B0_(B0),
+        grad_(mesh.n_cells), gradf_(mesh.n_faces) {}
+    // (1a) integral RHS  b_P = sum_f sigma_f (u_f x B0) . S_f      (u = x-velocity field)
+    void potential_rhs(const double* u, double* b) const {
+        std::fill(b, b + m_.n_cells, 0.0);
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const auto nb = m_.face_neighbor[f];
+            double uf = u[o];
+            if (nb >= 0) uf = m_.face_weight[f] * u[static_cast<std::size_t>(nb)] + (1.0 - m_.face_weight[f]) * u[o];
+            const double s = sigma_ * fvm::dot(fvm::cross(Vec3{uf, 0.0, 0.0}, B0_), m_.face_area[f]);
+            b[o] += s;
+            if (nb >= 0) b[static_cast<std::size_t>(nb)] -= s;
+        }
+    }
+    // (1b) generic over-relaxed Laplacian (implicit part).  Boundary faces carry zero current.
+    void assemble_laplacian(linalg::CsrMatrix& A) const {
+        std::vector<std::int64_t> r, c;
+        std::vector<double> v;
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto nb = m_.face_neighbor[f];
+            if (nb < 0) continue;
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const double a = sigma_ * m_.alpha_f[f];
+            r.insert(r.end(), {static_cast<std::int64_t>(o), static_cast<std::int64_t>(o), nb, nb});
+            c.insert(c.end(), {nb, static_cast<std::int64_t>(o), static_cast<std::int64_t>(o), nb});
+            v.insert(v.end(), {-a, a, -a, a});
+        }
+        A.from_triplets(m_.n_cells, r, c, v);
+    }
+    // deferred non-orthogonal correction  K_P = sum_f sigma_f k_f^corr . grad phi_f   (zero on orthogonal meshes)
+    void nonorth_correction(const double* phi, double* K) const {
+        m_.green_gauss(phi, grad_.data());
+        m_.face_gradient(grad_.data(), gradf_.data());
+        std::fill(K, K + m_.n_cells, 0.0);
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto nb = m_.face_neighbor[f];
+            if (nb < 0) continue;
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const double s = sigma_ * fvm::dot(gradf_[f], m_.kf_corr[f]);
+            K[o] += s;
+            K[static_cast<std::size_t>(nb)] -= s;
+        }
+    }
+    // (2) face normal currents; insulating boundaries J.n = 0
+    void face_currents(const double* u, const double* phi, double* Jn) const {
+        m_.green_gauss(phi, grad_.data());
+        m_.face_gradient(grad_.data(), gradf_.data());
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto nb = m_.face_neighbor[f];
+            if (nb < 0) { Jn[f] = 0.0; continue; }
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const double uf = m_.face_weight[f] * u[static_cast<std::size_t>(nb)] + (1.0 - m_.face_weight[f]) * u[o];
+            const double ub = fvm::dot(fvm::cross(Vec3{uf, 0.0, 0.0}, B0_), m_.face_area[f]);
+            Jn[f] = sigma_ * (-m_.alpha_f[f] * (phi[static_cast<std::size_t>(nb)] - phi[o]) - fvm::dot(gradf_[f], m_.kf_corr[f]) + ub);
+        }
+    }
+    // (3) conservative cell-centre reconstruction
+    void cell_currents(const double* Jn, Vec3* J) const {
+        std::fill(J, J + m_.n_cells, Vec3{});
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const auto nb = m_.face_neighbor[f];
+            J[o] += (m_.face_centroid[f] - m_.cell_centroid[o]) * Jn[f];
+            if (nb >= 0) J[static_cast<std::size_t>(nb)] += (m_.face_centroid[f] - m_.cell_centroid[static_cast<std::size_t>(nb)]) * (-Jn[f]);
+        }
+        for (std::size_t c = 0; c < m_.n_cells; ++c) J[c] = J[c] / m_.cell_volume[c];
+    }
+    // (4) Lorentz force and Joule heating
+    void lorentz(const Vec3* J, Vec3* F, double* qJ) const {
+        for (std::size_t c = 0; c < m_.n_cells; ++c) {
+            F[c] = fvm::cross(J[c], B0_);
+            qJ[c] = fvm::dot(J[c], J[c]) / sigma_;
+        }
+    }
+    double charge_conservation_defect(const double* Jn) const {  // max_P |sum_f J_n,f| / max_f |J_n,f|
+        double jmax = 0.0, worst = 0.0;
+        for (std::size_t f = 0; f < m_.n_faces; ++f) jmax = std::max(jmax, std::fabs(Jn[f]));
+        for (std::size_t c = 0; c < m_.n_cells; ++c) {
+            double s = 0.0;
+            for (std::int32_t q = m_.cell_face_start[c]; q < m_.cell_face_start[c + 1]; ++q) {
+                const std::size_t f = static_cast<std::size_t>(m_.cell_faces[static_cast<std::size_t>(q)]);
+                s += (static_cast<std::size_t>(m_.face_owner[f]) == c) ? Jn[f] : -Jn[f];
+            }
+            worst = std::max(worst, std::fabs(s));
+        }
+        return worst / (jmax + 1e-300);
+    }
+    const PolyMesh& mesh() const { return m_; }
+private:
+    const PolyMesh& m_;
+    double sigma_;
+    Vec3 B0_;
+    mutable std::vector<Vec3> grad_, gradf_;
+};
+// ---------------------------------------------------------------------------
+// Peaceman-Rachford ADI for  dT/dt = nu lap(T) + src  on the (y,z) cell grid,
+// Dirichlet T = 0 at walls.  Index (j,i) = j*nz + i.
+// ---------------------------------------------------------------------------
+class DiffusionAdi {
+public:
+    DiffusionAdi(std::size_t ny, std::size_t nz, double Ly, const std::vector<double>& zfaces, double nu)
+        : ny_(ny), nz_(nz), dy_(Ly / double(ny)), nu_(nu) {
+        dz_.resize(nz);
+        for (std::size_t i = 0; i < nz; ++i) dz_[i] = zfaces[i + 1] - zfaces[i];
+        // z-operator coefficients
+        azl_.assign(nz, 0.0);
+        azd_.assign(nz, 0.0);
+        azu_.assign(nz, 0.0);
+        for (std::size_t i = 0; i < nz; ++i) {
+            if (i > 0) azl_[i] = 1.0 / (dz_[i] * (zfaces[i] - zfaces[i - 1] + 0.0)) * 0.0 + 1.0 / (dz_[i] * (dz_[i - 1] + dz_[i]) * 0.5);
+            if (i + 1 < nz) azu_[i] = 1.0 / (dz_[i] * (dz_[i + 1] + dz_[i]) * 0.5);
+            double extra = 0.0;
+            if (i == 0) extra = 2.0 / (dz_[0] * dz_[0]);
+            if (i + 1 == nz) extra = 2.0 / (dz_[nz - 1] * dz_[nz - 1]);
+            azd_[i] = -(azl_[i] + azu_[i]) - extra;
+        }
+    }
+    // (I - th A_z) u* = (I + th A_y) u + dt src ;  (I - th A_y) u^{n+1} = (I + th A_z) u*      th = dt nu / 2
+    void step(const double* un, const double* src, double dt, double* unew, double* ustar) const {
+        const double th = 0.5 * dt * nu_;
+        std::vector<double> a(nz_), b(nz_), c(nz_), d(nz_);
+        for (std::size_t j = 0; j < ny_; ++j) {
+            for (std::size_t i = 0; i < nz_; ++i) {
+                const std::size_t p = j * nz_ + i;
+                double ay = 0.0;
+                if (j > 0) ay += un[p - nz_];
+                if (j + 1 < ny_) ay += un[p + nz_];
+                ay -= (2.0 + (j == 0 ? 1.0 : 0.0) + (j + 1 == ny_ ? 1.0 : 0.0)) * un[p];
+                ay /= dy_ * dy_;
+                d[i] = un[p] + th * ay + dt * src[p];
+                a[i] = -th * azl_[i];
+                b[i] = 1.0 - th * azd_[i];
+                c[i] = -th * azu_[i];
+            }
+            linalg::thomas(a.data(), b.data(), c.data(), d.data(), nz_);
+            for (std::size_t i = 0; i < nz_; ++i) ustar[j * nz_ + i] = d[i];
+        }
+        std::vector<double> ay(ny_), by(ny_), cy(ny_), dyv(ny_);
+        for (std::size_t i = 0; i < nz_; ++i) {
+            for (std::size_t j = 0; j < ny_; ++j) {
+                const std::size_t p = j * nz_ + i;
+                double az = 0.0;
+                if (i > 0) az += azl_[i] * ustar[p - 1];
+                if (i + 1 < nz_) az += azu_[i] * ustar[p + 1];
+                az += azd_[i] * ustar[p];
+                dyv[j] = ustar[p] + th * az;
+                ay[j] = j > 0 ? -th / (dy_ * dy_) : 0.0;
+                by[j] = 1.0 - th * (-(2.0 + (j == 0 ? 1.0 : 0.0) + (j + 1 == ny_ ? 1.0 : 0.0)) / (dy_ * dy_));
+                cy[j] = j + 1 < ny_ ? -th / (dy_ * dy_) : 0.0;
+            }
+            linalg::thomas(ay.data(), by.data(), cy.data(), dyv.data(), ny_);
+            for (std::size_t j = 0; j < ny_; ++j) unew[j * nz_ + i] = dyv[j];
+        }
+    }
+private:
+    std::size_t ny_, nz_;
+    double dy_, nu_;
+    std::vector<double> dz_, azl_, azd_, azu_;
+};
+}  // namespace mp::mhd
+
+Created src/cpp/tps_ablation.hpp
+Created src/cpp/tps_ablation.hpp
+
+// ============================================================================
+//  Cluster C : charring TPS - 1D porous-solid pyrolysis, pyrolysis-gas blowing
+// (Darcy), surface thermochemical ablation and BDF2-DGCL ALE mesh recession.
+//
+//   solid :  d rho_k/dt = -Gamma_k (rho_k - rho_c,k)^{n_k} A_k exp(-E_k/RT)
+//   energy:  rho c_s dT/dt = d/dx(k dT/dx) - mdot_g c_pg dT/dx
+//                              - sum_k [dH_k + (c_pg - c_s)(T - T0)] rate_k
+//   surface: h(T_rec - T_w) = eps sigma (T_w^4 - T_inf^4) + mdot_c (dH_sub + c_s (T_w - T0))
+//                              + mdot_g c_pg (T_w - T0) + q_cond
+//   ablation: v_rec = mdot_char / rho_wall ,  mdot_char = rho_wall A_c exp(-E_c / R T_w)
+//   ALE    :  x_i(t) = x_s + xi_i (L - x_s),  w^{n+1} = (3x^{n+1} - 4x^n + x^{n-1}) / (2 dt)
+//   Compile: g++ -std=c++20 -O2 -I src/cpp test_tps.cpp
+// ============================================================================
+#pragma once
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <vector>
+#include "stiff_integrators.hpp"
+namespace mp::tps {
+constexpr double R_GAS = 8.31446261815324;
+constexpr double SIGMA_SB = 5.670374419e-8;
+constexpr int NR = 3;
+struct PyrolysisReaction {
+    double A{0}, Ea{0}, n{1}, m{0}, rho_v{0}, dH{0};  // rho_v: initial reactive content [kg/m^3], dH: endothermic heat per kg of gas
+};
+struct TpsMaterial {
+    double rho_v = 1400.0, rho_c = 1100.0;        // virgin / char solid density
+    double c_s = 1700.0, c_pg = 2100.0;            // J/kg/K solid, pyrolysis gas
+    double k_v = 0.30, k_c = 0.60;                 // W/m/K virgin, char
+    double eps = 0.85, T_inf = 300.0;
+    double mu_g = 3.0e-5, K_perm = 1.0e-11, R_g = 300.0, p_inf = 101325.0;  // Darcy gas transport
+    double A_c = 7.0e3, E_c = 3.0e5, dH_sub = 2.5e7;   // surface recession law v_c = A_c exp(-E_c/RT_w) [m/s]
+    std::array<PyrolysisReaction, NR> pyro{};
+    static TpsMaterial carbon_phenolic() {
+        TpsMaterial m;
+        const double dm = m.rho_v - m.rho_c;
+        m.pyro = {{{3.0e7, 1.0e5, 1.0, 0.0, 0.5 * dm, 4.0e5},
+                   {1.3e8, 1.4e5, 1.0, 0.0, 0.3 * dm, 4.0e5},
+                   {3.7e8, 1.8e5, 1.0, 0.0, 0.2 * dm, 4.0e5}}};
+        return m;
+    }
+    double gamma(int k, double rho) const {
+        const auto& s = pyro[static_cast<std::size_t>(k)];
+        if (s.m == 0.0 || s.rho_v <= 0.0) return 1.0;
+        return std::pow(std::clamp((s.rho_v - rho) / s.rho_v, 0.0, 1.0), s.m);
+    }
+    double rate(int k, double T, double rho) const {
+        if (rho <= 0.0) return 0.0;
+        const auto& s = pyro[static_cast<std::size_t>(k)];
+        return gamma(k, rho) * std::pow(rho, s.n) * s.A * std::exp(-s.Ea / (R_GAS * T));
+    }
+    double drate_dT(int k, double T, double rho) const { return rate(k, T, rho) * pyro[static_cast<std::size_t>(k)].Ea / (R_GAS * T * T); }
+    double drate_drho(int k, double T, double rho) const {
+        if (rho <= 0.0) return 0.0;
+        const auto& s = pyro[static_cast<std::size_t>(k)];
+        const double a = s.A * std::exp(-s.Ea / (R_GAS * T));
+        const double g = gamma(k, rho);
+        double dgam = 0.0;
+        if (s.m != 0.0 && s.rho_v > 0.0) dgam = -s.m * std::pow(std::clamp((s.rho_v - rho) / s.rho_v, 1e-300, 1.0), s.m - 1.0) / s.rho_v;
+        const double dg = (s.n == 1.0) ? a : s.n * std::pow(rho, s.n - 1.0) * a;
+        return dg * g + a * std::pow(rho, s.n) * dgam;
+    }
+    double conductivity(double rho_s, double T) const {
+        const double cf = std::clamp((rho_s - rho_c) / (rho_v - rho_c), 0.0, 1.0);  // virgin fraction
+        const double k_char = k_c * (1.0 + 3.0e-4 * (T - 300.0));
+        return k_char + (k_v - k_c) * cf;
+    }
+};
+struct TpsConfig {
+    std::size_t n = 120;
+    double L = 0.04, T0 = 300.0;
+    double h = 1000.0, T_recovery = 2800.0;   // convective heating (cold-wall h, recovery temperature)
+    double dt = 0.02;
+    bool dirichlet_test = false;              // verification: fixed T at both faces, no chemistry
+    double T_left = 1500.0, T_right = 300.0;
+    double v_rec_forced = -1.0;               // >= 0 : prescribed recession (DGCL verification)
+};
+struct TpsState {
+    std::vector<double> T, Tp, x, xp;         // T^{n}, T^{n-1}, x^{n}, x^{n-1}
+    std::vector<std::array<double, NR>> rho, rhop;
+    bool started = false;
+    double xs = 0.0;                          // surface position
+};
+struct TpsDiag {
+    double q_conv = 0, q_rad = 0, q_cond = 0, q_abl = 0, q_gas = 0;
+    double mdot_g = 0, mdot_c = 0, v_rec = 0, T_wall = 0, p_max = 0, char_depth = 0;
+    std::vector<double> gen, mdot_if, k_if;
+};
+class CharringAblator {
+public:
+    TpsMaterial mat = TpsMaterial::carbon_phenolic();
+    TpsConfig cfg;
+    void init(TpsState& s) const {
+        const std::size_t n = cfg.n;
+        s.T.assign(n, cfg.T0);
+        s.Tp = s.T;
+        s.x.resize(n);
+        for (std::size_t i = 0; i < n; ++i) s.x[i] = cfg.L * double(i) / double(n - 1);
+        s.xp = s.x;
+        s.rho.assign(n, {});
+        for (std::size_t i = 0; i < n; ++i)
+            for (int k = 0; k < NR; ++k) s.rho[i][static_cast<std::size_t>(k)] = cfg.dirichlet_test ? 0.0 : mat.pyro[static_cast<std::size_t>(k)].rho_v;
+        s.rhop = s.rho;
+        s.started = false;
+        s.xs = 0.0;
+    }
+    std::vector<double> widths(const TpsState& s) const {  // node volumes per unit area
+        const std::size_t n = cfg.n;
+        std::vector<double> w(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            const double dl = i > 0 ? s.x[i] - s.x[i - 1] : 0.0;
+            const double dr = i + 1 < n ? s.x[i + 1] - s.x[i] : 0.0;
+            w[i] = 0.5 * (dl + dr);
+        }
+        return w;
+    }
+    double solid_density(const TpsState& s, std::size_t i) const {
+        double r = mat.rho_c;
+        for (int k = 0; k < NR; ++k) r += s.rho[i][static_cast<std::size_t>(k)];
+        return r;
+    }
+    void step(TpsState& s, double& t, TpsDiag& d) const {
+        const std::size_t n = cfg.n;
+        const double dt = cfg.dt;
+        const std::vector<double> w = widths(s);
+        std::vector<double> rho_s(n), kf(n - 1), gen(n, 0.0), md(n);  // md[i] = gas mass flux (+x) at interface i-1/2 (md[0] = surface)
+        for (std::size_t i = 0; i < n; ++i) {
+            rho_s[i] = solid_density(s, i);
+            if (!cfg.dirichlet_test)
+                for (int k = 0; k < NR; ++k) gen[i] += mat.rate(k, s.T[i], s.rho[i][static_cast<std::size_t>(k)]);
+        }
+        for (std::size_t i = 0; i + 1 < n; ++i) kf[i] = mat.conductivity(0.5 * (rho_s[i] + rho_s[i + 1]), 0.5 * (s.T[i] + s.T[i + 1]));
+        // gas continuity (quasi-steady, impermeable back face): mdot(+x)_{i+1/2} = -sum_{l>i} gen_l w_l
+        std::vector<double> mif(n + 1, 0.0);  // mif[i] = flux at interface i-1/2, mif[n] = back face
+        for (std::size_t i = n; i-- > 0;) mif[i] = mif[i + 1] - gen[i] * w[i];
+        // (mif[i] is negative: gas flows toward -x ; surface outflow = -mif[0])
+        const double mdot_g = -mif[0];
+        // surface
+        const double Tw = s.T[0];
+        const double chi = cfg.h > 0 ? mdot_g * mat.c_pg / cfg.h : 0.0;
+        const double h_eff = cfg.h * (chi > 1e-6 ? chi / std::expm1(chi) : 1.0);   // transpiration (film-theory) correction
+        double v_rec = cfg.v_rec_forced >= 0.0 ? cfg.v_rec_forced : 0.0;
+        double mdot_c = 0.0;
+        if (!cfg.dirichlet_test) {
+            if (cfg.v_rec_forced < 0.0) v_rec = mat.A_c * std::exp(-mat.E_c / (R_GAS * Tw));
+            mdot_c = rho_s[0] * v_rec;    // = mdot_char ; v_rec = mdot_char / rho_wall
+        }
+        d.q_conv = h_eff * (cfg.T_recovery - Tw);
+        d.q_rad = mat.eps * SIGMA_SB * (Tw * Tw * Tw * Tw - mat.T_inf * mat.T_inf * mat.T_inf * mat.T_inf);
+        d.q_abl = mdot_c * (mat.dH_sub + mat.c_s * (Tw - cfg.T0));
+        d.q_gas = mdot_g * mat.c_pg * (Tw - cfg.T0);
+        const double F_surf = cfg.dirichlet_test ? 0.0 : d.q_conv - d.q_rad - d.q_abl - d.q_gas;
+        d.q_cond = n > 1 ? -kf[0] * (s.T[1] - s.T[0]) / (s.x[1] - s.x[0]) : 0.0;
+        d.mdot_g = mdot_g;
+        d.mdot_c = mdot_c;
+        d.v_rec = v_rec;
+        d.T_wall = Tw;
+        d.gen = gen;
+        d.mdot_if = mif;
+        d.k_if = kf;
+        // ---- mesh update (explicit) and BDF2-DGCL mesh velocity ----
+        std::vector<double> xnew(n), wm(n);
+        const double xs_new = s.xs + v_rec * dt;
+        for (std::size_t i = 0; i < n; ++i) {
+            const double xi = s.xp[i] / cfg.L;  // Lagrangian parameter from the initial uniform grid
+            xnew[i] = xs_new + (i == 0 ? 0.0 : (cfg.L - xs_new) * xi);
+            if (i == 0) xnew[i] = xs_new;
+            wm[i] = s.started ? (3.0 * xnew[i] - 4.0 * s.x[i] + s.xp[i]) / (2.0 * dt) : (xnew[i] - s.x[i]) / dt;
+        }
+        // ---- right-hand sides (explicit part) ----
+        std::vector<double> fT(n, 0.0), dT(n, 0.0);
+        std::vector<std::array<double, NR>> fr{}, dr{};
+        fr.assign(n, {});
+        dr.assign(n, {});
+        auto flux = [&](std::size_t i) {  // total energy flux (+x) at interface i+1/2
+            const double Tm = 0.5 * (s.T[i] + s.T[i + 1]);
+            return -kf[i] * (s.T[i + 1] - s.T[i]) / (s.x[i + 1] - s.x[i]) + mif[i + 1] * mat.c_pg * (Tm - cfg.T0);
+        };
+        auto ddx = [&](const std::vector<double>& v, std::size_t i) {
+            if (i == 0) return (v[1] - v[0]) / (s.x[1] - s.x[0]);
+            if (i + 1 == n) return (v[n - 1] - v[n - 2]) / (s.x[n - 1] - s.x[n - 2]);
+            return (v[i + 1] - v[i - 1]) / (s.x[i + 1] - s.x[i - 1]);
+        };
+        for (std::size_t i = 0; i < n; ++i) {
+            const double Fp = i + 1 < n ? flux(i) : 0.0;                         // adiabatic back face
+            const double Fm = i > 0 ? flux(i - 1) : F_surf;
+            const double rc = rho_s[i] * mat.c_s;
+            double pyro = 0.0, dpyro_dT = 0.0;
+            for (int k = 0; k < NR; ++k) {
+                const auto& r = mat.pyro[static_cast<std::size_t>(k)];
+                pyro += (r.dH + (mat.c_pg - mat.c_s) * (s.T[i] - cfg.T0)) * gen[i] / NR * NR;  // gen already summed
+                dpyro_dT += (r.dH + (mat.c_pg - mat.c_s) * (s.T[i] - cfg.T0)) * mat.drate_dT(k, s.T[i], s.rho[i][static_cast<std::size_t>(k)]);
+            }
+            fT[i] = (Fp - Fm) / (rc * w[i]) - pyro / rc + wm[i] * ddx(s.T, i);
+            // Patankar negative-slope diagonal
+            double kc = 0.0;
+            if (i + 1 < n) kc += kf[i] / (s.x[i + 1] - s.x[i]);
+            if (i > 0) kc += kf[i - 1] / (s.x[i] - s.x[i - 1]);
+            dT[i] = -kc / (rc * w[i]) - dpyro_dT / rc;
+            if (i == 0 && !cfg.dirichlet_test) {
+                const double dmdt = rho_s[0] * mat.A_c * std::exp(-mat.E_c / (R_GAS * Tw)) * mat.E_c / (R_GAS * Tw * Tw);
+                const double dsurf = h_eff + 4.0 * mat.eps * SIGMA_SB * Tw * Tw * Tw + dmdt * (mat.dH_sub + mat.c_s * (Tw - cfg.T0)) + mdot_c * mat.c_s
+                                     + mat.c_pg * (Tw - cfg.T0) * mat.drate_dT(0, Tw, s.rho[0][0]) * w[0] + mdot_g * mat.c_pg;
+                dT[i] -= dsurf / (rc * w[i]);
+            }
+            for (int k = 0; k < NR; ++k) {
+                std::vector<double> rk(n);
+                for (std::size_t q = 0; q < n; ++q) rk[q] = s.rho[q][static_cast<std::size_t>(k)];
+                fr[i][static_cast<std::size_t>(k)] = -mat.rate(k, s.T[i], s.rho[i][static_cast<std::size_t>(k)]) + wm[i] * ddx(rk, i);
+                dr[i][static_cast<std::size_t>(k)] = -mat.drate_drho(k, s.T[i], s.rho[i][static_cast<std::size_t>(k)]);
+            }
+        }
+        if (cfg.dirichlet_test) { dT[0] = dT[n - 1] = 0.0; }
+        // ---- BDF2 Patankar step ----
+        std::vector<double> Tn1(n);
+        if (!s.started) {
+            for (std::size_t i = 0; i < n; ++i) Tn1[i] = (s.T[i] + dt * fT[i] - dt * dT[i] * s.T[i]) / (1.0 - dt * dT[i]);
+        } else {
+            const double c0 = 3.0 / (2.0 * dt), c1 = 1.0 / (2.0 * dt);
+            for (std::size_t i = 0; i < n; ++i) Tn1[i] = ((4.0 * s.T[i] - s.Tp[i]) * c1 + fT[i] - dT[i] * s.T[i]) / (c0 - dT[i]);
+        }
+        if (cfg.dirichlet_test) { Tn1[0] = cfg.T_left; Tn1[n - 1] = cfg.T_right; }
+        std::vector<std::array<double, NR>> rn1(n);
+        for (std::size_t i = 0; i < n; ++i)
+            for (int k = 0; k < NR; ++k) {
+                const double f = fr[i][static_cast<std::size_t>(k)], dd = dr[i][static_cast<std::size_t>(k)];
+                double v;
+                if (!s.started) v = (s.rho[i][static_cast<std::size_t>(k)] + dt * f - dt * dd * s.rho[i][static_cast<std::size_t>(k)]) / (1.0 - dt * dd);
+                else v = ((4.0 * s.rho[i][static_cast<std::size_t>(k)] - s.rhop[i][static_cast<std::size_t>(k)]) / (2.0 * dt) + f - dd * s.rho[i][static_cast<std::size_t>(k)]) / (3.0 / (2.0 * dt) - dd);
+                rn1[i][static_cast<std::size_t>(k)] = std::max(v, 0.0);
+            }
+        s.Tp = s.T;
+        s.T = Tn1;
+        s.rhop = s.rho;
+        s.rho = rn1;
+        s.xp = s.x;
+        s.x = xnew;
+        s.xs = xs_new;
+        s.started = true;
+        t += dt;
+        // ---- diagnostics: Darcy pressure build-up and char depth ----
+        double p = mat.p_inf;
+        d.p_max = mat.p_inf;
+        for (std::size_t i = 0; i + 1 < n; ++i) {
+            const double Tm = 0.5 * (s.T[i] + s.T[i + 1]);
+            const double rho_g = mat.p_inf / (mat.R_g * Tm);
+            p += mat.mu_g / mat.K_perm * (-mif[i + 1]) / rho_g * (s.x[i + 1] - s.x[i]);
+            d.p_max = std::max(d.p_max, p);
+        }
+        d.char_depth = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            double r = mat.rho_c;
+            for (int k = 0; k < NR; ++k) r += s.rho[i][static_cast<std::size_t>(k)];
+            if (r >= 0.5 * (mat.rho_v + mat.rho_c)) { d.char_depth = (i == 0) ? 0.0 : s.x[i - 1] - s.xs; break; }
+        }
+    }
+};
+}  // namespace mp::tps
+
+Created src/cpp/test_mhd.cpp
+Created src/cpp/test_mhd.cpp
+
+// Verification driver: g++ -std=c++20 -O2 -I src/cpp src/cpp/test_mhd.cpp -o test_mhd && ./test_mhd
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <vector>
+#include "mhd_projection.hpp"
+using namespace mp;
+struct HaResult {
+    double l2 = 0, umax_err = 0, charge = 0, t = 0, umax = 0;
+    int steps = 0;
+};
+static std::vector<double> zfaces(std::size_t nz, double Lz, double beta) {
+    std::vector<double> z(nz + 1);
+    for (std::size_t k = 0; k <= nz; ++k) {
+        const double eta = double(k) / double(nz);
+        z[k] = 0.5 * Lz * (1.0 + std::tanh(beta * (2.0 * eta - 1.0)) / std::tanh(beta)) - 0.5 * Lz;
+    }
+    return z;
+}
+static HaResult run_hartmann(double Ha, std::size_t ny, std::size_t nz, double beta, double b) {
+    auto mesh = fvm::make_structured_box(1, ny, nz, 1.0, 2.0 * b, 2.0, 0.0, 0.0, beta);
+    const std::vector<double> zf = zfaces(nz, 2.0, beta);
+    linalg::TensorProductPoisson poisson(ny, nz, 2.0 * b, zf);
+    mhd::FourStepProjection proj(mesh, 1.0, fvm::Vec3{0.0, 0.0, Ha});
+    mhd::DiffusionAdi adi(ny, nz, 2.0 * b, zf, 1.0);
+    const std::size_t nc = mesh.n_cells, nf = mesh.n_faces;
+    std::vector<double> u(nc, 0.0), bvec(nc), rhs(nc), phi(nc), Jn(nf), src(nc), unew(nc), ustar(nc), qJ(nc);
+    std::vector<fvm::Vec3> J(nc), F(nc);
+    const double dt = std::min(0.02, 0.8 / (Ha * Ha));
+    double t = 0.0;
+    int steps = 0;
+    const double umax_ex = (std::cosh(Ha) - 1.0) / (Ha * std::sinh(Ha));
+    double conv = 1.0;
+    while (t < 1.0 && conv > 1e-6) {
+        proj.potential_rhs(u.data(), bvec.data());
+        for (std::size_t c = 0; c < nc; ++c) rhs[c] = bvec[c] / mesh.cell_volume[c];
+        poisson.solve(rhs.data(), phi.data());
+        proj.face_currents(u.data(), phi.data(), Jn.data());
+        proj.cell_currents(Jn.data(), J.data());
+        proj.lorentz(J.data(), F.data(), qJ.data());
+        for (std::size_t c = 0; c < nc; ++c) src[c] = 1.0 + F[c].x;  // -dp/dx / rho = 1, rho = nu = sigma = 1
+        adi.step(u.data(), src.data(), dt, unew.data(), ustar.data());
+        conv = 0.0;
+        for (std::size_t c = 0; c < nc; ++c) conv = std::max(conv, std::fabs(unew[c] - u[c]));
+        u.swap(unew);
+        t += dt;
+        ++steps;
+    }
+    // centreline profile vs Hartmann solution
+    const std::size_t j0 = ny / 2;
+    double num = 0.0, den = 0.0, umax = 0.0;
+    for (std::size_t i = 0; i < nz; ++i) {
+        const double zc = 0.5 * (zf[i] + zf[i + 1]);
+        const double ue = umax_ex * (std::cosh(Ha) - std::cosh(Ha * zc)) / (std::cosh(Ha) - 1.0);
+        const double uc = 0.5 * (u[j0 * nz + i] + u[(j0 - 1) * nz + i]);
+        num += (uc - ue) * (uc - ue) * (zf[i + 1] - zf[i]);
+        den += (zf[i + 1] - zf[i]);
+        umax = std::max(umax, uc);
+    }
+    HaResult r;
+    r.l2 = std::sqrt(num / den) / umax_ex;
+    r.umax = umax;
+    r.umax_err = (umax - umax_ex) / umax_ex;
+    r.charge = proj.charge_conservation_defect(Jn.data());
+    r.t = t;
+    r.steps = steps;
+    // generic polyhedral path check on this mesh: residual of the CSR Laplacian vs the direct solution
+    if (Ha == 10.0) {
+        linalg::CsrMatrix A;
+        proj.assemble_laplacian(A);
+        std::vector<double> K(nc), Ax(nc);
+        proj.nonorth_correction(phi.data(), K.data());
+        A.multiply(phi.data(), Ax.data());
+        double worst = 0.0, bmax = 0.0;
+        for (std::size_t c = 0; c < nc; ++c) {
+            worst = std::max(worst, std::fabs(Ax[c] - K[c] - bvec[c]));
+            bmax = std::max(bmax, std::fabs(bvec[c]));
+        }
+        std::printf("[mhd]  generic polyhedral CSR (alpha_f, k_f^corr) residual of the direct-solver potential : %.2e (rel. to |b|max) ; |k_f^corr|max = %.2e (orthogonal mesh)\n",
+                    worst / bmax, [&] { double m = 0; for (auto& k : mesh.kf_corr) m = std::max(m, fvm::norm(k)); return m; }());
+        // PCG on the generic system (coarse uniform sub-mesh) to exercise the solver path
+        auto coarse = fvm::make_structured_box(1, 8, 8, 1.0, 2.0, 2.0);
+        mhd::FourStepProjection pc(coarse, 1.0, fvm::Vec3{0, 0, 1});
+        std::vector<double> uc2(coarse.n_cells), bc(coarse.n_cells), phic(coarse.n_cells);
+        for (std::size_t c = 0; c < coarse.n_cells; ++c) uc2[c] = coarse.cell_centroid[c].z * coarse.cell_centroid[c].z - 1.0;  // parabola
+        pc.potential_rhs(uc2.data(), bc.data());
+        linalg::CsrMatrix A2;
+        pc.assemble_laplacian(A2);
+        const int it = linalg::pcg(A2, bc, phic, 1e-10, 5000);
+        std::printf("[mhd]  generic path PCG on 8x8 mesh : %d iterations to 1e-10\n", it);
+    }
+    return r;
+}
+int main() {
+    std::printf("[mhd] Hartmann channel, Ni four-step current-conservative projection, insulating walls, B0 = Ha z^, dp/dx = 1\n");
+    std::printf("[mhd] %-6s %-10s %-12s %-12s %-14s %-9s %s\n", "Ha", "steps", "t_final", "L2(u_c)", "umax rel.err", "div J", "verdict");
+    bool ok = true;
+    for (double Ha : {1.0, 10.0, 100.0}) {
+        const HaResult r = run_hartmann(Ha, 32, 48, 3.0, 6.0);
+        const bool pass = r.l2 < 0.03 && r.charge < 1e-10;
+        ok = ok && pass;
+        std::printf("[mhd] %-6g %-10d %-12.4f %-12.3e %-14.3e %-9.1e %s\n", Ha, r.steps, r.t, r.l2, r.umax_err, r.charge, pass ? "PASS" : "FAIL");
+    }
+    return ok ? 0 : 1;
+}
+
+Created src/cpp/test_tps.cpp
+Created src/cpp/test_tps.cpp
+
+// Verification driver: g++ -std=c++20 -O2 -I src/cpp src/cpp/test_tps.cpp -o test_tps && ./test_tps
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <vector>
+#include "tps_ablation.hpp"
+using namespace mp;
+using tps::TpsState;
+using tps::TpsDiag;
+int main() {
+    // ---- 1) BDF2-DGCL: uniform field must stay uniform under mesh recession ------------------
+    {
+        tps::CharringAblator a;
+        a.cfg.n = 60;
+        a.cfg.L = 0.02;
+        a.cfg.h = 0.0;
+        a.cfg.v_rec_forced = 2e-4;
+        TpsState s;
+        TpsDiag d;
+        a.init(s);
+        double t = 0.0;
+        for (int i = 0; i < 200; ++i) a.step(s, t, d);
+        double dev = 0.0;
+        for (double T : s.T) dev = std::max(dev, std::fabs(T - a.cfg.T0));
+        std::printf("[tps] DGCL: uniform T under ALE recession (v_rec = 2e-4 m/s, %.1f mm): max|T - T0| = %.2e K  %s\n", 1e3 * s.xs, dev, dev < 1e-9 ? "PASS" : "FAIL");
+    }
+    // ---- 2) conduction only: Dirichlet slab -> linear profile ----------------------------------
+    {
+        tps::CharringAblator a;
+        a.cfg.n = 41;
+        a.cfg.L = 0.005;
+        a.cfg.dt = 0.02;
+        a.cfg.dirichlet_test = true;
+        a.cfg.T_left = 1500.0;
+        a.cfg.T_right = 300.0;
+        TpsState s;
+        TpsDiag d;
+        a.init(s);
+        double t = 0.0;
+        for (int i = 0; i < 6000; ++i) a.step(s, t, d);
+        double err = 0.0;
+        for (std::size_t i = 0; i < a.cfg.n; ++i) {
+            const double ex = 1500.0 + (300.0 - 1500.0) * s.x[i] / a.cfg.L;
+            err = std::max(err, std::fabs(s.T[i] - ex));
+        }
+        std::printf("[tps] conduction: Dirichlet slab t = %.0f s, max|T - T_linear| = %.3e K  %s\n", t, err, err < 1e-3 ? "PASS" : "FAIL");
+    }
+    // ---- 3) full charring ablation --------------------------------------------------------------
+    {
+        tps::CharringAblator a;
+        a.cfg.n = 120;
+        a.cfg.L = 0.04;
+        a.cfg.dt = 0.02;
+        a.cfg.h = 1000.0;
+        a.cfg.T_recovery = 2800.0;
+        TpsState s;
+        TpsDiag d;
+        a.init(s);
+        double t = 0.0;
+        std::printf("[tps] carbon-phenolic slab 40 mm, h = %g W/m2K, T_recovery = %g K\n", a.cfg.h, a.cfg.T_recovery);
+        std::printf("[tps] %-7s %-9s %-10s %-10s %-10s %-10s %-10s %-10s %-10s %s\n", "t[s]", "T_w[K]", "q_conv", "q_rad", "q_cond", "q_abl", "mdot_g", "mdot_c", "p_max[kPa]", "char[mm]");
+        while (t < 80.0 - 1e-9) {
+            a.step(s, t, d);
+            if (static_cast<int>(std::lround(t / a.cfg.dt)) % 1000 == 0) {
+                std::printf("[tps] %-7.1f %-9.1f %-10.3g %-10.3g %-10.3g %-10.3g %-10.3g %-10.3g %-10.3g %.3f\n", t, d.T_wall, d.q_conv, d.q_rad, d.q_cond, d.q_abl, d.mdot_g, d.mdot_c, d.p_max * 1e-3, 1e3 * d.char_depth);
+            }
+        }
+        std::printf("[tps] surface energy balance at t = %.1f s: q_conv - q_rad - q_abl - q_gas - q_cond = %.3e W/m2 (q_gas = %.3g)\n", t, d.q_conv - d.q_rad - d.q_abl - d.q_gas - d.q_cond, d.q_gas);
+        std::printf("[tps] total recession = %.3f mm, final surface T = %.1f K, in-depth T at 2/5/10 mm = %.1f / %.1f / %.1f K\n", 1e3 * s.xs, s.T[0],
+                    [&] { std::size_t i = 0; while (i + 1 < s.x.size() && s.x[i] - s.xs < 2e-3) ++i; return s.T[i]; }(),
+                    [&] { std::size_t i = 0; while (i + 1 < s.x.size() && s.x[i] - s.xs < 5e-3) ++i; return s.T[i]; }(),
+                    [&] { std::size_t i = 0; while (i + 1 < s.x.size() && s.x[i] - s.xs < 10e-3) ++i; return s.T[i]; }());
+    }
+    return 0;
+}
+
+All eight C++20 files are in place. Now the real test: compile every verification driver with g++ -std=c++20 -O2 and run them.
+Ran cd src/cpp && mkdir -p /tmp/cppbuild && for t in b…
+Edited src/cpp/fwh_farassat1a.hpp
++1-1
+Edited src/cpp/fwh_farassat1a.hpp
++9-8
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <vector>
+#include "poly_fvm.hpp"
+namespace mp::fwh {
+#include <algorithm>
+#include <cmath>
+#include <complex>
+#include <cstddef>
+#include <vector>
+#include "poly_fvm.hpp"
+namespace mp::fwh {
+
+Edited src/cpp/stiff_integrators.hpp
++1-1
+Edited src/cpp/stiff_integrators.hpp
++8-4
+
+    static constexpr double gamma = 1.0 + 0.7071067811865476;  // 1 + 1/sqrt(2)
+    static constexpr double a21 = 1.0 / (2.0 * gamma);
+    static constexpr double gamma31 = -1.0;
+    static constexpr double b1 = 0.5, b2 = 0.5;
+    // Classical ROS2 (Verwer 1996; Sandu-Verwer-Blom-Spee-Carmichael-Potra 1997):
+    //   (I - h gamma J) k1 = h f(t, y)
+    //   (I - h gamma J) k2 = h f(t + a21 h, y + a21 k1) + gamma31 h J k1
+    //   y_{n+1} = y + (k1 + k2)/2 ,  gamma = 1 + 1/sqrt2 (L-stable), a21 = 1, gamma31 = -2 gamma
+    static constexpr double gamma = 1.0 + 0.7071067811865476;  // 1 + 1/sqrt(2)
+    static constexpr double a21 = 1.0;
+    static constexpr double gamma31 = -2.0 * gamma;
+    static constexpr double b1 = 0.5, b2 = 0.5;
+
+Edited src/cpp/battery_runaway.hpp
++1-1
+Edited src/cpp/battery_runaway.hpp
++5-6
+
+    double cell_heat_ecm(const std::vector<double>& y, int c) const {
+        const double* yc = &y[static_cast<std::size_t>(state_offset(c))];
+        const double I = contactor_closed(y.data()) ? pk.I_load : 0.0;
+        const double U = ecm.u_ocv(yc[2]);
+        return I * (I * ecm.r0(yc[0], yc[2]) + yc[3] + yc[4]) + I * yc[0] * ecm.dUdT;
+    }
+    double cell_heat_ecm(const std::vector<double>& y, int c) const {
+        const double* yc = &y[static_cast<std::size_t>(state_offset(c))];
+        const double I = contactor_closed(y.data()) ? pk.I_load : 0.0;
+        return I * (I * ecm.r0(yc[0], yc[2]) + yc[3] + yc[4]) + I * yc[0] * ecm.dUdT;  // q_irr + q_rev
+    }
+
+Edited src/cpp/test_battery.cpp
++1-1
+Edited src/cpp/test_battery.cpp
++32-14
+
+static double ros2_scalar_test() {
+    // y' = -1000 (y - cos t) - sin t,  y(0) = 1,  exact y = cos t ; stiff (lambda = -1000) at dt = 0.1
+    double y = 1.0, t = 0.0;
+    const double dt = 0.1;
+    double maxerr = 0.0, k1, k2, ys, tmp, d;
+    for (int n = 0; n < 20; ++n) {
+        stiff::Ros2::step(&y, 1, t, dt,
+                          [](double tt, const double* yy, double* f) { *f = -1000.0 * (*yy - std::cos(tt)) - std::sin(tt); },
+                          [](const double*, double* dd) { *dd = -1000.0; }, &k1, &k2, &ys, &tmp, &d);
+        t += dt;
+        maxerr = std::max(maxerr, std::fabs(y - std::cos(t)));
+    }
+    return maxerr;
+}
+static double ros2_block_test() {
+    // Stiff autonomous 2x2 system on a smooth slow manifold:
+    //   y' = A y,  A = [[-1000, 1000],[0, -1]],  y(0) = (1000/999, 1)  ->  y = (1000/999, 1) e^{-t}
+    // Integrated with the same block-diagonal Rosenbrock-W machinery as the pack (exact 2x2 stiff block).
+    std::vector<double> y{1000.0 / 999.0, 1.0}, f(2.0), k1(2.0), k2(2.0), ys(2.0);
+    const double J[2][2] = {{-1000.0, 1000.0}, {0.0, -1.0}};
+    stiff::DenseLu<2> W;
+    const double dt = 0.1;
+    double t = 0.0, maxerr = 0.0;
+    auto rhs = [&](const std::vector<double>& yy, std::vector<double>& ff) {
+        ff[0] = -1000.0 * yy[0] + 1000.0 * yy[1];
+        ff[1] = -yy[1];
+    };
+    for (int n = 0; n < 20; ++n) {
+        W.factor(J, stiff::Ros2::gamma * dt);
+        rhs(y, f);
+        for (int i = 0; i < 2; ++i) k1[static_cast<std::size_t>(i)] = dt * f[static_cast<std::size_t>(i)];
+        W.solve(k1.data());
+        for (int i = 0; i < 2; ++i) ys[static_cast<std::size_t>(i)] = y[static_cast<std::size_t>(i)] + stiff::Ros2::a21 * k1[static_cast<std::size_t>(i)];
+        rhs(ys, f);
+        for (int i = 0; i < 2; ++i) {
+            const double Jk = J[i][0] * k1[0] + J[i][1] * k1[1];
+            k2[static_cast<std::size_t>(i)] = dt * f[static_cast<std::size_t>(i)] + stiff::Ros2::gamma31 * dt * Jk;
+        }
+        W.solve(k2.data());
+        for (int i = 0; i < 2; ++i) y[static_cast<std::size_t>(i)] += stiff::Ros2::b1 * k1[static_cast<std::size_t>(i)] + stiff::Ros2::b2 * k2[static_cast<std::size_t>(i)];
+        t += dt;
+        const double ex = std::exp(-t);
+        maxerr = std::max(maxerr, std::max(std::fabs(y[0] - 1000.0 / 999.0 * ex), std::fabs(y[1] - ex)));
+    }
+    return maxerr;
+}
+
+Edited src/cpp/test_battery.cpp
++1-1
+Edited src/cpp/test_battery.cpp
++3-3
+
+int main() {
+    const double err = ros2_scalar_test();
+    std::printf("[battery] ROS2 scalar stiff test  : max|y - cos t| = %.3e over t in [0,2] at dt = 0.1 (lambda = -1000)  %s\n", err, err < 5e-3 ? "PASS" : "FAIL");
+int main() {
+    const double err = ros2_block_test();
+    std::printf("[battery] ROS2 block-W stiff test : max|y - y_exact| = %.3e on the slow manifold, t in [0,2], dt = 0.1 (lambda = -1000, explicit Euler needs dt < 0.002)  %s\n", err, err < 5e-3 ? "PASS" : "FAIL");
+
+Edited src/cpp/linalg.hpp
++1-1
+Edited src/cpp/linalg.hpp
++2-2
+
+        for (std::size_t i = 0; i < nz; ++i) dz_[i] = zfaces[i + 1] - zfaces[i];
+        for (std::size_t i = 0; i + 1 < nz; ++i) dzf_[i] = zfaces[i + 1];
+        for (std::size_t i = 0; i < nz; ++i) dz_[i] = zfaces[i + 1] - zfaces[i];
+        for (std::size_t i = 0; i + 1 < nz; ++i) dzf_[i] = 0.5 * (dz_[i] + dz_[i + 1]);  // centre-to-centre spacing
+
+Edited src/cpp/linalg.hpp
++1-1
+Edited src/cpp/linalg.hpp
++40-30
+
+// Jacobi-preconditioned conjugate gradient. Returns iteration count or -1.
+inline int pcg(const CsrMatrix& A, const std::vector<double>& b, std::vector<double>& x, double tol, int max_iter) {
+    const std::size_t n = A.n;
+    std::vector<double> r(n), z(n), p(n), Ap(n), ddiag(n, 1.0);
+    for (std::size_t i = 0; i < n; ++i)
+        for (std::int64_t q = A.row_start[i]; q < A.row_start[i + 1]; ++q)
+            if (static_cast<std::size_t>(A.col[static_cast<std::size_t>(q)]) == i) ddiag[i] = 1.0 / A.val[static_cast<std::size_t>(q)];
+    x.assign(n, 0.0);
+    A.multiply(x.data(), r.data());
+    for (std::size_t i = 0; i < n; ++i) r[i] = b[i] - r[i];
+    const double bnorm = std::sqrt(std::inner_product(b.begin(), b.end(), b.begin(), 0.0)) + 1e-300;
+    for (std::size_t i = 0; i < n; ++i) { z[i] = ddiag[i] * r[i]; p[i] = z[i]; }
+    double rz = std::inner_product(z.begin(), z.end(), r.begin(), 0.0);
+    int it = 0;
+    for (; it < max_iter; ++it) {
+        A.multiply(p.data(), Ap.data());
+        const double pAp = std::inner_product(p.begin(), p.end(), Ap.begin(), 0.0);
+        if (pAp <= 0.0) break;
+        const double alpha = rz / pAp;
+        for (std::size_t i = 0; i < n; ++i) { x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+        const double rnorm = std::sqrt(std::inner_product(r.begin(), r.end(), r.begin(), 0.0));
+        if (rnorm / bnorm < tol) return static_cast<int>(it) + 1;
+        for (std::size_t i = 0; i < n; ++i) z[i] = ddiag[i] * r[i];
+        const double rz_new = std::inner_product(z.begin(), z.end(), r.begin(), 0.0);
+        const double beta = rz_new / rz;
+        rz = rz_new;
+        for (std::size_t i = 0; i < n; ++i) p[i] = z[i] + beta * p[i];
+    }
+    return -1;
+}
+// Jacobi-PCG.  With constant_nullspace = true (pure Neumann problem) the residual is
+// projected onto the range of A every iteration so the iterate keeps zero mean.  Returns iterations or -1.
+inline int pcg(const CsrMatrix& A, const std::vector<double>& b, std::vector<double>& x, double tol, int max_iter, bool constant_nullspace = false) {
+    const std::size_t n = A.n;
+    auto deflate = [&](std::vector<double>& v) {
+        if (!constant_nullspace) return;
+        double m = 0.0;
+        for (double q : v) m += q;
+        m /= double(n);
+        for (double& q : v) q -= m;
+    };
+    std::vector<double> r(n), z(n), p(n), Ap(n), ddiag(n, 1.0);
+    for (std::size_t i = 0; i < n; ++i)
+        for (std::int64_t q = A.row_start[i]; q < A.row_start[i + 1]; ++q)
+            if (static_cast<std::size_t>(A.col[static_cast<std::size_t>(q)]) == i) ddiag[i] = 1.0 / A.val[static_cast<std::size_t>(q)];
+    x.assign(n, 0.0);
+    A.multiply(x.data(), r.data());
+    for (std::size_t i = 0; i < n; ++i) r[i] = b[i] - r[i];
+    deflate(r);
+    const double bnorm = std::sqrt(std::inner_product(b.begin(), b.end(), b.begin(), 0.0)) + 1e-300;
+    for (std::size_t i = 0; i < n; ++i) { z[i] = ddiag[i] * r[i]; p[i] = z[i]; }
+    double rz = std::inner_product(z.begin(), z.end(), r.begin(), 0.0);
+    int it = 0;
+    for (; it < max_iter; ++it) {
+        A.multiply(p.data(), Ap.data());
+        const double pAp = std::inner_product(p.begin(), p.end(), Ap.begin(), 0.0);
+        if (pAp <= 0.0) break;
+        const double alpha = rz / pAp;
+        for (std::size_t i = 0; i < n; ++i) { x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+        deflate(r);
+        const double rnorm = std::sqrt(std::inner_product(r.begin(), r.end(), r.begin(), 0.0));
+        if (rnorm / bnorm < tol) return static_cast<int>(it) + 1;
+        for (std::size_t i = 0; i < n; ++i) z[i] = ddiag[i] * r[i];
+        const double rz_new = std::inner_product(z.begin(), z.end(), r.begin(), 0.0);
+        const double beta = rz_new / rz;
+        rz = rz_new;
+        for (std::size_t i = 0; i < n; ++i) p[i] = z[i] + beta * p[i];
+    }
+    return -1;
+}
+
+Edited src/cpp/mhd_projection.hpp
++1-1
+Edited src/cpp/mhd_projection.hpp
++1-1
+
+            if (i > 0) azl_[i] = 1.0 / (dz_[i] * (zfaces[i] - zfaces[i - 1] + 0.0)) * 0.0 + 1.0 / (dz_[i] * (dz_[i - 1] + dz_[i]) * 0.5);
+            if (i > 0) azl_[i] = 1.0 / (dz_[i] * 0.5 * (dz_[i - 1] + dz_[i]));
+
+Edited src/cpp/test_mhd.cpp
++1-1
+Edited src/cpp/test_mhd.cpp
++2-2
+
+        const int it = linalg::pcg(A2, bc, phic, 1e-10, 5000);
+        std::printf("[mhd]  generic path PCG on 8x8 mesh : %d iterations to 1e-10\n", it);
+        const int it = linalg::pcg(A2, bc, phic, 1e-10, 5000, true);
+        std::printf("[mhd]  generic path Jacobi-PCG (constant-nullspace deflated) on 8x8 mesh : %d iterations to 1e-10  %s\n", it, it > 0 ? "PASS" : "FAIL");
+
+Edited src/cpp/tps_ablation.hpp
++1-1
+Edited src/cpp/tps_ablation.hpp
++5-6
+
+        std::vector<double> xnew(n), wm(n);
+        const double xs_new = s.xs + v_rec * dt;
+        for (std::size_t i = 0; i < n; ++i) {
+            const double xi = s.xp[i] / cfg.L;  // Lagrangian parameter from the initial uniform grid
+            xnew[i] = xs_new + (i == 0 ? 0.0 : (cfg.L - xs_new) * xi);
+            if (i == 0) xnew[i] = xs_new;
+        std::vector<double> xnew(n), wm(n);
+        const double xs_new = s.xs + v_rec * dt;
+        for (std::size_t i = 0; i < n; ++i) {
+            const double xi = double(i) / double(n - 1);  // Lagrangian parameter of the initial uniform grid
+            xnew[i] = xs_new + (cfg.L - xs_new) * xi;
+
+Edited src/cpp/tps_ablation.hpp
++1-1
+Edited src/cpp/tps_ablation.hpp
++7-6
+
+            double pyro = 0.0, dpyro_dT = 0.0;
+            for (int k = 0; k < NR; ++k) {
+                const auto& r = mat.pyro[static_cast<std::size_t>(k)];
+                pyro += (r.dH + (mat.c_pg - mat.c_s) * (s.T[i] - cfg.T0)) * gen[i] / NR * NR;  // gen already summed
+                dpyro_dT += (r.dH + (mat.c_pg - mat.c_s) * (s.T[i] - cfg.T0)) * mat.drate_dT(k, s.T[i], s.rho[i][static_cast<std::size_t>(k)]);
+            }
+            double pyro = 0.0, dpyro_dT = 0.0;
+            for (int k = 0; k < NR; ++k) {
+                const auto& r = mat.pyro[static_cast<std::size_t>(k)];
+                const double gk = mat.rate(k, s.T[i], s.rho[i][static_cast<std::size_t>(k)]);
+                pyro += (r.dH + (mat.c_pg - mat.c_s) * (s.T[i] - cfg.T0)) * gk;  // reaction heat + gas/solid enthalpy difference
+                dpyro_dT += (r.dH + (mat.c_pg - mat.c_s) * (s.T[i] - cfg.T0)) * mat.drate_dT(k, s.T[i], s.rho[i][static_cast<std::size_t>(k)]);
+            }
+
+Ran cd src/cpp && for t in battery fwh mhd tps; do ech…
+Created src/cpp/stiff_integrators.hpp
+Created src/cpp/stiff_integrators.hpp
+
+// ============================================================================
+//  Cluster C : stiff source integrators
+//   ExpBlockEuler  - cell-block exponential Rosenbrock-Euler ("Patankar-
+//                     diagonalised" W): the stiff cell-local block (T, c_k) is
+//                     integrated with the matrix exponential/phi-1 function of
+//                     its exact Jacobian block, all inter-cell couplings are
+//                     explicit.  Exact for the linearised block, L-stable for
+//                     stiff depletion modes, exact preservation of the block
+//                     energy invariant (explosive modes are NOT damped).
+//   Bdf2Patankar   - BDF2 with Patankar negative-slope source linearisation,
+//                     used by the ALE ablation solver (BDF2 DGCL consistent).
+//   DenseLu        - small dense LU (verification / generic use).
+//   Compile: g++ -std=c++20 -O2
+// ============================================================================
+#pragma once
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+namespace mp::stiff {
+template <int N>
+struct Mat {
+    double a[N][N];
+    Mat() : a{} {}
+    static Mat identity() {
+        Mat m;
+        for (int i = 0; i < N; ++i) m.a[i][i] = 1.0;
+        return m;
+    }
+    Mat& operator+=(const Mat& o) {
+        for (int i = 0; i < N; ++i)
+            for (int j = 0; j < N; ++j) a[i][j] += o.a[i][j];
+        return *this;
+    }
+    Mat& operator*=(double s) {
+        for (int i = 0; i < N; ++i)
+            for (int j = 0; j < N; ++j) a[i][j] *= s;
+        return *this;
+    }
+    friend Mat operator*(const Mat& A, const Mat& B) {
+        Mat C;
+        for (int i = 0; i < N; ++i)
+            for (int k = 0; k < N; ++k) {
+                const double aik = A.a[i][k];
+                if (aik == 0.0) continue;
+                for (int j = 0; j < N; ++j) C.a[i][j] += aik * B.a[k][j];
+            }
+        return C;
+    }
+    void apply(const double* x, double* y) const {  // y = (*this) x
+        for (int i = 0; i < N; ++i) {
+            double s = 0.0;
+            for (int j = 0; j < N; ++j) s += a[i][j] * x[j];
+            y[i] = s;
+        }
+    }
+};
+// E = exp(M), P = phi_1(M) = sum_k M^k/(k+1)!  via scaling & squaring and Taylor series
+// (doubling: phi_1(2A) = (exp(A) + I) phi_1(A) / 2).
+template <int N>
+void expm_phi1(const Mat<N>& M, Mat<N>& E, Mat<N>& P) {
+    double nrm = 0.0;
+    for (int i = 0; i < N; ++i) {
+        double s = 0.0;
+        for (int j = 0; j < N; ++j) s += std::fabs(M.a[i][j]);
+        nrm = std::max(nrm, s);
+    }
+    int sq = 0;
+    double scale = 1.0;
+    while (nrm * scale > 0.5) {
+        scale *= 0.5;
+        ++sq;
+    }
+    Mat<N> A = M;
+    A *= scale;
+    Mat<N> term = Mat<N>::identity(), e = Mat<N>::identity(), p = Mat<N>::identity();
+    double fact = 1.0;
+    for (int k = 1; k <= 14; ++k) {
+        term = term * A;
+        fact *= double(k);
+        Mat<N> te = term, tp = term;
+        te *= 1.0 / fact;
+        tp *= 1.0 / (fact * double(k + 1));
+        e += te;
+        p += tp;
+    }
+    for (int s = 0; s < sq; ++s) {
+        Mat<N> e2 = e * e;
+        Mat<N> ep = e;
+        ep += Mat<N>::identity();
+        p = ep * p;
+        p *= 0.5;
+        e = e2;
+    }
+    E = e;
+    P = p;
+}
+// y_block += phi_1(dt J_block) * (dt f_block)
+template <int N>
+void exponential_block_step(double* y_block, const double* f, double dt, const double J[N][N]) {
+    Mat<N> M;
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j) M.a[i][j] = dt * J[i][j];
+    Mat<N> E, P;
+    expm_phi1(M, E, P);
+    double x[N], inc[N];
+    for (int i = 0; i < N; ++i) x[i] = dt * f[i];
+    P.apply(x, inc);
+    for (int i = 0; i < N; ++i) y_block[i] += inc[i];
+}
+struct Bdf2Patankar {
+    // (3 y^{n+1} - 4 y^n + y^{n-1}) / (2 dt) = f(t^n, y^n) + d (y^{n+1} - y^n)
+    //   =>  y^{n+1} = [ (4 y^n - y^{n-1}) / (2 dt) + f^n - d y^n ] / [ 3/(2 dt) - d ]
+    template <class Rhs, class Diag>
+    static void step(double t, const double* yn, const double* ynm1, double* ynp1, std::size_t n, double dt, Rhs&& f, Diag&& diag, double* fn, double* d) {
+        diag(yn, d);
+        f(t, yn, fn);
+        const double c0 = 3.0 / (2.0 * dt), c1 = 1.0 / (2.0 * dt);
+        for (std::size_t i = 0; i < n; ++i) ynp1[i] = ((4.0 * yn[i] - ynm1[i]) * c1 + fn[i] - d[i] * yn[i]) / (c0 - d[i]);
+    }
+    template <class Rhs, class Diag>
+    static void startup(double t, const double* yn, double* ynp1, std::size_t n, double dt, Rhs&& f, Diag&& diag, double* fn, double* d) {
+        diag(yn, d);
+        f(t, yn, fn);
+        for (std::size_t i = 0; i < n; ++i) ynp1[i] = (yn[i] + dt * fn[i] - dt * d[i] * yn[i]) / (1.0 - dt * d[i]);
+    }
+};
+template <int N>
+struct DenseLu {
+    double a[N][N];
+    int piv[N];
+    void factor(const double J[N][N], double id_scale) {
+        for (int i = 0; i < N; ++i)
+            for (int j = 0; j < N; ++j) a[i][j] = (i == j ? 1.0 : 0.0) - id_scale * J[i][j];
+        for (int k = 0; k < N; ++k) {
+            int p = k;
+            for (int i = k + 1; i < N; ++i)
+                if (std::fabs(a[i][k]) > std::fabs(a[p][k])) p = i;
+            piv[k] = p;
+            if (p != k)
+                for (int j = 0; j < N; ++j) std::swap(a[k][j], a[p][j]);
+            if (std::fabs(a[k][k]) < 1e-300) a[k][k] = 1e-300;
+            for (int i = k + 1; i < N; ++i) {
+                const double w = a[i][k] / a[k][k];
+                a[i][k] = w;
+                for (int j = k + 1; j < N; ++j) a[i][j] -= w * a[k][j];
+            }
+        }
+    }
+    void solve(double* b) const {
+        for (int k = 0; k < N; ++k) {
+            const int p = piv[k];
+            if (p != k) std::swap(b[k], b[p]);
+            for (int i = k + 1; i < N; ++i) b[i] -= a[i][k] * b[k];
+        }
+        for (int i = N - 1; i >= 0; --i) {
+            for (int j = i + 1; j < N; ++j) b[i] -= a[i][j] * b[j];
+            b[i] /= a[i][i];
+        }
+    }
+};
+}  // namespace mp::stiff
+
+Edited src/cpp/battery_runaway.hpp
++1-1
+Edited src/cpp/battery_runaway.hpp
++37-38
+
+    // One ROS2 Rosenbrock-W step with block-diagonal W (cell-local stiff block).
+    void step(std::vector<double>& y, double& t, double dt) const {
+        const int n = ncells();
+        const std::size_t N = static_cast<std::size_t>(n * NS);
+        std::vector<double> f(N), fs(N), k1(N), k2(N), ys(N);
+        std::vector<stiff::DenseLu<NB>> W(static_cast<std::size_t>(n));
+        rhs(t, y.data(), f.data());
+        for (int c = 0; c < n; ++c) {
+            double J[NB][NB];
+            block_jacobian(y.data(), c, J);
+            W[static_cast<std::size_t>(c)].factor(J, stiff::Ros2::gamma * dt);
+            double b[NB];
+            for (int i = 0; i < NB; ++i) b[i] = dt * f[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))];
+            W[static_cast<std::size_t>(c)].solve(b);
+            for (int i = 0; i < NB; ++i) k1[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))] = b[i];
+            for (int comp : {1, 2, 3, 4}) k1[static_cast<std::size_t>(state_offset(c) + comp)] = dt * f[static_cast<std::size_t>(state_offset(c) + comp)];
+        }
+        for (std::size_t i = 0; i < N; ++i) ys[i] = y[i] + stiff::Ros2::a21 * k1[i];
+        clip(ys);
+        rhs(t + stiff::Ros2::a21 * dt, ys.data(), fs.data());
+        for (int c = 0; c < n; ++c) {
+            double J[NB][NB];
+            block_jacobian(y.data(), c, J);
+            double b[NB];
+            for (int i = 0; i < NB; ++i) {
+                double Jk = 0.0;
+                for (int j = 0; j < NB; ++j) Jk += J[i][j] * k1[static_cast<std::size_t>(state_offset(c) + (j == 0 ? 0 : 4 + j))];
+                const double fi = fs[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))];
+                b[i] = dt * fi + stiff::Ros2::gamma31 * dt * Jk;
+            }
+            W[static_cast<std::size_t>(c)].solve(b);
+            for (int i = 0; i < NB; ++i) k2[static_cast<std::size_t>(state_offset(c) + (i == 0 ? 0 : 4 + i))] = b[i];
+            for (int comp : {1, 2, 3, 4}) k2[static_cast<std::size_t>(state_offset(c) + comp)] = dt * fs[static_cast<std::size_t>(state_offset(c) + comp)];
+        }
+        for (std::size_t i = 0; i < N; ++i) y[i] += stiff::Ros2::b1 * k1[i] + stiff::Ros2::b2 * k2[i];
+        clip(y);
+        t += dt;
+    }
+    // One exponential Rosenbrock-Euler step with the cell-local stiff block as W:
+    //   y_block += phi_1(dt J_block) (dt f_block) ;  non-block components explicit.
+    // Exact for the linearised block, so the energy invariant T + (H_k V/C) c_k is preserved
+    // and Arrhenius depletion stiffness never limits the step.
+    void step(std::vector<double>& y, double& t, double dt) const {
+        const int n = ncells();
+        const std::size_t N = static_cast<std::size_t>(n * NS);
+        std::vector<double> f(N);
+        rhs(t, y.data(), f.data());
+        for (int c = 0; c < n; ++c) {
+            const std::size_t o = static_cast<std::size_t>(state_offset(c));
+            double J[NB][NB];
+            block_jacobian(y.data(), c, J);
+            double yb[NB], fb[NB];
+            for (int i = 0; i < NB; ++i) {
+                yb[i] = y[o + static_cast<std::size_t>(i == 0 ? 0 : 4 + i)];
+                fb[i] = f[o + static_cast<std::size_t>(i == 0 ? 0 : 4 + i)];
+            }
+            stiff::exponential_block_step<NB>(yb, fb, dt, J);
+            y[o] = yb[0];
+            for (int k = 0; k < 4; ++k) y[o + 5 + static_cast<std::size_t>(k)] = yb[1 + k];
+            for (int comp : {1, 2, 3, 4}) y[o + static_cast<std::size_t>(comp)] += dt * f[o + static_cast<std::size_t>(comp)];
+        }
+        clip(y);
+        t += dt;
+    }
+    // Step controller: the step only shrinks when the self-heating slope a = d(Q_abuse/dT)/C is large
+    // (a few steps per cell burst); stiff depletion modes are handled by the exponential block.
+    double recommended_dt(const double* y, double dt_max, double theta = 0.5) const {
+        double amax = 0.0;
+        for (int c = 0; c < ncells(); ++c) {
+            double J[NB][NB];
+            block_jacobian(y, c, J);
+            amax = std::max(amax, J[0][0]);
+        }
+        return std::min(dt_max, theta / std::max(amax, 1e-12));
+    }
+
+Created src/cpp/test_battery.cpp
+Created src/cpp/test_battery.cpp
+
+// Verification driver: g++ -std=c++20 -O2 -I src/cpp src/cpp/test_battery.cpp -o test_battery && ./test_battery
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <vector>
+#include "battery_runaway.hpp"
+using namespace mp;
+static double expm_block_test() {
+    // Stiff autonomous 2x2 system on a smooth slow manifold:
+    //   y' = A y,  A = [[-1000, 1000],[0, -1]],  y(0) = (1000/999, 1)  ->  y = (1000/999, 1) e^{-t}
+    // The exponential block scheme is exact for a linear block: y_{n+1} = exp(dt A) y_n.
+    std::vector<double> y{1000.0 / 999.0, 1.0}, f(2.0);
+    const double J[2][2] = {{-1000.0, 1000.0}, {0.0, -1.0}};
+    const double dt = 0.1;
+    double t = 0.0, maxerr = 0.0;
+    for (int n = 0; n < 20; ++n) {
+        f[0] = -1000.0 * y[0] + 1000.0 * y[1];
+        f[1] = -y[1];
+        stiff::exponential_block_step<2>(y.data(), f.data(), dt, J);
+        t += dt;
+        const double ex = std::exp(-t);
+        maxerr = std::max(maxerr, std::max(std::fabs(y[0] - 1000.0 / 999.0 * ex), std::fabs(y[1] - ex)));
+    }
+    return maxerr;
+}
+int main() {
+    const double err = expm_block_test();
+    std::printf("[battery] exponential block-W stiff test : max|y - y_exact| = %.3e on the slow manifold, t in [0,2], dt = 0.1 (lambda = -1000; explicit Euler needs dt < 0.002)  %s\n", err, err < 1e-12 ? "PASS" : "FAIL");
+    battery::PackModel m;
+    m.pk.nx = 4;
+    m.pk.ny = 2;
+    const int nc = m.ncells();
+    std::vector<double> y;
+    m.initial_state(y, 298.15, 0.8);
+    const double T0 = 298.15, dt_max = 0.5, t_end = 400.0;
+    double t = 0.0;
+    std::vector<double> tr(static_cast<std::size_t>(nc), -1.0);
+    double Tmax = 0.0, dt_min = 1e300, E_cool = 0.0, E_heater = 0.0, E_ecm = 0.0, Q_peak = 0.0, Jnorm_peak = 0.0;
+    long steps = 0, burst_steps = 0;
+    const std::vector<double> rem0 = y;
+    while (t < t_end) {
+        const double dt = std::min(m.recommended_dt(y.data(), dt_max), t_end - t);
+        if (dt < 0.999 * dt_max) ++burst_steps;
+        dt_min = std::min(dt_min, dt);
+        for (int c = 0; c < nc; ++c) {
+            const std::size_t o = static_cast<std::size_t>(battery::PackModel::state_offset(c));
+            E_cool += dt * (y[o + 1] - m.pk.T_cool) / m.pk.R_cool;
+            E_ecm += dt * m.cell_heat_ecm(y, c);
+            if (c == m.pk.heater_cell && t < m.pk.t_heater) E_heater += dt * m.pk.P_heater;
+        }
+        Jnorm_peak = std::max(Jnorm_peak, m.block_spectral_bound(y.data()));
+        Q_peak = std::max(Q_peak, m.cell_heat_abuse(y, m.pk.heater_cell));
+        m.step(y, t, dt);
+        ++steps;
+        for (int c = 0; c < nc; ++c) {
+            const std::size_t o = static_cast<std::size_t>(battery::PackModel::state_offset(c));
+            if (tr[static_cast<std::size_t>(c)] < 0.0 && y[o] > 423.15) tr[static_cast<std::size_t>(c)] = t;
+            Tmax = std::max(Tmax, y[o]);
+        }
+    }
+    double E_rel = 0.0, dU = 0.0;
+    for (int c = 0; c < nc; ++c) {
+        const std::size_t o = static_cast<std::size_t>(battery::PackModel::state_offset(c));
+        for (int k = 0; k < 4; ++k) E_rel += m.kin.st[static_cast<std::size_t>(k)].H * (rem0[o + 5 + static_cast<std::size_t>(k)] - y[o + 5 + static_cast<std::size_t>(k)]) * m.pk.V_cell * m.pk.core_fraction;
+        dU += m.pk.rho_cp * m.pk.V_cell * (m.pk.core_fraction * (y[o] - T0) + (1.0 - m.pk.core_fraction) * (y[o + 1] - T0));
+    }
+    const double resid = (E_rel + E_heater + E_ecm - E_cool - dU) / std::max(1.0, E_rel + E_heater);
+    int propagated = 0;
+    for (int c = 0; c < nc; ++c)
+        if (tr[static_cast<std::size_t>(c)] >= 0.0) ++propagated;
+    std::printf("[battery] pack 4x2 21700 (R_cc = %g K/W, R_cool = %g K/W), heater %g W x %g s on cell %d: TR onset trigger = %.1f s, propagated to %d/%d cells, peak Tc = %.0f K\n",
+                m.pk.R_cc, m.pk.R_cool, m.pk.P_heater, m.pk.t_heater, m.pk.heater_cell, tr[static_cast<std::size_t>(m.pk.heater_cell)], propagated, nc, Tmax);
+    std::printf("[battery] exponential block-W integrator: %ld steps for %g s (dt_max = %.2f s), %ld burst steps, min dt = %.2e s; peak block Jacobian norm = %.3g 1/s -> explicit Euler limit = %.2e s  %s\n",
+                steps, t_end, dt_max, burst_steps, dt_min, Jnorm_peak, 2.0 / Jnorm_peak, steps < 20000 ? "PASS" : "FAIL");
+    std::printf("[battery] peak abuse heat release = %.0f W ; pack energy balance residual = %.2f %%  %s\n", Q_peak, 100.0 * resid, std::fabs(resid) < 0.05 ? "PASS" : "FAIL");
+    std::printf("[battery] cell TR onset times [s]:");
+    for (int c = 0; c < nc; ++c) std::printf(" %6.1f", tr[static_cast<std::size_t>(c)]);
+    std::printf("\n");
+    return (err < 1e-12 && std::fabs(resid) < 0.05 && steps < 20000) ? 0 : 1;
+}
+
+Edited src/cpp/mhd_projection.hpp
++1-1
+Edited src/cpp/mhd_projection.hpp
++7-7
+
+    void potential_rhs(const double* u, double* b) const {
+        std::fill(b, b + m_.n_cells, 0.0);
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const auto nb = m_.face_neighbor[f];
+            double uf = u[o];
+            if (nb >= 0) uf = m_.face_weight[f] * u[static_cast<std::size_t>(nb)] + (1.0 - m_.face_weight[f]) * u[o];
+    void potential_rhs(const double* u, double* b) const {
+        std::fill(b, b + m_.n_cells, 0.0);
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const auto nb = m_.face_neighbor[f];
+            if (nb < 0) continue;  // no-slip walls: u_wall = 0 -> no (u x B0) flux through boundary faces
+            const double uf = m_.face_weight[f] * u[static_cast<std::size_t>(nb)] + (1.0 - m_.face_weight[f]) * u[o];
+
+Edited src/cpp/tps_ablation.hpp
++1-1
+Edited src/cpp/tps_ablation.hpp
++2-2
+
+    double h = 1000.0, T_recovery = 2800.0;   // convective heating (cold-wall h, recovery temperature)
+    double dt = 0.02;
+    double h = 1000.0, T_recovery = 2800.0;   // convective heating (cold-wall h, recovery temperature)
+    double dt = 1.0e-3;                        // resolves the ~10^3-10^4 K/s surface transient
+
+Edited src/cpp/test_tps.cpp
++1-1
+Edited src/cpp/test_tps.cpp
++8-5
+
+        std::printf("[tps] carbon-phenolic slab 40 mm, h = %g W/m2K, T_recovery = %g K\n", a.cfg.h, a.cfg.T_recovery);
+        std::printf("[tps] %-7s %-9s %-10s %-10s %-10s %-10s %-10s %-10s %-10s %s\n", "t[s]", "T_w[K]", "q_conv", "q_rad", "q_cond", "q_abl", "mdot_g", "mdot_c", "p_max[kPa]", "char[mm]");
+        while (t < 80.0 - 1e-9) {
+            a.step(s, t, d);
+            if (static_cast<int>(std::lround(t / a.cfg.dt)) % 1000 == 0) {
+        std::printf("[tps] carbon-phenolic slab 40 mm, %zu nodes, h = %g W/m2K, T_recovery = %g K, dt = %g s\n", a.cfg.n, a.cfg.h, a.cfg.T_recovery, a.cfg.dt);
+        std::printf("[tps] %-7s %-9s %-10s %-10s %-10s %-10s %-10s %-10s %-10s %s\n", "t[s]", "T_w[K]", "q_conv", "q_rad", "q_cond", "q_abl", "mdot_g", "mdot_c", "p_max[kPa]", "char[mm]");
+        long steps = 0;
+        while (t < 80.0 - 1e-9) {
+            a.step(s, t, d);
+            ++steps;
+            if (!std::isfinite(d.T_wall)) { std::printf("[tps] NaN at step %ld\n", steps); return 2; }
+            if (steps % 10000 == 0) {
+
+Ran cd src/cpp && for t in battery mhd tps; do echo "=…
+Running mkdir -p /tmp/dbg && cat > /tmp/dbg/dbg_mhd.cpp <<… failed
+
+Found the TPS culprit: the explicit flux difference had the wrong sign (F_{i+1/2} − F_{i−1/2} instead of F_{i−1/2} − F_{i+1/2}); the Patankar diagonal happened to stabilize the Dirichlet test but the surface cooled under heating. The battery sweep shows the core-to-can resistance (1.2 K/W) starves the propagation path; I'll lower it to a Hatchard-like 0.6 K/W and re-sweep. Fixing the sign and the test settings, then re-running the three debug programs.
+Edited src/cpp/tps_ablation.hpp
++1-1
+Edited src/cpp/tps_ablation.hpp
++1-1
+
+            fT[i] = (Fp - Fm) / (rc * w[i]) - pyro / rc + wm[i] * ddx(s.T, i);
+            fT[i] = (Fm - Fp) / (rc * w[i]) - pyro / rc + wm[i] * ddx(s.T, i);  // in - out (+x fluxes)
+
+Edited src/cpp/test_tps.cpp
++1-1
+Edited src/cpp/test_tps.cpp
++4-3
+
+        a.cfg.h = 0.0;
+        a.cfg.v_rec_forced = 2e-4;
+        TpsState s;
+        a.cfg.h = 0.0;
+        a.cfg.dt = 0.02;
+        a.cfg.v_rec_forced = 2e-4;
+        TpsState s;
+
+Edited src/cpp/test_tps.cpp
++1-1
+Edited src/cpp/test_tps.cpp
++4-4
+
+        a.cfg.n = 120;
+        a.cfg.L = 0.04;
+        a.cfg.dt = 0.02;
+        a.cfg.h = 1000.0;
+        a.cfg.n = 120;
+        a.cfg.L = 0.04;
+        a.cfg.dt = 1.0e-3;
+        a.cfg.h = 1000.0;
+
+Ran cd /tmp/dbg && sed -i 's/Vec3 S = /fvm::Vec3 S = /…
+Edited src/cpp/mhd_projection.hpp
++1-1
+Edited src/cpp/mhd_projection.hpp
++33-15
+
+    // (1b) generic over-relaxed Laplacian (implicit part).  Boundary faces carry zero current.
+    void assemble_laplacian(linalg::CsrMatrix& A) const {
+        std::vector<std::int64_t> r, c;
+        std::vector<double> v;
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto nb = m_.face_neighbor[f];
+            if (nb < 0) continue;
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const double a = sigma_ * m_.alpha_f[f];
+            r.insert(r.end(), {static_cast<std::int64_t>(o), static_cast<std::int64_t>(o), nb, nb});
+            c.insert(c.end(), {nb, static_cast<std::int64_t>(o), static_cast<std::int64_t>(o), nb});
+            v.insert(v.end(), {-a, a, -a, a});
+        }
+        A.from_triplets(m_.n_cells, r, c, v);
+    }
+    // (1b) generic over-relaxed Laplacian, SPD (positive definite) form:
+    //        S phi = -b + K(phi),   S = -sum_f sigma_f alpha_f (phi_N - phi_P)   (per cell)
+    //     Boundary faces carry zero current (J.n = 0 -> homogeneous Neumann).
+    void assemble_laplacian(linalg::CsrMatrix& S) const {
+        std::vector<std::int64_t> r, c;
+        std::vector<double> v;
+        for (std::size_t f = 0; f < m_.n_faces; ++f) {
+            const auto nb = m_.face_neighbor[f];
+            if (nb < 0) continue;
+            const auto o = static_cast<std::size_t>(m_.face_owner[f]);
+            const double a = sigma_ * m_.alpha_f[f];
+            r.insert(r.end(), {static_cast<std::int64_t>(o), static_cast<std::int64_t>(o), nb, nb});
+            c.insert(c.end(), {nb, static_cast<std::int64_t>(o), static_cast<std::int64_t>(o), nb});
+            v.insert(v.end(), {a, -a, a, -a});
+        }
+        S.from_triplets(m_.n_cells, r, c, v);
+    }
+    // Generic solver path (any polyhedral mesh): PCG with constant-nullspace deflation; the
+    // non-orthogonal correction K is iterated (outer > 1 on skewed meshes).  Returns PCG iterations.
+    int solve_potential_pcg(const double* b, double* phi, double tol = 1e-10, int max_iter = 50000, int outer = 1) const {
+        linalg::CsrMatrix S;
+        assemble_laplacian(S);
+        std::vector<double> rhs(m_.n_cells), K(m_.n_cells), x(m_.n_cells, 0.0);
+        std::fill(phi, phi + m_.n_cells, 0.0);
+        int it = 0;
+        for (int o = 0; o < std::max(1, outer); ++o) {
+            nonorth_correction(phi, K.data());
+            for (std::size_t cc = 0; cc < m_.n_cells; ++cc) rhs[cc] = K[cc] - b[cc];
+            it = linalg::pcg(S, rhs, x, tol, max_iter, true);
+            for (std::size_t cc = 0; cc < m_.n_cells; ++cc) phi[cc] = x[cc];
+        }
+        return it;
+    }
+
+Edited src/cpp/test_mhd.cpp
++1-1
+Edited src/cpp/test_mhd.cpp
++18-12
+
+    std::printf("[mhd]  generic polyhedral CSR (alpha_f, k_f^corr) residual of the direct-solver potential : %.2e (rel. to |b|max) ; |k_f^corr|max = %.2e (orthogonal mesh)\n",
+                    worst / bmax, [&] { double m = 0; for (auto& k : mesh.kf_corr) m = std::max(m, fvm::norm(k)); return m; }());
+        // PCG on the generic system (coarse uniform sub-mesh) to exercise the solver path
+        auto coarse = fvm::make_structured_box(1, 8, 8, 1.0, 2.0, 2.0);
+        mhd::FourStepProjection pc(coarse, 1.0, fvm::Vec3{0, 0, 1});
+        std::vector<double> uc2(coarse.n_cells), bc(coarse.n_cells), phic(coarse.n_cells);
+        for (std::size_t c = 0; c < coarse.n_cells; ++c) uc2[c] = coarse.cell_centroid[c].z * coarse.cell_centroid[c].z - 1.0;  // parabola
+        pc.potential_rhs(uc2.data(), bc.data());
+        linalg::CsrMatrix A2;
+        pc.assemble_laplacian(A2);
+        const int it = linalg::pcg(A2, bc, phic, 1e-10, 5000, true);
+        std::printf("[mhd]  generic path Jacobi-PCG (constant-nullspace deflated) on 8x8 mesh : %d iterations to 1e-10  %s\n", it, it > 0 ? "PASS" : "FAIL");
+        std::printf("[mhd]  generic polyhedral CSR (alpha_f, k_f^corr) residual of the direct-solver potential : %.2e (rel. to |b|max) ; |k_f^corr|max = %.2e (orthogonal mesh)\n",
+                    worst / bmax, [&] { double m = 0; for (auto& k : mesh.kf_corr) m = std::max(m, fvm::norm(k)); return m; }());
+        // PCG on the generic system (coarse uniform sub-mesh) to exercise the solver path
+        auto coarse = fvm::make_structured_box(1, 8, 8, 1.0, 2.0, 2.0);
+        mhd::FourStepProjection pc(coarse, 1.0, fvm::Vec3{0, 0, 1});
+        std::vector<double> uc2(coarse.n_cells), bc(coarse.n_cells), phic(coarse.n_cells), phic2(coarse.n_cells);
+        for (std::size_t c = 0; c < coarse.n_cells; ++c) uc2[c] = coarse.cell_centroid[c].z * coarse.cell_centroid[c].z - 1.0;  // parabola
+        pc.potential_rhs(uc2.data(), bc.data());
+        const int it = pc.solve_potential_pcg(bc.data(), phic.data(), 1e-10, 5000);
+        linalg::TensorProductPoisson tp2(8, 8, 2.0, {0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0});
+        std::vector<double> r2(coarse.n_cells);
+        for (std::size_t c = 0; c < coarse.n_cells; ++c) r2[c] = bc[c] / coarse.cell_volume[c];
+        tp2.solve(r2.data(), phic2.data());
+        double mc = 0.0, mt = 0.0, dd = 0.0;
+        for (std::size_t c = 0; c < coarse.n_cells; ++c) { mc += phic[c]; mt += phic2[c]; }
+        mc /= double(coarse.n_cells); mt /= double(coarse.n_cells);
+        for (std::size_t c = 0; c < coarse.n_cells; ++c) dd = std::max(dd, std::fabs(phic[c] - mc - (phic2[c] - mt)));
+        std::printf("[mhd]  generic path PCG (%d it) vs tensor-product direct solver on 8x8 mesh : max|dphi| = %.2e  %s\n", it, dd, it > 0 && dd < 1e-8 ? "PASS" : "FAIL");
+
+Edited src/cpp/test_mhd.cpp
++1-1
+Edited src/cpp/test_mhd.cpp
++4-4
+
+        A.multiply(phi.data(), Ax.data());
+        double worst = 0.0, bmax = 0.0;
+        for (std::size_t c = 0; c < nc; ++c) {
+            worst = std::max(worst, std::fabs(Ax[c] - K[c] - bvec[c]));
+        A.multiply(phi.data(), Ax.data());
+        double worst = 0.0, bmax = 0.0;
+        for (std::size_t c = 0; c < nc; ++c) {
+            worst = std::max(worst, std::fabs(Ax[c] + bvec[c] - K[c]));  // SPD form: S phi = -b + K
+
+Ran cd /tmp/dbg && cat > dbg_ha.cpp <<'EOF' #include <…
+
+Building...

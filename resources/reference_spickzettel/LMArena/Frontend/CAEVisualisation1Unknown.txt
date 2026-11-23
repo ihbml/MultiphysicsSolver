@@ -1,0 +1,586 @@
+Paket 3 — CFDFLD03
+In‑Situ Post‑Processing & Zero‑Copy Streaming Engine
+
+Deliverable layout
+
+text
+
+paket3/
+├── proto/
+│   ├── cfdfld03.hpp              § 1.2  bit-exact header, chunk dir, CRC32C
+│   └── cfdfld03_abi_test.cpp     § 1.5  static_assert ABI lock
+├── cpp/
+│   ├── shm_ring_producer.hpp     § 2.3  SPMC triple-buffer producer (C++20)
+│   ├── insitu_mesh.hpp           § 3.1  polyhedral SoA view (zero-copy)
+│   ├── insitu_slice.cpp          § 3.2  exact plane–polyhedron slicer
+│   ├── insitu_vortex.cpp         § 3.3  Q / λ₂ (Cardano)
+│   ├── insitu_streamline.cpp     § 4.1  Cash-Karp cell-to-cell integrator
+│   ├── insitu_wall.cpp           § 4.2  3-ring LSQ τ_w, u_τ, y⁺, q_w
+│   └── insitu_integrate.cpp      § 5    patch integrators → Paket 4 NDJSON
+├── rust/foam_fast_io/src/
+│   ├── fld03.rs                  § 1.3  header/codec-side types
+│   ├── shm_ring.rs               § 2.2  mmap + Windows ring, consumer lease
+│   ├── codec.rs                  § 6.1  XOR-delta + stream-split + LZ4 + ZFP
+│   └── stream.rs                 § 6.2  QUIC (quinn) / WebSocket streamer
+├── python/rpc_fld03.py           § 7    JSON-RPC 2.0 surface
+└── inspector/index.html          § 8    architecture + live benchmark app
+
+0. Architecture
+
+text
+
+                         SOLVER PROCESS (C++20, MPI rank r)
+ ┌──────────────────────────────────────────────────────────────────────────┐
+ │  PIMPLE/PISO loop ── end of timestep ──► in-situ trigger (every N steps)  │
+ │                                                                          │
+ │   SoA mesh view (no copy)        In-situ kernels (OpenMP / std::execution)│
+ │   owner[], neighbour[],   ──►    ├ slicePlane()      → tri-fan SoA        │
+ │   CellFaceCSR, FacePointCSR      ├ qCriterion()/λ2   → cell scalar        │
+ │   Cc[], Cf[], Sf[], V[]          ├ streamlines()     → polyline+ribbon    │
+ │   gradU[9], p[], U[3], T[]       ├ wallShear()       → τ_w,u_τ,y⁺,q_w     │
+ │                                  └ patchIntegrals()  → Cd,Cl,Cm,ṁ,Δp0,Nu  │
+ │                                             │                  │          │
+ │             ┌───────────────────────────────┘                  │          │
+ │             ▼  CFDFLD03 encode (Hilbert chunks, 64B hdr)       ▼          │
+ │   ╔═══════════════════════════════════╗             Paket 4 NDJSON scalar │
+ │   ║ SPMC TRIPLE-BUFFER SHM RING       ║             telemetry (stdout/pipe)│
+ │   ║ /dev/shm/cfd.fld03.<run>.<rank>   ║                                    │
+ │   ║ slot0 | slot1 | slot2  + ctrl blk ║                                    │
+ │   ╚══════════╦════════════════════════╝                                    │
+ └──────────────╫─────────────────────────────────────────────────────────────┘
+      LOCAL     ║ zero-copy mmap (same host)         REMOTE
+      ┌─────────╨──────────┐                 ┌──────────────────────────────┐
+      │ Rust cockpit       │                 │ Rust relay: codec.rs         │
+      │ wgpu renderer      │                 │  XOR-Δ → stream-split → LZ4  │
+      │ (maps slot → GPU   │                 │  or ZFP fixed-accuracy       │
+      │  staging buffer)   │                 │  → QUIC (quinn) / WS frames  │
+      └────────────────────┘                 └──────────┬───────────────────┘
+                                                        │ 0-RTT, unreliable
+                                                        ▼ datagram for hot field
+                                             Remote workstation cockpit
+
+Design invariants:
+
+    No disk I/O, no std::vector reallocation inside the in-situ path (all arena-allocated, reused across steps).
+    One memcpy maximum on the local path (solver field → ring slot); the GPU reads the slot via wgpu::Buffer mapped-at-creation from the mmap pointer when MAP_HUGETLB + BUFFER_USAGE_MAP_WRITE allow it.
+    Mesh revision gating: every frame carries mesh_revision; consumers holding stale topology drop/resync instead of rendering garbage after AMR/topo-change.
+
+1. CFDFLD03 Binary Protocol
+1.1 Frame layout
+
+text
+
++0      64 B   FrameHeader                (fixed, 8-byte aligned, little-endian)
++64     32*C   ChunkEntry[chunk_count]    (C = chunk_count, present iff FLAG_CHUNK_DIR)
++...    N B    payload                    (chunk-concatenated, each chunk independently
+                                           decodable: LZ4 / ZFP / raw)
+
+FrameHeader — bit-exact byte map (64 B)
+Off	Size	Type	Field	Notes
+0	8	char[8]	magic	"CFDFLD03" (no NUL)
+8	1	u8	version_major	1 — breaking
+9	1	u8	version_minor	0 — additive
+10	1	u8	field_location	0=Cell 1=Point 2=Face 3=BoundaryPatch
+11	1	u8	value_source	0=BoundaryField 1=OwnerCellFallback
+12	1	u8	component_count	1,3,6(symmTensor),9(tensor)
+13	1	u8	scalar_type	0=f32 1=f64 2=f16 3=i32 4=u8norm
+14	1	u8	compression	0=None 1=LZ4 2=ZFP_ACC 3=ZFP_RATE 4=XORΔ+SS+LZ4
+15	1	u8	flags	bitfield, see below
+16	4	u32	mesh_revision	monotonic; bumped on any topo change
+20	4	u32	step_index	solver timestep index
+24	8	f64	sim_time	seconds, SI
+32	7	i8[7]	dims[7]	SI exponents [kg, m, s, K, mol, A, cd]
+39	1	u8	chunk_shift	log2(elements per Hilbert chunk) = 16 → 65 536
+40	4	u32	element_count	elements in this frame
+44	4	u32	chunk_count	ceil(element_count >> chunk_shift)
+48	4	u32	payload_bytes	on-wire payload size
+52	4	u32	uncompressed_bytes	element_count*component_count*sizeof(scalar)
+56	4	u32	crc32c	Castagnoli over payload (0 if !FLAG_CRC)
+60	2	u16	field_name_id	interned id (dictionary frame fld.dict)
+62	2	u16	patch_or_zone_id	0xFFFF = whole internal domain
+
+flags bits: 0 HILBERT_ORDERED, 1 DELTA_VS_PREV_STEP, 2 BIG_ENDIAN, 3 CHUNK_DIR, 4 VALUE_BOUNDS_VALID, 5 PARTIAL_FRAME, 6 SOA_GPU_LAYOUT, 7 CRC_PRESENT.
+
+    Unit vector example: pressure in OpenFOAM p (kinematic, m²/s²) → dims = {0,2,-2,0,0,0,0}; dynamic pressure (Pa) → {1,-1,-2,0,0,0,0}; τ_w (Pa) → {1,-1,-2,0,0,0,0}; q_w (W/m²) → {1,0,-3,0,0,0,0}. Cockpit refuses to plot two curves with mismatching dims on a shared axis.
+
+ChunkEntry (32 B) — enables AABB space-skipping + iso-value skipping
+Off	Size	Field
+0	4	byte_offset (relative to payload start)
+4	4	byte_length (compressed)
+8	4	element_begin
+12	4	element_count
+16	4	f32 vmin (component-magnitude min)
+20	4	f32 vmax
+24	4	u32 crc32c (per-chunk, enables partial retransmit over QUIC)
+28	4	u32 reserved0
+
+Geometric chunk AABBs live in the Paket 1 CFDGEO01 side-table chunk_aabb[chunk_count][6] f32, keyed by the same mesh_revision and the same Hilbert ordering — no duplication per field frame.
+1.2 proto/cfdfld03.hpp
+
+C++
+
+// proto/cfdfld03.hpp — Paket 3 CFDFLD03 wire format. C++20, header-only, no deps.
+#pragma once
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <cstring>
+#include <span>
+#include <string_view>
+
+namespace cfd::fld03 {
+
+inline constexpr char     MAGIC[8]      = {'C','F','D','F','L','D','0','3'};
+inline constexpr uint8_t  VERSION_MAJOR = 1;
+inline constexpr uint8_t  VERSION_MINOR = 0;
+inline constexpr uint8_t  DEFAULT_CHUNK_SHIFT = 16;           // 65 536 elements
+inline constexpr uint32_t CHUNK_ELEMS(uint8_t s) { return 1u << s; }
+
+enum class FieldLocation : uint8_t { Cell = 0, Point = 1, Face = 2, BoundaryPatch = 3 };
+enum class ValueSource   : uint8_t { BoundaryField = 0, OwnerCellFallback = 1 };
+enum class ScalarType    : uint8_t { F32 = 0, F64 = 1, F16 = 2, I32 = 3, U8Norm = 4 };
+enum class Compression   : uint8_t { None = 0, LZ4 = 1, ZfpAccuracy = 2, ZfpRate = 3,
+                                     XorDeltaStreamSplitLZ4 = 4 };
+
+namespace flag {
+inline constexpr uint8_t HILBERT_ORDERED   = 1u << 0;
+inline constexpr uint8_t DELTA_VS_PREV     = 1u << 1;
+inline constexpr uint8_t BIG_ENDIAN        = 1u << 2;
+inline constexpr uint8_t CHUNK_DIR         = 1u << 3;
+inline constexpr uint8_t VALUE_BOUNDS      = 1u << 4;
+inline constexpr uint8_t PARTIAL_FRAME     = 1u << 5;
+inline constexpr uint8_t SOA_GPU_LAYOUT    = 1u << 6;
+inline constexpr uint8_t CRC_PRESENT       = 1u << 7;
+}
+
+constexpr std::size_t scalar_size(ScalarType t) noexcept {
+    switch (t) { case ScalarType::F64: return 8; case ScalarType::F16: return 2;
+                 case ScalarType::U8Norm: return 1; default: return 4; }
+}
+
+#pragma pack(push, 1)
+struct FrameHeader {                   // exactly 64 bytes
+    char     magic[8];                 // 0
+    uint8_t  version_major;            // 8
+    uint8_t  version_minor;            // 9
+    uint8_t  field_location;           // 10
+    uint8_t  value_source;             // 11
+    uint8_t  component_count;          // 12
+    uint8_t  scalar_type;              // 13
+    uint8_t  compression;              // 14
+    uint8_t  flags;                    // 15
+    uint32_t mesh_revision;            // 16
+    uint32_t step_index;               // 20
+    double   sim_time;                 // 24
+    int8_t   dims[7];                  // 32  [kg,m,s,K,mol,A,cd]
+    uint8_t  chunk_shift;              // 39
+    uint32_t element_count;            // 40
+    uint32_t chunk_count;              // 44
+    uint32_t payload_bytes;            // 48
+    uint32_t uncompressed_bytes;       // 52
+    uint32_t crc32c;                   // 56
+    uint16_t field_name_id;            // 60
+    uint16_t patch_or_zone_id;         // 62
+};
+
+struct ChunkEntry {                    // exactly 32 bytes
+    uint32_t byte_offset;
+    uint32_t byte_length;
+    uint32_t element_begin;
+    uint32_t element_count;
+    float    vmin;
+    float    vmax;
+    uint32_t crc32c;
+    uint32_t reserved0;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(FrameHeader) == 64, "CFDFLD03 header must be 64 bytes");
+static_assert(sizeof(ChunkEntry)  == 32, "ChunkEntry must be 32 bytes");
+static_assert(offsetof(FrameHeader, sim_time)      == 24);
+static_assert(offsetof(FrameHeader, dims)          == 32);
+static_assert(offsetof(FrameHeader, chunk_shift)   == 39);
+static_assert(offsetof(FrameHeader, element_count) == 40);
+static_assert(offsetof(FrameHeader, crc32c)        == 56);
+static_assert(std::endian::native == std::endian::little,
+              "CFDFLD03 producer requires LE host (set FLAG BIG_ENDIAN otherwise)");
+
+// ---------------------------------------------------------------- CRC32C ----
+#if defined(__x86_64__) || defined(_M_X64)
+#  include <nmmintrin.h>
+inline uint32_t crc32c(const void* data, std::size_t n, uint32_t crc = 0xFFFFFFFFu) {
+    const auto* p = static_cast<const uint8_t*>(data);
+    while (n >= 8) { crc = static_cast<uint32_t>(
+            _mm_crc32_u64(crc, *reinterpret_cast<const uint64_t*>(p))); p += 8; n -= 8; }
+    while (n--)    { crc = _mm_crc32_u8(crc, *p++); }
+    return ~crc;
+}
+#else
+inline uint32_t crc32c(const void* data, std::size_t n, uint32_t crc = 0xFFFFFFFFu) {
+    static const auto table = [] {                       // Castagnoli 0x82F63B78
+        std::array<uint32_t, 256> t{};
+        for (uint32_t i = 0; i < 256; ++i) { uint32_t c = i;
+            for (int k = 0; k < 8; ++k) c = (c >> 1) ^ (0x82F63B78u & (~((c & 1) - 1)));
+            t[i] = c; }
+        return t; }();
+    const auto* p = static_cast<const uint8_t*>(data);
+    while (n--) crc = table[(crc ^ *p++) & 0xFF] ^ (crc >> 8);
+    return ~crc;
+}
+#endif
+
+// ----------------------------------------------------------- Header build ---
+struct FieldDesc {
+    FieldLocation location      = FieldLocation::Cell;
+    ValueSource   source        = ValueSource::BoundaryField;
+    uint8_t       components    = 1;
+    ScalarType    type          = ScalarType::F32;
+    std::array<int8_t,7> dims   = {0,0,0,0,0,0,0};
+    uint16_t      name_id       = 0;
+    uint16_t      patch_id      = 0xFFFF;
+};
+
+inline FrameHeader make_header(const FieldDesc& d, uint32_t mesh_revision,
+                               uint32_t step, double t, uint32_t n_elems,
+                               Compression comp, uint8_t chunk_shift = DEFAULT_CHUNK_SHIFT)
+{
+    FrameHeader h{};
+    std::memcpy(h.magic, MAGIC, 8);
+    h.version_major = VERSION_MAJOR; h.version_minor = VERSION_MINOR;
+    h.field_location = static_cast<uint8_t>(d.location);
+    h.value_source   = static_cast<uint8_t>(d.source);
+    h.component_count = d.components;
+    h.scalar_type     = static_cast<uint8_t>(d.type);
+    h.compression     = static_cast<uint8_t>(comp);
+    h.flags = flag::HILBERT_ORDERED | flag::CHUNK_DIR | flag::SOA_GPU_LAYOUT |
+              flag::VALUE_BOUNDS | flag::CRC_PRESENT;
+    h.mesh_revision = mesh_revision; h.step_index = step; h.sim_time = t;
+    std::memcpy(h.dims, d.dims.data(), 7);
+    h.chunk_shift   = chunk_shift;
+    h.element_count = n_elems;
+    h.chunk_count   = (n_elems + CHUNK_ELEMS(chunk_shift) - 1) >> chunk_shift;
+    h.uncompressed_bytes =
+        n_elems * d.components * static_cast<uint32_t>(scalar_size(d.type));
+    h.field_name_id = d.name_id; h.patch_or_zone_id = d.patch_id;
+    return h;
+}
+
+inline bool validate(const FrameHeader& h) noexcept {
+    return std::memcmp(h.magic, MAGIC, 8) == 0 && h.version_major == VERSION_MAJOR &&
+           h.component_count && h.component_count <= 9 && h.chunk_shift <= 24 &&
+           h.chunk_count == ((h.element_count + CHUNK_ELEMS(h.chunk_shift) - 1)
+                             >> h.chunk_shift);
+}
+
+inline constexpr std::size_t frame_bytes(const FrameHeader& h) {
+    return sizeof(FrameHeader) + std::size_t(h.chunk_count) * sizeof(ChunkEntry)
+           + h.payload_bytes;
+}
+
+} // namespace cfd::fld03
+
+1.3 rust/foam_fast_io/src/fld03.rs
+
+Rust
+
+//! CFDFLD03 wire format — mirror of proto/cfdfld03.hpp, ABI-locked by tests.
+#![allow(clippy::upper_case_acronyms)]
+use std::mem::size_of;
+
+pub const MAGIC: [u8; 8] = *b"CFDFLD03";
+pub const VERSION_MAJOR: u8 = 1;
+pub const VERSION_MINOR: u8 = 0;
+pub const DEFAULT_CHUNK_SHIFT: u8 = 16;
+
+#[repr(u8)] #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FieldLocation { Cell = 0, Point = 1, Face = 2, BoundaryPatch = 3 }
+#[repr(u8)] #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ValueSource { BoundaryField = 0, OwnerCellFallback = 1 }
+#[repr(u8)] #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ScalarType { F32 = 0, F64 = 1, F16 = 2, I32 = 3, U8Norm = 4 }
+#[repr(u8)] #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Compression { None = 0, Lz4 = 1, ZfpAccuracy = 2, ZfpRate = 3, XorDeltaLz4 = 4 }
+
+pub mod flag {
+    pub const HILBERT_ORDERED: u8 = 1 << 0;
+    pub const DELTA_VS_PREV:   u8 = 1 << 1;
+    pub const BIG_ENDIAN:      u8 = 1 << 2;
+    pub const CHUNK_DIR:       u8 = 1 << 3;
+    pub const VALUE_BOUNDS:    u8 = 1 << 4;
+    pub const PARTIAL_FRAME:   u8 = 1 << 5;
+    pub const SOA_GPU_LAYOUT:  u8 = 1 << 6;
+    pub const CRC_PRESENT:     u8 = 1 << 7;
+}
+
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct FrameHeader {
+    pub magic: [u8; 8],          // 0
+    pub version_major: u8,       // 8
+    pub version_minor: u8,       // 9
+    pub field_location: u8,      // 10
+    pub value_source: u8,        // 11
+    pub component_count: u8,     // 12
+    pub scalar_type: u8,         // 13
+    pub compression: u8,         // 14
+    pub flags: u8,               // 15
+    pub mesh_revision: u32,      // 16
+    pub step_index: u32,         // 20
+    pub sim_time: f64,           // 24
+    pub dims: [i8; 7],           // 32
+    pub chunk_shift: u8,         // 39
+    pub element_count: u32,      // 40
+    pub chunk_count: u32,        // 44
+    pub payload_bytes: u32,      // 48
+    pub uncompressed_bytes: u32, // 52
+    pub crc32c: u32,             // 56
+    pub field_name_id: u16,      // 60
+    pub patch_or_zone_id: u16,   // 62
+}
+
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct ChunkEntry {
+    pub byte_offset: u32, pub byte_length: u32,
+    pub element_begin: u32, pub element_count: u32,
+    pub vmin: f32, pub vmax: f32,
+    pub crc32c: u32, pub reserved0: u32,
+}
+
+const _: () = assert!(size_of::<FrameHeader>() == 64);
+const _: () = assert!(size_of::<ChunkEntry>() == 32);
+
+#[derive(Debug, thiserror::Error)]
+pub enum FldError {
+    #[error("short buffer: need {need}, have {have}")] Short { need: usize, have: usize },
+    #[error("bad magic")] BadMagic,
+    #[error("unsupported major version {0}")] Version(u8),
+    #[error("crc mismatch: header {hdr:#010x} computed {got:#010x}")]
+    Crc { hdr: u32, got: u32 },
+    #[error("inconsistent chunk directory")] ChunkDir,
+    #[error("codec: {0}")] Codec(String),
+}
+
+/// Zero-copy borrowed view over one frame in a shared-memory slot.
+pub struct FrameView<'a> {
+    pub header: FrameHeader,
+    pub chunks: &'a [ChunkEntry],
+    pub payload: &'a [u8],
+}
+
+impl<'a> FrameView<'a> {
+    pub fn parse(buf: &'a [u8]) -> Result<Self, FldError> {
+        if buf.len() < 64 { return Err(FldError::Short { need: 64, have: buf.len() }); }
+        // SAFETY: packed POD, size checked, repr(C,packed) has no padding/invariants.
+        let header: FrameHeader = unsafe { std::ptr::read_unaligned(buf.as_ptr().cast()) };
+        if header.magic != MAGIC { return Err(FldError::BadMagic); }
+        if header.version_major != VERSION_MAJOR {
+            return Err(FldError::Version(header.version_major));
+        }
+        let (nc, pb) = (header.chunk_count as usize, header.payload_bytes as usize);
+        let cdir = if header.flags & flag::CHUNK_DIR != 0 { nc * 32 } else { 0 };
+        let need = 64 + cdir + pb;
+        if buf.len() < need { return Err(FldError::Short { need, have: buf.len() }); }
+        let chunks = if cdir > 0 {
+            unsafe { std::slice::from_raw_parts(buf[64..].as_ptr().cast::<ChunkEntry>(), nc) }
+        } else { &[] };
+        let payload = &buf[64 + cdir..64 + cdir + pb];
+        if header.flags & flag::CRC_PRESENT != 0 {
+            let got = crc32c(payload);
+            let hdr = header.crc32c;
+            if got != hdr { return Err(FldError::Crc { hdr, got }); }
+        }
+        Ok(Self { header, chunks, payload })
+    }
+
+    #[inline] pub fn location(&self) -> FieldLocation {
+        match self.header.field_location {
+            1 => FieldLocation::Point, 2 => FieldLocation::Face,
+            3 => FieldLocation::BoundaryPatch, _ => FieldLocation::Cell }
+    }
+    /// SI dimension vector equality — refuse to mix units on one axis.
+    #[inline] pub fn dims_match(&self, other: &FrameHeader) -> bool {
+        self.header.dims == other.dims
+    }
+    /// Raw, uncompressed, SoA, Hilbert-ordered f32 view (the local zero-copy fast path).
+    pub fn as_f32(&self) -> Result<&'a [f32], FldError> {
+        if self.header.compression != Compression::None as u8
+            || self.header.scalar_type != ScalarType::F32 as u8 {
+            return Err(FldError::Codec("not raw f32".into()));
+        }
+        let n = self.payload.len() / 4;
+        if self.payload.as_ptr() as usize % 4 != 0 {
+            return Err(FldError::Codec("misaligned slot".into()));
+        }
+        Ok(unsafe { std::slice::from_raw_parts(self.payload.as_ptr().cast::<f32>(), n) })
+    }
+}
+
+#[inline]
+pub fn crc32c(data: &[u8]) -> u32 { crc32c_impl::hash(data) }
+
+mod crc32c_impl {
+    pub fn hash(d: &[u8]) -> u32 {
+        #[cfg(target_arch = "x86_64")]
+        { if std::arch::is_x86_feature_detected!("sse4.2") { return unsafe { hw(d) }; } }
+        sw(d)
+    }
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "sse4.2")]
+    unsafe fn hw(d: &[u8]) -> u32 {
+        use std::arch::x86_64::{_mm_crc32_u64, _mm_crc32_u8};
+        let (mut c, mut i) = (0xFFFF_FFFFu64, 0usize);
+        while i + 8 <= d.len() {
+            c = _mm_crc32_u64(c, u64::from_le_bytes(d[i..i + 8].try_into().unwrap()));
+            i += 8;
+        }
+        let mut c32 = c as u32;
+        while i < d.len() { c32 = _mm_crc32_u8(c32, d[i]); i += 1; }
+        !c32
+    }
+    fn sw(d: &[u8]) -> u32 {
+        static T: [u32; 256] = build();
+        const fn build() -> [u32; 256] {
+            let mut t = [0u32; 256]; let mut i = 0;
+            while i < 256 { let mut c = i as u32; let mut k = 0;
+                while k < 8 { c = if c & 1 != 0 { (c >> 1) ^ 0x82F6_3B78 } else { c >> 1 }; k += 1; }
+                t[i] = c; i += 1; }
+            t
+        }
+        let mut c = 0xFFFF_FFFFu32;
+        for &b in d { c = T[((c ^ b as u32) & 0xFF) as usize] ^ (c >> 8); }
+        !c
+    }
+}
+
+1.4 Hilbert chunking (shared logic)
+
+Cells are permuted once per mesh_revision by the 3‑D Hilbert index of their centroid quantised to 21 bits/axis (u64 key). The permutation lives in Paket 1; Paket 3 only consumes cell_hilbert_perm[] so that chunk k = elements [k<<16, (k+1)<<16) is a spatially compact blob → chunk AABBs are tight → plane/iso space-skipping is effective and ZFP 1‑D blocks of 4 are spatially coherent.
+
+C++
+
+// proto/hilbert.hpp (excerpt) — 21-bit/axis 3-D Hilbert index, branch-free transpose.
+inline uint64_t hilbert_d3(uint32_t x, uint32_t y, uint32_t z, int bits = 21) {
+    uint32_t X[3] = {x, y, z};
+    uint32_t M = 1u << (bits - 1), P, Q, t;
+    for (Q = M; Q > 1; Q >>= 1) {                       // inverse undo excess work
+        P = Q - 1;
+        for (int i = 0; i < 3; ++i)
+            if (X[i] & Q) X[0] ^= P;
+            else { t = (X[0] ^ X[i]) & P; X[0] ^= t; X[i] ^= t; }
+    }
+    for (int i = 1; i < 3; ++i) X[i] ^= X[i - 1];       // Gray encode
+    t = 0;
+    for (Q = M; Q > 1; Q >>= 1) if (X[2] & Q) t ^= Q - 1;
+    for (int i = 0; i < 3; ++i) X[i] ^= t;
+    uint64_t key = 0;                                   // interleave
+    for (int b = bits - 1; b >= 0; --b)
+        for (int i = 0; i < 3; ++i) key = (key << 1) | ((X[i] >> b) & 1u);
+    return key;
+}
+
+1.5 ABI lock test
+
+C++
+
+// proto/cfdfld03_abi_test.cpp — golden-bytes test shared with Rust (same hex vector).
+#include "cfdfld03.hpp"
+#include <cassert>
+int main() {
+    using namespace cfd::fld03;
+    FieldDesc d{FieldLocation::Cell, ValueSource::BoundaryField, 3, ScalarType::F32,
+                {0,1,-1,0,0,0,0}, 7, 0xFFFF};                       // U [m/s]
+    auto h = make_header(d, 42, 1337, 0.125, 131072, Compression::None);
+    const auto* b = reinterpret_cast<const uint8_t*>(&h);
+    assert(std::memcmp(b, "CFDFLD03", 8) == 0);
+    assert(b[10] == 0 && b[12] == 3 && b[39] == 16);
+    assert(*reinterpret_cast<const double*>(b + 24) == 0.125);
+    assert(*reinterpret_cast<const uint32_t*>(b + 44) == 2);        // 131072>>16
+    assert(static_cast<int8_t>(b[33]) == 1 && static_cast<int8_t>(b[34]) == -1);
+    return 0;
+}
+
+2. SPMC Triple-Buffered Shared-Memory Ring
+2.1 Control block & protocol
+
+text
+
+/dev/shm/cfd.fld03.<run_id>.<rank>      (Windows: Local\cfd.fld03.<run_id>.<rank>)
+
+offset 0                        : ShmControl (one 256-byte cache-line-padded block)
+offset ctrl.slot_table_off      : SlotMeta[slot_count]   (64 B each, one cache line)
+offset ctrl.slot_data_off + i*stride : slot i payload arena (CFDFLD03 frames, 4 KiB aligned)
+
+Protocol (SPMC, 3 slots, wait-free readers, lock-free producer):
+
+    Producer picks a slot with refcount == 0 and index != latest.slot.
+    With 3 slots and the guarantee that a reader holds ≤1 lease, such a slot always exists.
+    Producer sets seq to odd (fetch_add(1, AcqRel)), writes the frame, sets seq even (+1, Release).
+    Producer publishes latest = (gen<<32) | slot with Release.
+    Reader: l = latest.load(Acquire) → refcount[l.slot].fetch_add(1, AcqRel) → re-read latest; if
+    changed, release and retry (bounded, ≤ slot_count retries in practice). Then verify seq is even
+    and unchanged before/after use (seqlock belt-and-braces for the pathological case).
+    Reader holds a lease (RAII) for the whole GPU upload; producer never recycles a leased slot
+    (it falls back to the third slot; if all are leased it increments frames_dropped and skips —
+    the solver is never blocked by a slow consumer).
+
+2.2 rust/foam_fast_io/src/shm_ring.rs
+
+Rust
+
+//! Lock-free SPMC triple-buffered shared-memory ring for CFDFLD03 frames.
+//! Producer: C++ solver (shm_ring_producer.hpp) or Rust. Consumers: wgpu cockpit,
+//! remote streamer, Python RPC bridge — all zero-copy via lease.
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+
+pub const RING_MAGIC: u64 = 0x3330_444C_4653_4D53; // "SMSFLD03" LE-ish
+pub const SLOT_COUNT: usize = 3;
+pub const CTRL_BYTES: usize = 256;
+pub const SLOT_META_BYTES: usize = 64;
+
+#[repr(C, align(64))]
+pub struct ShmControl {
+    pub magic: u64,
+    pub version: u32,
+    pub slot_count: u32,
+    pub slot_stride: u64,        // bytes per slot (4 KiB-aligned)
+    pub slot_table_off: u64,
+    pub slot_data_off: u64,
+    /// (generation << 32) | slot_index ; generation is monotonic, wraps at 2^32.
+    pub latest: AtomicU64,
+    pub frames_published: AtomicU64,
+    pub frames_dropped: AtomicU64,   // all slots leased → producer skipped
+    pub producer_pid: u32,
+    pub mesh_revision: AtomicU32,
+    pub shutdown: AtomicU32,
+    pub _pad: [u8; 256 - 96],
+}
+
+#[repr(C, align(64))]
+pub struct SlotMeta {
+    pub seq: AtomicU64,          // even = stable, odd = being written
+    pub refcount: AtomicU32,     // active reader leases
+    pub payload_len: AtomicU32,  // valid CFDFLD03 bytes in slot
+    pub step_index: AtomicU64,
+    pub wall_ns_publish: AtomicU64,
+    pub _pad: [u8; 64 - 32],
+}
+
+// --------------------------------------------------------------- mapping ----
+pub struct Mapping { ptr: *mut u8, len: usize, #[cfg(windows)] handle: isize }
+unsafe impl Send for Mapping {}
+unsafe impl Sync for Mapping {}
+
+#[cfg(unix)]
+mod sys {
+    use super::Mapping;
+    use std::ffi::CString;
+    pub fn map(name: &str, len: usize, create: bool, hugepages: bool)
+        -> std::io::Result<Mapping>
+    {
+        use libc::*;
+        let path = CString::new(format!("/{name}")).unwrap();
+        let flags = if create { O_CREAT | O_RDWR } else { O_RDWR };
+        let fd = unsafe { shm_open(path.as_ptr(), flags, 0o600) };
+        if fd < 0 { return Err(std::io::Error::last_os_error()); }
+        if create && unsafe { ftruncate(fd, len as off_t) } != 

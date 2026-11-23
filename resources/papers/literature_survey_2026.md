@@ -76,11 +76,17 @@
 ## 5. High-Performance Computing (C++20, ISO-Parallelismus, GPU & Rust)
 
 ### Schlüsselpublikationen:
-1. **S. Bnà et al. (2026):** *„Spuma: a minimally invasive approach to the GPU porting of OpenFOAM“*, *Comp. Phys. Comm.*, 2026.
+1. **S. Bnà et al. (2026):** *„Spuma: a minimally invasive approach to the GPU porting of OpenFOAM“*, *Comp. Phys. Comm.*, 2026, `arXiv:2512.22215`.
 2. **M. Kumar et al. (2026):** *„Cross-platform GPU Implementation of OpenFOAM Using Only ISO C++ standard parallelism“*, *ACM PASC '26*, DOI: [10.1145/3815572.3815755](https://doi.org/10.1145/3815572.3815755)
 3. **G. Olenik, H. Anzt et al. (2025):** *„Platform-portable linear algebra backend for OpenFOAM (Ginkgo)“*, *Meccanica*, 60, DOI: [10.1007/s11012-024-01806-1](https://doi.org/10.1007/s11012-024-01806-1)
 4. **J. W. Gärtner et al. (2024):** *„Dynamic load balancing for chemistry in OpenFOAM (DLBFoam)“*, *Comp. Phys. Comm.*, 299, 109151.
 5. **L. Lombardo & F. Durastante (2026):** *„Evaluating Rust for Sparse Matrix Kernels in Scientific Computing“*, arXiv: [2606.19213](https://arxiv.org/abs/2606.19213).
+
+### Architektonische Konsequenzen für unseren Memory-Pool & Linearen Gleichungslöser:
+* **Block-CSR (`BAIJ` $4\times 4$) in C++20 vs. Standard-CSR/CSC in Rust (Lombardo & Durastante 2026):**
+  Während nativer Rust-Code bei skalaren CSR/CSC-Matrizen mit C++ (`Eigen`) gleichzieht, fällt er bei **geblockten CSR-Formaten (`BAIJ` / `BSR`)** gegenüber spezialisierten C++-Kernen (`PETSc` / `Ginkgo` / `Kokkos`) zurück. Da unsere gekoppelten MRF-, Zweiphasen- und Monolithik-Solver (**Kap. 9.18 & 9.19**) intensiv auf dichten **$4\times 4$-Blöcken $(u, v, w, p)$** (`alignas(64) Block4x4`, 1 Spaltenindex pro 16 `double`-Einträge $\implies 75\,\%$ weniger Index-Bandbreite) arbeiten, wird der lineare Block-Gleichungslöser zwingend in **C++20 (mit AVX2/AVX-512 $4\times 4$-Mikrokernen bzw. CUDA/Ginkgo)** ausgeführt, während Rust Orchestrierung, I/O (`.mphys`, `foam_fast_io`) und Networking übernimmt.
+* **GPU-vs.-CPU Crossover-Schwelle für den Memory-Pool & Auto-Tuner (SPUMA, Bnà et al. 2026):**
+  Aufgrund von Kernel-Launch-, Reduktions- und Speicherpool-Overheads schlägt eine moderne Rechenzentrums-GPU (A100/H100) einen vielkernigen CPU-Knoten bei unstrukturierten FVM-Gittern erst ab ca. **8–10 Mio. Zellen pro GPU** deutlich (bzw. ab ~1–2 Mio. Zellen gegenüber einer Workstation-CPU). Unser `hardware_profile.json` Auto-Tuner hält daher kleine und mittlere Gitter latenzfrei im 28-Thread C++20/OpenMP-CPU-Pfad und schaltet erst oberhalb der empirischen Crossover-Schwelle in den GPU-Device-/Unified-Memory-Pool.
 
 ---
 
@@ -221,6 +227,10 @@ Umgekehrt erlaubt die **Hydrodynamic Schrödinger Equation (Meng & Yang)** sowie
       base = p1 + x * e1 + y * e2
       return base + z * e3, base - z * e3
   ```
+* **Wichtige Integrationsregel für allgemeine Polygon-Facetten & Power-Diagramme (Kap. 9.11 & 9.12):**
+  Während die gemeinsame Voronoi-Facette eines gespiegelten Saatpunkt-Paares $(g^\uparrow, g^\downarrow)$ exakt planar und orthogonal ist ($\mathbf{k}_f \equiv \mathbf{0}$), entstehen an Übergängen unterschiedlich großer Kugeln (gewichtete Power-/Laguerre-Diagramme in Kap. 9.11) sowie in Poly-Hexcore-/ALE-Übergangszellen allgemeine $m$-Eck-Polygone. Im C++-Mesher (`octree_hexcore.cpp`, `difvm_mesh.cpp`) werden Flächenvektor $\mathbf{S}_f$ und Flächenschwerpunkt $\mathbf{x}_f$ deshalb **immer über eine konsistente Zerlegung in Sub-Dreiecke (Triangle Fan) um den arithmetischen Knotenschwerpunkt $\overline{\mathbf{x}}_f = \frac{1}{m}\sum_{k=0}^{m-1}\mathbf{x}_{v_k}$** berechnet:
+  $$\mathbf{S}_f = \frac{1}{2}\sum_{k=0}^{m-1} (\mathbf{x}_{v_k} - \overline{\mathbf{x}}_f)\times(\mathbf{x}_{v_{k+1}} - \overline{\mathbf{x}}_f), \qquad \mathbf{x}_f = \frac{\sum_{k=0}^{m-1} \|\mathbf{S}_{f,k}\|\,\frac{1}{3}(\overline{\mathbf{x}}_f + \mathbf{x}_{v_k} + \mathbf{x}_{v_{k+1}})}{\sum_{k=0}^{m-1} \|\mathbf{S}_{f,k}\|}$$
+  Dadurch heben sich nach dem diskreten Satz von Stokes die orientierten Kantenbeiträge jedes geschlossenen Polyeders teleskopartig auf und garantieren **maschinengenaue Divergenzfreiheit $\sum_{f \in \partial\Omega_i} \mathbf{S}_f = \mathbf{0}$ ($\le 10^{-16}$)**.
 
 ---
 
@@ -297,6 +307,10 @@ Umgekehrt erlaubt die **Hydrodynamic Schrödinger Equation (Meng & Yang)** sowie
      Über einen 3-Ring-Patch $\Omega^p$ *nur aus Cut-Zellen* wird der deviatorische Spannungstensor $\mathbf{s}^*(\mathbf{x}) = \mathbf{M}(\mathbf{x})\mathbf{a}$ ($\mathbf{P}(\mathbf{x}) = [1, x, y, z]$) durch Minimierung von Volumenspannung + Nitsche-Wandtraktion $\mathbf{t}_t^h$ (Gl. 24–25) bestimmt:
      $$J(\mathbf{a}) = \frac{1}{2}\int_{\Omega^p} \|\mathbf{M}\mathbf{a} - \mathbf{s}^h\|^2\,\mathrm{d}\Omega + \frac{\alpha}{2}\int_{\Gamma^p} \|\mathbf{Q}\mathbf{M}\mathbf{a} - \mathbf{t}_t^h\|^2\,\mathrm{d}\Gamma \implies (\mathbf{A}_\Omega + \alpha \mathbf{A}_\Gamma)\mathbf{a} = \mathbf{b}_\Omega + \alpha \mathbf{b}_\Gamma \quad \text{(Gl. 26–28)}$$
      $$\boldsymbol{\tau}_w(\mathbf{x}) = \mathbf{t}^* - (\mathbf{t}^* \cdot \mathbf{n})\mathbf{n}, \qquad \mathbf{t}^* = \mathbf{Q}\mathbf{s}^*(\mathbf{x}) \quad \text{(Gl. 29)}$$
+  4. **Übertragungsregel von Immersogeometrischer VMS/FEM auf unseren Zellzentrierten FVM-Solver:**
+     Jaiswal & Hsu formulieren die unsymmetrische Nitsche-Methode ($\gamma = -1$) zusammen mit einer *Ghost-Penalty* über geschnittene Elementkanten innerhalb einer immersogeometrischen Variational-Multiscale-(VMS/FEM)-Formulierung. Bei der Übertragung in unseren **zellzentrierten FVM-Solver** gilt:
+     - **WSRD statt Ghost-Penalty:** Für kleine angeschnittene Cut-Cells ($\alpha_c < 0.5$) ersetzt unsere **gewichtete Zustandsumverteilung (WSRD, Berger & Giuliani 2024, Kap. 9.4)** die FEM-Ghost-Penalty vollständig und garantiert $\text{CFL}=1$-Stabilität ohne erweiterte Kanten-Penalties.
+     - **1:1-Übernahme von Spalding-Wandfluss & $24\times 24$-Voigt-Patch-Rekonstruktion:** Das Spalding-Wandgesetz ($u^*$, Gl. 11) liefert direkt den impliziten tangentialen FVM-Wandschubspannungsfluss $\boldsymbol{\tau}_w\|\mathbf{S}_b\|$ (kombiniert mit dem Tangentialprojektor $\mathbf{I} - \mathbf{n}_b\otimes\mathbf{n}_b$ aus Kap. 9.18), und die **dreiringige $24\times 24$-Least-Squares-Spannungsrekonstruktion in Voigt-Notation (Gl. 26–29)** lässt sich 1:1 auf unsere FVM-Zellzentren anwenden.
 
 ---
 
@@ -531,3 +545,186 @@ Umgekehrt erlaubt die **Hydrodynamic Schrödinger Equation (Meng & Yang)** sowie
      Kompiliert $\mathcal{F}(P)$, $\nabla\mathcal{F}(P) = \frac{\partial \mathbf{x}_{\text{surf}}}{\partial \boldsymbol{\theta}_{\text{CAD}}}$ und $\nabla g_m(P)$ in nativen Maschinencode (0 CAD-Kernel-Aufrufe in der Optimierungsschleife!). Koppelt unsere FVM-Adjoint-Oberflächensensitivitäten direkt über
      $$\frac{\mathrm{d}J}{\mathrm{d}\boldsymbol{\theta}_{\text{CAD}}} = \left(\frac{\partial J}{\partial \mathbf{x}_{\text{surf}}}\right)^T \frac{\partial \mathbf{x}_{\text{surf}}}{\partial \boldsymbol{\theta}_{\text{CAD}}} \qquad \text{u. d. N.} \quad g_m(\boldsymbol{\theta}_{\text{CAD}}) \ge 0$$
      sowie optionaler biharmonischer Deformationsenergie $E_{\text{bh}}(P) = \operatorname{tr}(\mathbf{D}(P)^T \mathbf{Q}\mathbf{D}(P))$ (Gl. 7) und Volumenerhaltung $E_{\text{vol}}(P) = (\operatorname{Vol}(P) - \operatorname{Vol}(P_0))^2$ (Gl. 11) via SLSQP.
+
+---
+
+### 9.18 [`coupledMFRSteadyIncFoam-Final.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/coupledMFRSteadyIncFoam-Final.pdf) — Voll-Impliziter $4\times 4$ Block-Coupled $(\mathbf{u}, p)$ FVM-Löser für Rotierende Bezugssysteme (MRF), Moving Walls & Direct-AMI
+* **Autoren & Quelle:** L. Mangani, M. Buchmayr, M. Darwish (Hochschule Luzern, Andritz AG / TU Graz, American Univ. of Beirut, 2014), *„Development of a Novel Fully Coupled Solver in OpenFOAM®: Steady State Incompressible Turbulent Flows in Rotational Reference Frames“*, *Numerical Heat Transfer, Part B: Fundamentals* 66(1), 1–20.
+* **Mathematische & Algorithmische Kern-Bausteine (Gl. 1–20):**
+  1. **Zentrifugalkraft-freie MRF-Formulierung (Absolutgeschwindigkeit $\mathbf{u}$ mit Relativfluss $\dot{V}_r$, Gl. 3–6):**
+     Mit $\mathbf{u} = \mathbf{u}_r + \mathbf{\Omega}\times\mathbf{r}$ (Gl. 3) und dem relativen Flächenvolumenstrom $\dot{V}_r = \dot{V} - (\mathbf{\Omega}\times\mathbf{r}_f)\cdot\mathbf{S}_f$ (Gl. 6) entfällt der ortsabhängige Zentrifugal-Quellterm $\mathbf{\Omega}\times(\mathbf{\Omega}\times\mathbf{r})$ komplett:
+     $$\nabla\cdot\mathbf{u} = 0 \quad \text{(Gl. 4)}, \qquad \nabla\cdot(\mathbf{u}_r\mathbf{u}) + \mathbf{\Omega}\times\mathbf{u} = -\frac{1}{\rho}\nabla p + \nabla\cdot(\nu_{\text{eff}}\nabla\mathbf{u}) \quad \text{(Gl. 5)}$$
+  2. **Impliziter $4\times 4$ Block-Matrix-Operator & Schiefsymmetrischer Coriolis-Block ($\mathbf{\Omega}\times\mathbf{u}$, Gl. 9 & §3.1):**
+     Für jede Zelle $C$ und ihre Nachbarn $NB$ wird ein gekoppeltes $4\times 4$-System $\mathbf{A}_C [u_C, v_C, w_C, p_C]^T + \sum_{NB} \mathbf{A}_{NB} [u_{NB}, v_{NB}, w_{NB}, p_{NB}]^T = \mathbf{b}_C$ assembliert (Gl. 9). Der Term $\int_{\Delta V_C}(\mathbf{\Omega}\times\mathbf{u})\,\mathrm{d}V$ erzeugt einen **exakten schiefsymmetrischen $3\times 3$-Nebendiagonalblock direkt auf dem Hauptdiagonalblock $\mathbf{A}_C^{uu}$**:
+     $$a_{C,\text{rot}}^{uv} = -\Omega_z \Delta V_C, \quad a_{C,\text{rot}}^{uw} = +\Omega_y \Delta V_C, \quad a_{C,\text{rot}}^{vu} = +\Omega_z \Delta V_C, \quad a_{C,\text{rot}}^{vw} = -\Omega_x \Delta V_C, \quad a_{C,\text{rot}}^{wu} = -\Omega_y \Delta V_C, \quad a_{C,\text{rot}}^{wv} = +\Omega_x \Delta V_C$$
+  3. **Implizite Tangential-Projektion an bewegten/rotierenden Wänden ($\mathbf{I} - \mathbf{n}_b\otimes\mathbf{n}_b$, Gl. 10–15):**
+     An einer No-Slip-Wand $b$ mit Einheitsnormale $\mathbf{n}_b = \mathbf{S}_b/\|\mathbf{S}_b\|$ wirkt die Wandschubspannung nur auf die wandparallele Komponente $\mathbf{u}_\parallel = (\mathbf{I} - \mathbf{n}_b\otimes\mathbf{n}_b)\mathbf{u}$ (Gl. 12–13) und koppelt alle 3 Geschwindigkeitskomponenten implizit auf $\mathbf{A}_{C,b}^{uu}$ (Gl. 14–15):
+     $$\mathbf{A}_{C,b}^{uu} \mathrel{+}= \frac{\nu_{\text{eff}}\|\mathbf{S}_b\|}{d_\perp}\begin{bmatrix} 1-n_{b,x}^2 & -n_{b,x}n_{b,y} & -n_{b,x}n_{b,z} \\ -n_{b,y}n_{b,x} & 1-n_{b,y}^2 & -n_{b,y}n_{b,z} \\ -n_{b,z}n_{b,x} & -n_{b,z}n_{b,y} & 1-n_{b,z}^2 \end{bmatrix}, \qquad \mathbf{b}_{C,b}^{\mathbf{u}} \mathrel{+}= \frac{\nu_{\text{eff}}\|\mathbf{S}_b\|}{d_\perp}\mathbf{u}_{\parallel,\text{wall}}$$
+  4. **$4\times 4$ Rodrigues-Rotationsmatrix $\mathbf{T}_{NB}$ für `cyclic` (Gl. 16–17) & Direkte Sub-Face-AMI-Kopplung (Gl. 18–19):**
+     * Bei rotationsperiodischen `cyclic`-Patches (Drehwinkel $\alpha$ um Achse $\boldsymbol{\omega}$) wird der geometrische Nachbarblock von rechts mit der $4\times 4$-Rodrigues-Matrix multipliziert: $\mathbf{A}_{NB} = \mathbf{A}_{NB,\text{geom}}\cdot\mathbf{T}_{NB}(\boldsymbol{\omega},\alpha)$ (Gl. 16–17).
+     * Bei nicht-konformen `AMI`/`cyclicAMI`-Interfaces (z. B. Kaplan-Schaufel-Spaltblöcke) wird statt einer virtuellen Schatten-Zelle jede Master-Fläche $\mathbf{S}_f$ gemäß den Überlappungsgewichten $w_{f_k}$ ($\sum_k w_{f_k}=1$) direkt mit allen überlappenden Slave-Zellen $NB_k$ als virtuelle interne Sub-Faces in der globalen $4\times 4$-Blockmatrix verknüpft (z. B. Rhie-Chow-Druckblock $a_{NB_k}^{pp} = -w_{f_k}\frac{\mathbf{S}_f\cdot\overline{\mathbf{D}}_f\cdot\mathbf{S}_f}{\mathbf{d}_k\cdot\mathbf{S}_f}$, Gl. 18–19).
+  5. **Ergebnis (Tab. 1–4):** Nahezu lineare $\mathcal{O}(N)$-Gitterskalierung und **$6.1\times\text{ bis }35.1\times$ kürzere Rechenzeit** als `simpleFoam` (SIMPLE) auf Pumpen-, Francis- und Kaplan-Turbinenläufern.
+
+---
+
+### 9.19 [`Coupled_Solver_1-s2.0-S0045793023002207-main.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/Coupled_Solver_1-s2.0-S0045793023002207-main.pdf) — Massiv-Paralleler Monolithischer Zweiphasen-Löser mit Block-Gauss-Seidel & PCD-Schur-Vorkonditionierer
+* **Autoren & Quelle:** S. El Ouafa, S. Vincent, V. Le Chenadec, B. Trouette (Université Gustave Eiffel, 2023), *„Fully-coupled parallel solver for the simulation of two-phase incompressible flows“*, *Computers and Fluids* 265, 105995, DOI: `10.1016/j.compfluid.2023.105995`.
+* **Mathematische & Algorithmische Kern-Bausteine (Gl. 1–24 & App. A–C):**
+  1. **One-Fluid-Modell (OFM) mit Darcy-Brinkman-Strafoperator & Caltagirone-Vincent-Spannungszerlegung (Gl. 2–6, A.1–A.8, B.1–B.5):**
+     Löst das monolithische Sattelpunktsystem $\begin{bmatrix} F_{\mathbf{u}} & B_p^T \\ B_u & 0 \end{bmatrix}\begin{pmatrix}\mathbf{u}^{n+1}\\p^{n+1}\end{pmatrix} = \begin{pmatrix}\mathbf{f}\\0\end{pmatrix}$ ($F_{\mathbf{u}} = M_u^{(\rho)} + N_u^{(\rho)} + L_u^{(\mu)}$, Gl. 4–6) mit dem tensoriellen Darcy-Brinkman-Strafoperator $\bar{\bar{\mathbf{B}}}\cdot(\mathbf{f}(\mathbf{u}^{n+1})-\mathbf{u}_\infty)$ (Gl. 2a, B.1–B.5). Für extreme Viskositätssprünge ($\mu_2/\mu_1 = 10^6$) wird der Spannungstensor über $T_{lm} = \kappa\Lambda_{lm} + \zeta\Xi_{lm} - \eta\Gamma_{lm}$ ($\kappa=\zeta=2\mu, \eta=\mu$, Gl. A.3) exakt in Dehnungs- ($\Lambda$, Gl. A.4), Scher- ($\Xi$, Gl. A.5) und implizite Rotations-Kreuzableitungen ($-\eta\Gamma$, Gl. A.6 $\implies$ Nebendiagonalblöcke $F_{uv}, F_{uw}, F_{vw}$) zerlegt.
+  2. **Block-LU-Faktorisierung & Neumann-Reihen-Geschwindigkeits-Vorkonditionierer (Gl. 7–19, Alg. 1):**
+     Im oberen Block-Dreiecks-Vorkonditionierer $\mathcal{P} = \begin{bmatrix} F_{\mathbf{u}} & B_p^T \\ 0 & S_p \end{bmatrix}$ ($S_p = -B_u F_{\mathbf{u}}^{-1}B_p^T$, Gl. 7–8) wird der $3\times 3$-Geschwindigkeitsblock über die Neumann-Reihe $(I - G)^{-1} = \sum_{k=0}^\infty (F_{ww}^{-1}A_{wvu}A_{uv}^{-1}A_{uvw})^k$ (Gl. 12–14) approximiert. Die **Ordnung-0-Trunkierung (Block-Gauss-Seidel $\tilde{F}_{\mathbf{u}}^{(0)} = \begin{bmatrix} F_{uu} & F_{uv} & F_{uw} \\ 0 & F_{vv} & F_{vw} \\ 0 & 0 & F_{ww} \end{bmatrix}$, Gl. 19a)** schlägt sowohl Block-Jacobi als auch Ordnung-1 ($\tilde{F}_{\mathbf{u}}^{(1)}$, Gl. 19b) in der Gesamtlaufzeit.
+  3. **Variabel-Koeffizienten Two-Phase PCD Schur-Komplement & $\text{BiCGStab}(2)$ (Gl. 20–21, Alg. 2–3):**
+     Das inverse Druck-Schur-Komplement wird über den zweiphasigen *Pressure Convection-Diffusion (PCD)*-Operator approximiert:
+     $$\hat{S}_{PCD}^{-1} = \left(M_p^{(1/\mu)}\right)^{-1} + \left(A_p^{(1/\rho)}\right)^{-1}\left(N_p^{(1)} + \Delta t^{-1}M_p^{(1)}\right)\left(M_p^{(1)}\right)^{-1} \quad \text{(Gl. 20–21)}$$
+     mit dem variabel-dichten Druck-Laplacian $A_p^{(1/\rho)}\phi = \int_{\Omega_p}\nabla\cdot(\rho^{-1}\nabla\phi)\,\mathrm{d}V$, der viskositätsgewichteten Druck-Massenmatrix $M_p^{(1/\mu)}\phi = \int_{\Omega_p}\mu^{-1}\phi\,\mathrm{d}V$ und dem Druck-Konvektionsoperator $N_p^{(1)}\phi = \int_{\Omega_p}\nabla\cdot(\mathbf{u}\phi)\,\mathrm{d}V$. Pro $\mathcal{P}^{-1}$-Aufruf (Alg. 2) im links-vorkonditionierten $\text{BiCGStab}(2)$ (Alg. 3) sind nur **4 skalare AMG/PFMG-Lösungen** ($A_p^{(1/\rho)}, F_{ww}, F_{vv}, F_{uu}$) nötig $\implies$ **96 % starke Skalierung auf 6.400 Cores**, **1,1 Mrd. Zellen** im Weak-Scaling und stabile Konvergenz bei **$\rho_2/\rho_1 = \mu_2/\mu_1 = 10^6$** sowie $4\text{–}10\times$ größeren Zeitschritten als OpenFOAM `interFoam`.
+
+---
+
+### 9.20 [`CoupledSolver_RWTH_1010342.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/CoupledSolver_RWTH_1010342.pdf) — Zero-Copy SPMD-Kopplung Reaktiver CFD-Solver mit GPU-Deep-Learning-Inferenz (`AIxeleratorService`)
+* **Autoren & Quelle:** F. Orland, L. Nista, N. Kocher, J. Vanvinckenroye, H. Pitsch, C. Terboven (RWTH Aachen University, Feb. 2025), *„Efficient and Scalable AIxeleration of Reactive CFD Solvers Coupled with Deep Learning Inference on Heterogeneous Architectures“*, *HPC Asia 2025 Workshops*, S. 45–57, DOI: `10.1145/3703001.3724386`.
+* **Mathematische & Architektonische Kern-Bausteine (Gl. 1 & §3–5):**
+  1. **In-Situ Gekoppelte LES-Turbulenz- ($\tau_{ij}$) & Reaktive Wasserstoff-Flammen-Schließung ($\tilde{\dot{\omega}}_C$) in jedem RK-Subschritt (§2.1–2.2):**
+     * *SR-GAN Dekonvolution für den Subfilter-Reynolds-Spannungstensor $\tau_{ij} = \overline{u_i u_j} - \bar{u}_i\bar{u}_j$:* Rekonstruiert das ungefilterte Geschwindigkeitsfeld $u_i^\bullet = \mathcal{G}_l^{-1} * \bar{u}_i = \mathcal{G}_l^{-1} * \mathcal{G} * u_i$ (Gl. 1) auf einem $4\times$ feineren Hilfsgitter ($64^3 \to 256^3$) und filtert $u_i^\bullet u_j^\bullet$ zurück auf das LES-Gitter.
+     * *UNet++ CNN für magere $\text{H}_2$-Verbrennung:* Sagt aus der gefilterten Reaktionsfortschrittsvariable $\tilde{C}$ direkt die thermodiffusiv instabile Quellrate $\tilde{\dot{\omega}}_C$ vorher.
+  2. **SPMD `AIxeleratorService`-Architektur vs. MPMD (`PhyDLL`, §4.2, Abb. 4–5):**
+     * Statt separate Python-Prozesse im MPMD-Modus zu starten (was 50 % der CPU-Cores blockiert und bei 4 H100-GPUs **$69.6\,\text{ms}$ Python-Host-Overhead** pro Schritt erzeugt, Abb. 10), läuft `AIxeleratorService<T>` als **reine C++-SPMD-Bibliothek** innerhalb der MPI-Ränge des CFD-Solvers.
+     * Teilt `MPI_COMM_WORLD` per `RoundRobinDistribution` in 1 `work_group_comm` pro GPU, bündelt die lokalen Teilgebiete über **Zero-Copy-Pointer-Attachment (`T* input_data_`) + `FP32` `MPI_Gatherv`/`MPI_Scatterv`** (50 % weniger InfiniBand-Traffic) auf 1 GPU-Server-Rank pro Workgroup und ruft direkt die nativen **C/C++-Inferenz-APIs (`LibTorch`, `TF_SessionRun`, `ONNX Runtime Ort::Session`)** auf (**nur $2\,\text{ms}$ Host-Overhead $\implies 3.5\times\text{ bis }9.6\times$ schnellere GPU-Inferenz** auf 32 H100-GPUs!).
+  3. **Direkte Blaupause für unser Rust-Node-Manager $\leftrightarrow$ C++20-Mesher/Solver FFI:**
+     Die Messdaten des RWTH IT Centers & ITV belegen, warum lose gekoppelte MPMD-Prozesse ($69.6\,\text{ms}$ Overhead) scheitern und **Zero-Copy-Pointer-Übergabe im selben Prozessraum ($2\,\text{ms}$ Overhead)** gewinnt. Exakt dieses **SPMD-In-Memory-Prinzip** setzen wir über unseren `CAbiSpan` Data-Lake (`(void* ptr, size_t len, size_t stride, uint32_t dtype, uint32_t device_id)`) zwischen dem Rust-Orchestrator/Node-Manager und dem C++20-Mesher, FVM-Solver und C-API-Surrogat-Evaluator um.
+
+---
+
+### 9.21 [`CAD_Optimization_1-s2.0-S0045793011000508-main.pdf`](file:///G:/Datein/Projects/CFDSolver/resources/papers/CAD_Optimization_1-s2.0-S0045793011000508-main.pdf) — Direkte STEP B-Rep NURBS-Formoptimierung mit Hybrider Reverse/Forward-AD-Adjoint-Kettenregel
+* **Autoren & Quelle:** G. Yu, J.-D. Müller, D. Jones, F. Christakopoulos (Queen Mary Univ. of London, 2011), *„CAD-based shape optimisation using adjoint sensitivities“*, *Computers & Fluids* 46, 512–516, DOI: `10.1016/j.compfluid.2011.01.043`.
+* **Mathematische & Algorithmische Kern-Bausteine (Gl. 1–12):**
+  1. **4-Stufige Adjoint-Kettenregel & Hybride Reverse/Forward-AD-Aufteilung (Gl. 1–6, Abb. 1):**
+     Für das Zielfunktional $L = L(U(X(X_B(\alpha))))$ (Gl. 3) mit den STEP-NURBS-Kontrollpunkten $\alpha \equiv \{\mathbf{P}_{i,j}\}$ als Designvariablen und der adjungierten FVM-Gleichung $A^T v = g = (\frac{\partial L}{\partial U})^T$ ($A = \frac{\partial R}{\partial U}$, Gl. 2, 6) lautet die exakte Gesamtableitung:
+     $$\frac{\mathrm{d}L}{\mathrm{d}\alpha} = \underbrace{\left[\left(\frac{\partial L}{\partial X} - v^T\frac{\partial R}{\partial X}\right)\frac{\partial X}{\partial X_B}\right]}_{\substack{\text{Oberflächenknoten-Sensitivität } \mathrm{d}L/\mathrm{d}X_B \\ \text{(Reverse-Mode AD auf FVM + Netzdeformation)}}} \cdot \underbrace{\frac{\partial X_B}{\partial \alpha}}_{\substack{\text{B-Rep NURBS-Jacobi-Matrix} \\ \text{(Forward-Mode AD auf STEP-Evaluator)}}}$$
+  2. **Lokale Knotenintervall-Sparsity von NURBS-Flächen & $G^1/C^2$-Kollinearitätsbedingung (Gl. 7–11, Abb. 3):**
+     Für eine aus einer ISO-10303-STEP-Datei gelesene rationale NURBS-Fläche $\mathbf{X}_s(u,v) = \sum_{i=0}^n\sum_{j=0}^m R_{i,j}(u,v)\mathbf{P}_{i,j}$ mit $R_{i,j}(u,v) = \frac{N_{i,p}(u)N_{j,q}(v)w_{i,j}}{\sum_{k,l}N_{k,p}(u)N_{l,q}(v)w_{k,l}}$ (Gl. 7–8) sind im lokalen Knotenintervall $(\text{span}_u, \text{span}_v)$ höchstens $(p+1)(q+1)$ Basisfunktionen von Null verschieden (Gl. 10), und die exakte Ableitung nach jedem Kontrollpunkt lautet geschlossen:
+     $$\frac{\partial \mathbf{X}_s(u,v)}{\partial \mathbf{P}_{i,j}} = R_{i,j}(u,v)\,\mathbf{I}_3 \quad \text{(Gl. 11)}, \qquad \frac{\partial \mathbf{X}_s(u,v)}{\partial w_{i,j}} = \frac{R_{i,j}(u,v)}{w_{i,j}}\big(\mathbf{P}_{i,j} - \mathbf{X}_s(u,v)\big)$$
+     An Patch-Übergängen (z. B. Profil-Vorderkante $\mathbf{P}_0$) erzwingt die **Kollinearität von $(\mathbf{P}_{1,\text{bot}}, \mathbf{P}_0, \mathbf{P}_{1,\text{top}})$** (Abb. 3, nach Farin) automatisch $G^1/C^2$-Krümmungsstetigkeit und Wasserdichtheit.
+  3. **Mehrwert gegenüber Knoten-basierter Optimierung & CAD-Finite-Differenzen (§3.2–4, Tab. 1, Abb. 6–7):**
+     * Berechnet $\frac{\partial X_B}{\partial\alpha}$ auf **10+ Dezimalstellen exakt** in **0,24 s** (**$75.000\times$ schneller** als 3 Stunden CATIA-V5-Finite-Differenzen).
+     * Die kubische B-Spline-Basis wirkt als **intrinsischer $C^2$-Tiefpassfilter** (keine künstliche Gradientenglättung nötig!) und schreibt die optimierten Kontrollpunkte direkt als fertige ISO-STEP-B-Rep-Datei zurück.
+
+---
+
+### 9.22 Master-Synthese: Wie alle 21 Teilkapitel als 2-Modi-Mesher-Pipeline auf demselben Polyeder-Graphen $\mathcal{G} = (\mathcal{V}, \mathcal{E})$ zusammenspielen
+
+Statt die vier im Kompendium vertretenen Vernetzungs-Philosophien (*VoroCrust* in 9.1, *Mosaic Poly-Hexcore/PUMA* in 9.2, *fTetWild/WSRD Cut-Cells* in 9.3/9.4 und *Super Elements* in 9.9) in einen einzigen überladenen Codepfad zu zwingen, operiert unser C++20-Mesher als **saubere 2-Modi-Pipeline**, die in beiden Modi exakt denselben **Hilbert-sortierten, 4-Quadranten-gerichteten Flächen-Zellen-Graphen $\mathcal{G} = (\mathcal{V}, \mathcal{E})$** (`FaceBaseSoA` + 6 % `CorrectionSoA` + atomikfreies `CellFaceCSR`) ausgibt:
+
+| Einsatzfall | Optimaler Pipeline-Pfad aus Kapitel 9 | Warum genau diese Kombination? |
+| :--- | :--- | :--- |
+| **Modus A: Externe Aerodynamik, Turbomaschinen, CHT & Verbrennung ($y^+ \le 1$)** | **Topology-First B-Rep (9.16)** $\longrightarrow$ **Loseille/Marcon Kollisionsfreie Prismen (9.7)** $\longrightarrow$ **Mosaic Poly-Hexcore + PUMA / Stromberg Super-Elements (9.2 / 9.9)** $\longrightarrow$ **$L^p$-Metrik- & Adjoint-Adaption (9.6 / 9.10)** | Liefert maximale Genauigkeit in Wandgrenzschichten ($y^+ \le 1$), verschwindende numerische Diffusion im orthogonalen Hexcore-Fernfeld ($\theta_f = 0^\circ$) und 100 % flächenkonforme Polyeder-/Super-Element-Übergänge ($\min SJ \ge 0.302$) ohne Hanging Nodes. |
+| **Modus B: Dirty-CAD, Topologieoptimierung (SIMP), Ventile & große FSI-Bewegung** | **fTetWild $\epsilon$-Envelope / VoroCrust / GPU-Voronoi (9.1 / 9.3 / 9.12)** *oder* **WSRD Cut-Cells (9.4)** $+$ **Jaiswal 3-Ring WSS (9.5)** $+$ **JamTet / TINE / Simpson-BDF2-DGCL / Monolithic PLIC-FSI (9.8 / 9.11 / 9.13 / 9.15)** | 100 % robust bei kaputten STL/CAD-Geometrien, SIMP-Isoflächen ($\gamma = 0.5$) und Topologiewechseln; kein Kollabieren von Grenzschicht-Prismen bei Ventilkontakt oder extremer Strukturverformung, während WSRD ($\text{CFL}=1$) und Jaiswals $24\times 24$-Patch-Rekonstruktion exakte Wandkräfte sichern. |
+
+**Einheitlicher Ausgang beider Modi zum Solver & Optimizer:**
+Beide Pipelines münden in denselben **C-ABI SoA Data-Lake (`.mphys`)**, auf dem sowohl unser segregierter/gekoppelter **DiFVM-Graph-Solver (Kap. 6)**, der **$4\times 4$ Block-Coupled MRF-/Zweiphasen-Löser mit Block-Gauss-Seidel & PCD-Schur-Vorkonditionierer (Kap. 9.18 & 9.19)**, die **Householder-Symmetrie- & Festkörper-FVM (Kap. 9.14)** als auch der **hybride Reverse-FVM / Forward-CAD/NURBS-Adjoint-Optimizer (Kap. 7, 9.17 & 9.21)** ohne jede Weiche im Solver-Code arbeiten.
+
+---
+
+### 9.23 Coupled vs. Segregated (SIMPLE / SIMPLEC / PISO): Der Paradigmenwechsel zum Matrix-Free / Block-Coupled Newton-Krylov-Solver mit SIMPLE/AL/CPR/PCD als Block-Vorkonditionierer
+* **Kern-Erkenntnis der modernen CFD-Algebra (Klaij & Vuik 2013; Moukalled, Mangani & Darwish 2016; Denner & van Wachem 2018; El Ouafa et al. 2023):**
+  Klassische segregierte Verfahren (**SIMPLE**, **SIMPLEC**, **PISO**, **PIMPLE**) sind **keine** konkurrierenden Gleichungslöser zum Coupled Solver, sondern schlicht **unvollständige Block-LU-Zerlegungen derselben gekoppelten Sattelpunktmatrix**
+  $$\mathcal{J}\,\begin{bmatrix} \Delta \mathbf{u} \\ \Delta p \end{bmatrix} = \begin{bmatrix} \mathbf{A}_{\mathbf{u}\mathbf{u}} & \mathbf{A}_{\mathbf{u}p} \\ \mathbf{A}_{p\mathbf{u}} & \mathbf{A}_{pp} \end{bmatrix} \begin{bmatrix} \Delta \mathbf{u} \\ \Delta p \end{bmatrix} = -\begin{bmatrix} \mathbf{R}_{\mathbf{u}} \\ \mathbf{R}_p \end{bmatrix}$$
+  Approximiert man im exakten Block-LU-Faktor $\mathcal{J} = \begin{bmatrix} \mathbf{A}_{\mathbf{u}\mathbf{u}} & \mathbf{0} \\ \mathbf{A}_{p\mathbf{u}} & \mathbf{S} \end{bmatrix} \begin{bmatrix} \mathbf{I} & \mathbf{A}_{\mathbf{u}\mathbf{u}}^{-1}\mathbf{A}_{\mathbf{u}p} \\ \mathbf{0} & \mathbf{I} \end{bmatrix}$ die teure Inverse $\mathbf{A}_{\mathbf{u}\mathbf{u}}^{-1}$ im Schur-Komplement $\mathbf{S} = \mathbf{A}_{pp} - \mathbf{A}_{p\mathbf{u}}\mathbf{A}_{\mathbf{u}\mathbf{u}}^{-1}\mathbf{A}_{\mathbf{u}p}$ und im oberen Dreiecksfaktor durch eine Diagonalmatrix $\mathbf{D}_{\mathbf{u}\mathbf{u}}^{-1}$, erhält man exakt einen **SIMPLE- bzw. SIMPLEC-Schritt als Rechts-Vorkonditionierer $\mathcal{P}_{\text{SIMPLE}}$**:
+  $$\mathcal{P}_{\text{SIMPLE}} = \begin{bmatrix} \mathbf{A}_{\mathbf{u}\mathbf{u}} & \mathbf{0} \\ \mathbf{A}_{p\mathbf{u}} & \tilde{\mathbf{S}}_{\text{SIMPLE}} \end{bmatrix} \begin{bmatrix} \mathbf{I} & \mathbf{D}_{\mathbf{u}\mathbf{u}}^{-1}\mathbf{A}_{\mathbf{u}p} \\ \mathbf{0} & \mathbf{I} \end{bmatrix}, \qquad \tilde{\mathbf{S}}_{\text{SIMPLE}} = \mathbf{A}_{pp} - \mathbf{A}_{p\mathbf{u}}\mathbf{D}_{\mathbf{u}\mathbf{u}}^{-1}\mathbf{A}_{\mathbf{u}p}$$
+  wobei $\mathbf{D}_{\mathbf{u}\mathbf{u}}^{\text{SIMPLE}} = \operatorname{diag}(a_{PP})$ und $\mathbf{D}_{\mathbf{u}\mathbf{u}}^{\text{SIMPLEC}} = \operatorname{diag}\!\big(a_{PP} + \sum_{N} a_{PN}\big)$ gilt (und **PISO** einer 2-stufigen Neumann-Reihenentwicklung von $\mathbf{A}_{\mathbf{u}\mathbf{u}}^{-1}$ entspricht).
+* **Warum äußere segregierte SIMPLE/SIMPLEC/PISO-Schleifen auf unserem Ziel-Stack an harte Grenzen stoßen:**
+  1. **Gitter-Stagnation bei hohen Aspektverhältnissen ($1000:1$ Grenzschicht-Prismen, $y^+ \le 1$):** Da $\mathbf{D}_{\mathbf{u}\mathbf{u}}^{-1}$ auf anisotropen Prismen-/Mosaic-Gittern die Nebendiagonalen $\mathbf{A}_{\mathbf{u}\mathbf{u}} - \mathbf{D}_{\mathbf{u}\mathbf{u}}$ unterschlägt, erfordert äußeres SIMPLE starke Unterrelaxation ($\alpha_p \approx 0.2\text{–}0.3, \alpha_u \approx 0.7$) und stagniert bei $3\,000\text{–}10\,000$ Iterationen, während der gekoppelte Löser **linear $\mathcal{O}(N)$ in $50\text{–}150$ Iterationen** konvergiert (vgl. Kap. 9.18, Tab. 1–2).
+  2. **Steife Volumenkräfte & Tensor-Kopplungen:** Coriolis-Kräfte ($\mathbf{\Omega}\times\mathbf{u}$ in MRF, Kap. 9.18), Lorentz-Kräfte ($\mathbf{J}\times\mathbf{B}$ in MHD), Auftrieb ($\rho\mathbf{g}$ in CHT), Oberflächenspannung ($\sigma\kappa\mathbf{n}\delta_s$, Kap. 9.19) und steife Darcy-Forchheimer-/SIMP-Brinkman-Strafen ($\bar{\bar{\mathbf{B}}}\mathbf{u}$) koppeln $u, v, w$ und $p$ lokal in derselben Zelle.
+  3. **All-Mach-Kompressibilität & Kavitation ($\text{Ma} = 10^{-4} \to 3.0$):** Bei hoher Mach-Zahl oder Schnerr-Sauer-Kavitation ($\partial\dot{m}/\partial p$) wechselt die Druckgleichung von elliptisch zu hyperbolisch (Konvektions-Diffusions-Gleichung).
+  4. **Adjoint-Optimierung (TopOpt & STEP-NURBS-Shape-Opt):** Ein einziger gekoppelter Block-Operator $\mathcal{J} = \frac{\partial\mathbf{R}}{\partial\mathbf{U}}$ erlaubt die direkte adjungierte Lösung $\mathcal{J}^T\boldsymbol{\psi} = -\left(\frac{\partial L}{\partial\mathbf{U}}\right)^T$ ohne instabile segregierte Adjoint-SIMPLE-Fixpunktschleifen.
+* **Die 5 komplementären Coupled-Solver-Architekturen für unseren C++20/CUDA-Stack (Ergänzung zu Kap. 9.18 & 9.19):**
+  1. **$5\times 5$ Pressure-Based All-Mach Coupled Solver (Darwish, Sraj & Moukalled 2009–2020; Denner, Xiao & van Wachem 2018/2020):**
+     Erweitert das inkompressible $4\times 4$-System $(u,v,w,p)$ aus Kap. 9.18 um die Energie-/Enthalpiegleichung ($T$ bzw. $h$) auf **$5\times 5$-Blöcke** und linearisiert den kompressiblen Massenfluss $\dot{m}_f = \rho_f (\mathbf{u}_f \cdot \mathbf{S}_f)$ über die Newton-Zerlegung:
+     $$\rho_f^{(k)}\mathbf{u}_f^{(k)} \approx \rho_f^{(k-1)}\mathbf{u}_f^{(k)} + \mathbf{u}_f^{(k-1)}\left(\frac{\partial\rho}{\partial p}\right)_{T,f}\!\Delta p_f + \mathbf{u}_f^{(k-1)}\left(\frac{\partial\rho}{\partial T}\right)_{p,f}\!\Delta T_f, \qquad \left(\frac{\partial\rho}{\partial p}\right)_T = \frac{1}{c_T^2}$$
+     Im Grenzfall $\text{Ma} \to 0$ ($c_T \to \infty$) verschwindet $\partial\rho/\partial p \to 0$ automatisch und das System geht **nahtlos ohne Low-Mach-Singularität** in das inkompressible $4\times 4$ Rhie-Chow-Sattelpunktsystem über!
+  2. **Krylov-Accelerated SIMPLE (`FGMRES-SIMPLE`) & Augmented-Lagrangian (`AL`) Vorkonditionierer (Klaij & Vuik 2013, *J. Comput. Phys.* 242):**
+     - *Stufe 1 (`Krylov-SIMPLE`):* Unser bestehender segregierter SIMPLE/SIMPLEC-Code wird ohne Neuprogrammierung der Einzelgleichungen als **Rechts-Vorkonditionierer $\mathcal{P}_{\text{SIMPLE}}^{-1}$ innerhalb einer äußeren FGMRES- oder BiCGStab(2)-Schleife** aufgerufen.
+     - *Stufe 2 (`Augmented-Lagrangian`):* Für extreme Grenzschicht-Aspektverhältnisse ($1000:1$) wird der Impulsblock mit $\mathbf{A}_{\mathbf{u}\mathbf{u}}^{\gamma} = \mathbf{A}_{\mathbf{u}\mathbf{u}} + \gamma_{\text{AL}}\,\mathbf{A}_{\mathbf{u}p}\mathbf{W}_p^{-1}\mathbf{A}_{p\mathbf{u}}$ ($\gamma_{\text{AL}} \sim \mathcal{O}(1)$, $\mathbf{W}_p = \operatorname{diag}(V_P/\rho_P)$) angereichert; nach dem Sherman-Morrison-Woodbury-Lemma dominiert dann im Schur-Komplement $\mathbf{S}_\gamma^{-1} = \mathbf{S}^{-1} + \gamma_{\text{AL}}\mathbf{W}_p^{-1}$ der exakt bekannte Massenterm $\gamma_{\text{AL}}\mathbf{W}_p^{-1}$, wodurch die Iterationszahl **unabhängig von Gitterfeinheit und Aspektverhältnis** wird!
+  3. **CPR (Constrained Pressure Residual) Zweistufen-Vorkonditionierer für Reaktive & Multiphysik-Systeme (Wallis 1983; Lacroix et al. 2003; Roy, Janna et al. 2019–2024):**
+     Sobald neben $(\mathbf{u}, p, T)$ noch $N_s = 10\text{–}50$ chemische Spezies $Y_k$, Turbulenzgrößen $(k,\omega)$ oder Batterie-Zustände gekoppelt werden ($M \times M$-Blöcke mit $M \ge 10$), wäre eine volle Block-Matrix viel zu teuer. **CPR** kombiniert zwei extrem billige Stufen:
+     $$\mathbf{M}_{\text{CPR}}^{-1} = \mathbf{M}_{\text{BILU}(0)/\text{BJacobi}}^{-1}\Big(\mathbf{I} - \mathcal{J}\,\mathbf{P}_p\big(\mathbf{A}_{pp}^{\text{CPR}}\big)^{-1}\mathbf{R}_p^T\Big) + \mathbf{P}_p\big(\mathbf{A}_{pp}^{\text{CPR}}\big)^{-1}\mathbf{R}_p^T, \qquad \mathbf{A}_{pp}^{\text{CPR}} = \mathbf{R}_p^T\,\mathcal{J}\,\mathbf{P}_p$$
+     - *Stufe 1 (Globale elliptische Druck-Entkopplung):* Der Quasi-IMPES-Restriktionsoperator $\mathbf{R}_p^T$ extrahiert die skalare Druckgleichung $\mathbf{A}_{pp}^{\text{CPR}}$ ($1\times 1$ pro Zelle), die mit **einem einzigen skalaren AMG-V-Zyklus** gelöst wird.
+     - *Stufe 2 (Lokale Hyperbolik-/Reaktions-Glättung):* Ein einziger hochparalleler GPU-**Block-Jacobi- oder Block-ILU(0)-Sweep** glättet alle Transport-, Turbulenz- und Arrhenius-Chemie-Gleichungen lokal pro Zelle.
+  4. **Matrix-Free Block-Coupled JFNK / FAS + Zell-Lokaler Vanka-Smoother via Enzyme Forward-AD (Vanka 1986; Sabawi, Farrell & Wathen 2020–2025):**
+     Ein assembliertes $4\times 4$-`Block-CSR`-System benötigt $16\times$ so viele Off-Diagonal-Floats wie ein Skalar-Laplacian. In unserem Stack berechnet stattdessen **Enzyme Forward-Mode AD (`__enzyme_fwddiff`)** das exakte Matrix-Vektor-Produkt $\mathcal{J}\mathbf{v} = \frac{\partial\mathbf{R}(\mathbf{U})}{\partial\mathbf{U}}\mathbf{v}$ innerhalb von FGMRES **komplett matrixfrei in $\mathcal{O}(N)$ Speicher**, während im VRAM lediglich die zelllokalen $4\times 4$- bzw. $5\times 5$-Diagonalblöcke (oder kleine zellzentrierte Vanka-Patches + skalare Druck-AMG-Matrix $\tilde{\mathbf{S}}$) für den Vorkonditionierer liegen (**50–65 % weniger VRAM** bei voller quadratischer Newton-Konvergenz!).
+  5. **Unterrelaxations- und Zeitschritt-Konsistente Rhie-Chow-Interpolation (Moukalled, Mangani & Darwish 2016, Kap. 15.6 & 18; Pascau 2011):**
+     In einfachem OpenFOAM-/Ansys-Rhie-Chow hängt die auskonvergierte stationäre Lösung leicht vom Unterrelaxationsfaktor $\alpha_u$ und vom Zeitschritt $\Delta t$ ab! Die **exakt konsistente Rhie-Chow-Flächengeschwindigkeit** für sowohl segregierte als auch Block-Coupled Solver lautet:
+     $$\mathbf{u}_f^{(k)} = \overline{\mathbf{u}}_f^{(k)} - \overline{\mathbf{D}}_f\Big(\nabla p_f^{(k)} - \overline{\nabla p}_f^{(k)}\Big) + (1 - \alpha_u)\Big(\mathbf{u}_f^{(k-1)} - \overline{\mathbf{u}}_f^{(k-1)}\Big) + \frac{\rho_f V_f}{\Delta t\,\overline{a}_{P,f}}\Big(\mathbf{u}_f^{n} - \overline{\mathbf{u}}_f^{n}\Big)$$
+     Sie stellt mathematisch sicher, dass der stationäre Fixpunkt ($\mathbf{u}_f^{(k)} = \mathbf{u}_f^{(k-1)} = \mathbf{u}_f^n$) **auf Maschinenpräzision unabhängig von $\alpha_u$ und $\Delta t$** ist!
+* **Verbindliche Dual-Mode-Solver-Strategie für unseren Stack:**
+  | Physik-Regime & Anwendungsfall | Primärer Solver-Modus im C++20/CUDA-Stack | Warum genau dieser Modus? |
+  | :--- | :--- | :--- |
+  | **Stationäre & Langsam-Transiente RANS, Turbomaschinen (MRF/AMI), CHT, SIMP-TopOpt, All-Mach & Adjoint** | **Matrix-Free / Block-Coupled JFNK** (`FGMRES` / `BiCGStab(2)`) vorkonditioniert mit **Krylov-AL-SIMPLE**, **El-Ouafa Two-Phase PCD (9.19)** oder **CPR (Reaktive Chemie)** | Lineare $\mathcal{O}(N)$-Skalierung auf $1000:1$-Prismengittern, $6\times\text{–}35\times$ schneller als äußeres SIMPLE, $\text{CFL} = 10\text{–}100$, und direkt transponierbar ($\mathcal{J}^T\boldsymbol{\psi} = -\nabla_{\mathbf{U}} L$) für den Adjoint-Solver! |
+  | **Hochtransiente Wirbelauflösung ($\text{CFL} \le 1$): WALE-LES, DES, FWH-Aeroakustik, Freie VOF-Oberflächen & OPMIS SPH-FVM** | **Leichtgewichtiger Segregierter PISO / Fractional-Step-Modus** mit Multi-Pass Rhie-Chow Re-Evaluation + **Krylov-Deflation (10.5.4)** & **KEP-Konvektion (10.5.3)** | Da die Physik ohnehin $\Delta t$ auf $\text{CFL} < 1$ begrenzt, ist der Impulsblock $\frac{\rho V}{\Delta t}\mathbf{I} + \mathbf{A}_{\mathbf{u}\mathbf{u}}$ stark diagonaldominant; 2–3 PISO-Korrekturen ohne äußere Nichtlinearitäts-Schleife liefern hier den maximalen Durchsatz pro Sekunde. |
+
+---
+
+## 10. Angewandte Mathematische Beschleuniger & Struktur-Erhaltende Operatoren (Ohne zusätzlichen PDF-Overhead direkt in Code übersetzbar)
+*Fokus: Geschlossene mathematische Operatoren aus der Mimetischen Diskretisierung (MFD/DEC), Port-Hamiltonschen Systemtheorie (PHS), Spektralen Graph-Sparsifikation (LAMG), Tropischen Geometrie, Anderson-Beschleunigung, Algebraischen Flusskorrektur (AFC/MPRK) und Krylov-Deflation*
+
+---
+
+### 10.1 Mimetischer Diskreter Hodge-Stern auf verzerrten Polyedern (MFD / VEM: Brezzi, Buffa & Lipnikov 2009; Lipnikov, Manzini & Shashkov 2014)
+* **Problem:** Auf extrem schiefen Cut-Cells oder Mosaic-Übergangspolyedern ($\theta_f > 70^\circ$) kann die explizite Verzögerung von $\nabla\phi_f\cdot\mathbf{k}_f^{\text{corr}}$ die Symmetrie und Koerzivität der Diffusionsmatrix schwächen.
+* **Geschlossene lokale $m\times m$-Stabilisierungsmatrix $\mathbf{M}_P$ pro Polyederzelle $P$ ($m$ Flächen):**
+  Mit der Flächenvektor-Matrix $\mathbf{N}_P = [\mathbf{S}_{P,1}, \dots, \mathbf{S}_{P,m}]^T \in \mathbb{R}^{m\times 3}$ und der Abstands-Matrix $\mathbf{R}_P = [\mathbf{x}_{f_1} - \mathbf{x}_P, \dots, \mathbf{x}_{f_m} - \mathbf{x}_P]^T \in \mathbb{R}^{m\times 3}$ (die nach dem Satz von Gauß exakt $\mathbf{N}_P^T \mathbf{R}_P = V_P \mathbf{I}_3$ erfüllen!) lautet das mimetische Skalarprodukt (diskreter Hodge-Stern $\star_1$):
+  $$\mathbf{M}_P(\mathbf{K}_P) = \underbrace{\frac{1}{V_P}\mathbf{N}_P \mathbf{K}_P \mathbf{N}_P^T}_{\text{Konsistenzterm (Rang 3)}} + \underbrace{\gamma_P \left(\mathbf{I}_m - \mathbf{R}_P(\mathbf{R}_P^T \mathbf{R}_P)^{-1}\mathbf{R}_P^T\right)}_{\text{Orthogonaler Projektor-Stabilisierungsterm (Rang } m-3\text{)}}, \qquad \gamma_P = \frac{\operatorname{tr}(\mathbf{K}_P)}{V_P^{1/3}}$$
+* **Nutzen:** Benötigt **null Volumen-Quadratur** (nur $\mathbf{S}_f, \mathbf{x}_f, \mathbf{x}_P, V_P$ aus `FaceBaseSoA`), erfüllt exakt die lineare Konsistenzbedingung $\mathbf{M}_P \mathbf{R}_P = \mathbf{N}_P \mathbf{K}_P$ und ist auf **jedem beliebig gekrümmten oder nicht-konvexen Polyeder garantiert symmetrisch positiv definit ($\mathbf{M}_P \succ 0$)**.
+
+---
+
+### 10.2 Port-Hamiltonsche Systeme (PHS) & Dirac-Leistungs-Ports für garantiert stabile Multiphysik-Kopplung (van der Schaft & Jeltsema 2014; Kotyczka 2019)
+* **Problem:** Beim modularen Zusammenstecken von Fluid, Festkörper (FSI), Wärmeleitung (CHT), Batterie-Elektrochemie und MHD im C-ABI Data-Lake können zwei einzeln stabile Löser am Kopplungs-Interface künstliche Energie erzeugen und divergieren.
+* **Mathematischer Dirac-Kopplungsvertrag:**
+  Jedes Interface zwischen zwei Physik-Modulen $A$ und $B$ tauscht ausschließlich **leistungskonjugierte Effort-Flow-Paare $(e_\alpha, f_\alpha)$** aus, deren Produkt die strikte SI-Dimension einer **Leistung $[\text{W}] = [1, 2, -3, 0, 0, 0, 0]$** besitzt:
+  - *Mechanik / FSI:* Effort $e_{\text{mech}} = \mathbf{v}_{\text{int}}\;[\text{m/s}]$, Flow $f_{\text{mech}} = \mathbf{F}_f = \boldsymbol{\sigma}\cdot\mathbf{S}_f\;[\text{N}] \implies \mathbf{v}_{\text{int}}\cdot\mathbf{F}_f\;[\text{W}]$.
+  - *Thermodynamik / CHT:* Effort $e_{\text{th}} = T\;[\text{K}]$ (bzw. $1 - T_0/T$), Flow $f_{\text{th}} = \dot{S}_f = \dot{Q}_f/T\;[\text{W/K}] \implies e_{\text{th}} f_{\text{th}} = \dot{Q}_f\;[\text{W}]$.
+  - *Elektrochemie / MHD:* Effort $e_{\text{el}} = \phi_E\;[\text{V}]$, Flow $f_{\text{el}} = I_f = \mathbf{J}\cdot\mathbf{S}_f\;[\text{A}] \implies \phi_E I_f\;[\text{W}]$.
+  Durch Erzwingen der **verlustfreien Dirac-Bedingung** $e_A = e_B$ und $f_A + f_B = 0$ ($\implies \langle e_A, f_A\rangle + \langle e_B, f_B\rangle \equiv 0$) zusammen mit einer schiefadjungierten Kopplungsmatrix $\mathbf{J}_{\text{int}}^T = -\mathbf{J}_{\text{int}}$ und positiv semidefiniter Dämpfung $\mathbf{R}_{\text{diss}} \succeq 0$ gilt für die Gesamt-Hamilton-Funktion (Gesamtenergie/Exergie) $\mathcal{H}_{\text{tot}} = \sum_m \mathcal{H}_m$:
+  $$\frac{\mathrm{d}\mathcal{H}_{\text{tot}}}{\mathrm{d}t} = -\mathbf{e}^T \mathbf{R}_{\text{diss}} \mathbf{e} + \mathbf{e}_{\partial\Omega}^T \mathbf{f}_{\partial\Omega} \le \mathbf{e}_{\partial\Omega}^T \mathbf{f}_{\partial\Omega}$$
+  $\implies$ **Unbedingte Passivität (Lyapunov-Stabilität) über alle gekoppelten Physikmodule hinweg!**
+
+---
+
+### 10.3 Spektrale Graph-Sparsifikation (Spielman & Teng 2011; Livne & Brandt LAMG 2012) gegen Operator-Complexity-Explosion in Polyeder-AMG
+* **Problem:** Auf Poly-Hexcore- oder VoroCrust-Gittern mit 14–25 Flächen pro Zelle füllt sich der Grobgitter-Laplacian $\mathbf{A}_c = \mathbf{P}^T \mathbf{A}\mathbf{P}$ ab AMG-Level 2 stark auf (*Operator Complexity* $\sigma_{\text{op}} = \sum_\ell \text{nnz}(\mathbf{A}_\ell)/\text{nnz}(\mathbf{A}_0) > 3.5$), was die GPU-Speicherbandbreite bremst.
+* **Lösung:** Auf jedem groben AMG-Level $\ell \ge 1$ werden schwache Off-Diagonal-Kanten $a_{ij}^{(\ell)}$ mit $|a_{ij}^{(\ell)}| < \theta_{\text{sparsify}} \sqrt{|a_{ii}^{(\ell)} a_{jj}^{(\ell)}|}$ unter **lumpender Erhaltung der Zeilensumme (Konstanten-Kern)** und ggf. effektiver Widerstandsstichprobe $p_{ij} \propto |a_{ij}| (\mathbf{e}_i - \mathbf{e}_j)^T \mathbf{A}_c^\dagger (\mathbf{e}_i - \mathbf{e}_j)$ gestrichen und umskaliert. Das begrenzt $\sigma_{\text{op}} \le 1.35$ bei spektraler Äquivalenz $(1-\epsilon)\mathbf{A}_c \preceq \tilde{\mathbf{A}}_c \preceq (1+\epsilon)\mathbf{A}_c$ (**bis zu $2.5\times$ schnellere AMG-V-Zyklen auf GPUs**).
+
+---
+
+### 10.4 Tropische Geometrie / Log-Sum-Exp Glättung für $C^\infty$-Differenzierbare Wandabstände (Varadhan-Formel) & Wirbelstreckungs-Sensor
+1. **Tropische Dequantisierung (Log-Sum-Exp) für glatte SDFs & KS-Aggregation:**
+   In der tropischen $(\min, +)$-Algebra ist das Minimum $\min_k d_k$ der Grenzwert der glatten Varadhan-/Kreisselmeier-Steinhauser-Formel:
+   $$d_{\text{smooth}}(\mathbf{x}) = -\frac{1}{\rho_{\text{trop}}}\ln \left(\sum_{f \in \Gamma_{\text{wall}}} \frac{A_f}{A_{\text{tot}}}\,\exp\!\big(-\rho_{\text{trop}}\,\|\mathbf{x} - \mathbf{x}_f\|_2\big)\right) \xrightarrow{\rho_{\text{trop}}\to\infty} \min_{f\in\Gamma_{\text{wall}}} \|\mathbf{x} - \mathbf{x}_f\|_2$$
+   Liefert für Adjoint-Formoptimierung und Turbulenzmodelle ($y_{\text{wall}}$) einen **überall $C^\infty$-differenzierbaren Wandabstand ohne Medial-Axis-Knicke**!
+2. **3D-Wirbelstreckungs- / Blowup-Frühwarn-Indikator (nach Buckmaster/Alpöge 2026 & Enstrophie-Bilanz):**
+   Da in 3D Navier-Stokes der Wirbelstreckungsterm $\boldsymbol{\omega}\cdot(\boldsymbol{\omega}\cdot\nabla)\mathbf{u} = \boldsymbol{\omega}^T \mathbf{S}\boldsymbol{\omega}$ die einzige Quelle der Enstrophie-Verstärkung $\frac{1}{2}\frac{\mathrm{D}\|\boldsymbol{\omega}\|^2}{\mathrm{D}t} = \boldsymbol{\omega}^T \mathbf{S}\boldsymbol{\omega} - \nu\|\nabla\boldsymbol{\omega}\|_F^2$ ist, ergänzt der dimensionslose **Vortex-Stretching-Sensor**
+   $$\mathcal{I}_{\text{stretch},i} = V_i^{2/3}\,\frac{\max(\boldsymbol{\omega}_i^T \mathbf{S}_i \boldsymbol{\omega}_i, 0)}{\|\mathbf{u}_i\|_2^2\,\|\boldsymbol{\omega}_i\|_2 + \varepsilon}$$
+   unseren `SolutionIndicator` in der `MeshErrorMap` und verfeinert aufrollende Schaufelspitzen- und Kavitationswirbel **bevor** Druck- und Geschwindigkeitsgradienten steil werden.
+
+---
+
+### 10.5 Vier weitere Hochleistungs-Angles für unseren Solver: Anderson Acceleration `AA(m)`, Kuzmin AFC / Modified Patankar, Symmetrie-erhaltendes KEP-FVM & Krylov-Deflation
+1. **Anderson Acceleration `AA(m)` für segregiertes SIMPLE, CHT & FSI (Walker & Ni 2011; Pollock, Rebholz & Xiao 2019):**
+   Beschleunigt jede Fixpunktiteration $\mathbf{x}^{(k+1)} = \mathcal{G}(\mathbf{x}^{(k)})$ (Residuum $\mathbf{f}_k = \mathcal{G}(\mathbf{x}^{(k)}) - \mathbf{x}^{(k)}$) über die letzten $m \approx 5$ Stände durch Lösen eines winzigen **$m\times m$ Least-Squares-Problems** ($\mathcal{O}(m^2 N)$ Aufwand, keine Matrix-Neuassemblierung!):
+   $$\boldsymbol{\theta}^* = \arg\min_{\sum_{j=0}^m \theta_j = 1} \left\|\sum_{j=0}^m \theta_j \mathbf{f}_{k-j}\right\|_2^2, \qquad \mathbf{x}^{(k+1)} = (1-\beta_{AA})\sum_{j=0}^m \theta_j^*\,\mathbf{x}^{(k-j)} + \beta_{AA}\sum_{j=0}^m \theta_j^*\,\mathcal{G}(\mathbf{x}^{(k-j)})$$
+   $\implies$ **Reduziert die Iterationszahl von segregiertem SIMPLE und partitioniertem CHT um Faktor $2.5\times\text{ bis }4\times$!**
+2. **Garantierte Positivität & Diskretes Maximum-Prinzip via Kuzmin AFC & Modified Patankar-Runge-Kutta (MPRK):**
+   * *Räumlich (Kuzmin Algebraic Flux Correction, 2002–2024):* Begrenzt den antidiffusiven Korrekturfluss $f_{PN}^{\text{anti}} = F_{PN}^{\text{HO}} - F_{PN}^{\text{upw}}$ symmetrisch über Zalesak-Knotenlimiter $\alpha_{PN} \in [0, 1]$, sodass das diskrete Maximum-Prinzip $\min_N \phi_N^n \le \phi_P^{n+1} \le \max_N \phi_N^n$ strikt gilt.
+   * *Zeitlich für steife Produktions-Destruktions-Systeme (Burchard, Deleersnijder & Meister MPRK, 2003–2022):* Für Spezies-Massenanteile $\frac{\mathrm{d}Y_k}{\mathrm{d}t} = \sum_j p_{kj}(\mathbf{Y}) - \sum_j d_{kj}(\mathbf{Y})$ ($p_{kj} = d_{jk} \ge 0$) gewichtet das Patankar-Schema Produktion und Destruktion implizit mit den Quotienten $\frac{Y_j^{n+1}}{Y_j^n}$ bzw. $\frac{Y_k^{n+1}}{Y_k^n}$:
+     $$Y_k^{n+1} - Y_k^n = \Delta t \sum_{j=1}^{N_s} p_{kj}(\mathbf{Y}^n)\frac{Y_j^{n+1}}{Y_j^n} - \Delta t \sum_{j=1}^{N_s} d_{kj}(\mathbf{Y}^n)\frac{Y_k^{n+1}}{Y_k^n}$$
+     $\implies$ **Beweisbar unbedingt positiv ($Y_k^{n+1} > 0$) und exakt massenerhaltend ($\sum_k Y_k^{n+1} \equiv \sum_k Y_k^n = 1$) für jeden beliebigen Zeitschritt $\Delta t > 0$!**
+3. **Kinetische-Energie-erhaltende (KEP) Schiefsymmetrische Konvektion für LES & Akustik (Trias, Lehmkuhl & Verstappen 2014–2025):**
+   Mit schiefsymmetrischem Konvektionsoperator $\mathbf{C}(\dot{\mathbf{m}}) + \mathbf{C}(\dot{\mathbf{m}})^T = \mathbf{0}$ (Mittelpunktsgewicht $\beta_f = 1/2$) bleibt die diskrete kinetische Energie $\sum_P V_P \rho_P \frac{\|\mathbf{u}_P\|^2}{2}$ im reibungsfreien Grenzfall exakt erhalten; die Rhie-Chow-Druckdissipation wird nur lokal über einen Druck-Oszillationssensor $\psi_{p,f} \in [0, 1]$ zugeschaltet, sodass feine LES-Wirbel und FWH-Schallwellen nicht weggedämpft werden.
+4. **Krylov-Subraum-Deflation & Recycling (`GCRO-DR` / Nicolaides-Deflation: Parks et al. 2006; Vuik & Sheikh 2009):**
+   Recycelt in transienten PISO/PIMPLE-Läufen und Topologieoptimierungs-Schleifen die $k \approx 8\text{–}16$ langsamsten harmonischen Ritz-Vektoren $\mathbf{Z} \in \mathbb{R}^{N\times k}$ des Druck-Laplacians vom vorherigen Schritt über den Deflationsprojektor:
+   $$\mathbf{P}_{\text{def}} = \mathbf{I} - \mathbf{A}\mathbf{Z}\mathbf{E}^{-1}\mathbf{Z}^T, \qquad \mathbf{E} = \mathbf{Z}^T \mathbf{A}\mathbf{Z} \in \mathbb{R}^{k\times k}$$
+   $\implies$ **Senkt die Anzahl der AMG-V-Zyklen pro PISO-Zeitschritt von 12–15 auf 2–4 ($3\times\text{–}4\times$ Speedup)!**
+
+
+

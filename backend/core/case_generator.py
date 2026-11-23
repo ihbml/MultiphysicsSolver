@@ -367,7 +367,12 @@ relaxationFactors
             )
 
         # 2. Temperature T & thermal alphat
-        if "Energy & Heat" in active_mods or is_compressible or "T" in init_conds:
+        if (
+            "Energy" in active_mods
+            or "Energy & Heat" in active_mods
+            or is_compressible
+            or "T" in init_conds
+        ):
             t_init = init_conds.get("T", "300")
             self._write_single_field(
                 zero_dir / "T",
@@ -437,8 +442,8 @@ relaxationFactors
             )
 
         # 4. Species fields
-        if "Species & Chemistry" in active_mods:
-            spec_mod = active_mods["Species & Chemistry"]
+        spec_mod = active_mods.get("Species & Chemistry") or active_mods.get("Species")
+        if spec_mod is not None:
             species_list = spec_mod.get_required_fields()
             for sp in species_list:
                 f_name = sp
@@ -455,7 +460,11 @@ relaxationFactors
                 )
 
         # 5. Multiphase alpha.water
-        if "Multiphase (VoF)" in active_mods or "alpha.water" in init_conds:
+        if (
+            "Multiphase" in active_mods
+            or "Multiphase (VoF)" in active_mods
+            or "alpha.water" in init_conds
+        ):
             alpha_init = init_conds.get("alpha.water", "0")
             self._write_single_field(
                 zero_dir / "alpha.water",
@@ -466,6 +475,66 @@ relaxationFactors
                 patch_map=patch_map,
                 field_type="scalar",
                 field_name="alpha.water",
+            )
+
+        # 6. Magnetohydrodynamics (MHD) fields
+        if (
+            "Magnetohydrodynamics (MHD)" in active_mods
+            or "MHD" in active_mods
+            or "B" in init_conds
+        ):
+            b_init = init_conds.get("B", "(0 0 0)")
+            if isinstance(b_init, (list, tuple)):
+                b_init = f"({b_init[0]} {b_init[1]} {b_init[2]})"
+            self._write_single_field(
+                zero_dir / "B",
+                class_name="volVectorField",
+                object_name="B",
+                dimensions="[1 0 -2 0 0 -1 0]",
+                internal_field=f"uniform {b_init}",
+                patch_map=patch_map,
+                field_type="vector",
+                field_name="B",
+            )
+            phi_e_init = init_conds.get("electricPotential_V", "0")
+            self._write_single_field(
+                zero_dir / "electricPotential_V",
+                class_name="volScalarField",
+                object_name="electricPotential_V",
+                dimensions="[1 2 -3 0 0 -1 0]",
+                internal_field=f"uniform {phi_e_init}",
+                patch_map=patch_map,
+                field_type="scalar",
+                field_name="electricPotential_V",
+            )
+
+        # 7. Monolithic Eulerian FSI fields
+        if (
+            "Monolithic Eulerian FSI" in active_mods
+            or "FSI" in active_mods
+            or "phi_solid" in init_conds
+        ):
+            phi_s_init = init_conds.get("phi_solid", "0")
+            self._write_single_field(
+                zero_dir / "phi_solid",
+                class_name="volScalarField",
+                object_name="phi_solid",
+                dimensions="[0 0 0 0 0 0 0]",
+                internal_field=f"uniform {phi_s_init}",
+                patch_map=patch_map,
+                field_type="scalar",
+                field_name="phi_solid",
+            )
+            b_ten_init = init_conds.get("B_tensor", "(1 0 0 0 1 0 0 0 1)")
+            self._write_single_field(
+                zero_dir / "B_tensor",
+                class_name="volTensorField",
+                object_name="B_tensor",
+                dimensions="[0 0 0 0 0 0 0]",
+                internal_field=f"uniform {b_ten_init}",
+                patch_map=patch_map,
+                field_type="tensor",
+                field_name="B_tensor",
             )
 
     def _write_single_field(

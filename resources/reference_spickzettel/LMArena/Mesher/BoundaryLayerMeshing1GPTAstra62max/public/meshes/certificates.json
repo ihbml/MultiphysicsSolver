@@ -1,0 +1,26 @@
+[
+  {
+    "meshId": "6a50704a",
+    "sha256": "aa729edb7f8a6ebc07eda384e9d6828054d092907f8876d158bf6bbd7421f743",
+    "arithmetic": "arbitrary-precision integer predicates on exact binary64 coordinates",
+    "cells": 59694,
+    "positiveSimplices": 441000,
+    "certifiedPrisms": 34752,
+    "exactClosureResidual": 0,
+    "exactVolumeMm3": 62464,
+    "allJENSAboveOneQuarter": true,
+    "allContinuousWedgeBoundsAtLeastThreeTwentieths": true
+  },
+  {
+    "meshId": "2e8fe419",
+    "sha256": "34d3d9845b4934e49be60567d328e1933a1bb7879e68c294ec243710de4d81f1",
+    "arithmetic": "arbitrary-precision integer predicates on exact binary64 coordinates",
+    "cells": 32504,
+    "positiveSimplices": 235968,
+    "certifiedPrisms": 20736,
+    "exactClosureResidual": 0,
+    "exactVolumeMm3": 12800,
+    "allJENSAboveOneQuarter": true,
+    "allContinuousWedgeBoundsAtLeastThreeTwentieths": true
+  }
+]

@@ -657,11 +657,31 @@ class FoamReader:
             result["boundary_fields"][p_name] = {
                 "type": ptype,
                 "data": pdata,
+                "values": pdata,
                 "source": source_str,
                 "is_fallback": fell_back,
             }
 
         return result
+
+    @staticmethod
+    def write_field(
+        field_path: Union[str, Path],
+        field_name: str,
+        dimensions: Sequence[int],
+        internal_field: Union[float, Sequence[float], np.ndarray],
+        boundary_fields: Optional[Dict[str, Any]] = None,
+        write_binary: bool = False,
+    ) -> Path:
+        """Delegates to module-level :func:`write_field` for OpenFOAM field export."""
+        return write_field(
+            field_path=field_path,
+            field_name=field_name,
+            dimensions=dimensions,
+            internal_field=internal_field,
+            boundary_fields=boundary_fields,
+            write_binary=write_binary,
+        )
 
 
 def list_time_dirs(case_path: Union[str, Path]) -> List[TimeStepInfo]:

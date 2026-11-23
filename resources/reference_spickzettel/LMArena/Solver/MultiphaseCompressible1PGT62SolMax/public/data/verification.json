@@ -1,0 +1,413 @@
+{
+  "compiler": "g++ / C++20 -O2",
+  "checks": [
+    {
+      "group": "eos",
+      "label": "Pressure/energy round trip",
+      "value": 2.22044605e-16,
+      "limit": 1e-12,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Isentropic sound-speed derivative",
+      "value": 7.6393266e-12,
+      "limit": 1e-08,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Pressure/energy round trip",
+      "value": 2.22044605e-16,
+      "limit": 1e-12,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Isentropic sound-speed derivative",
+      "value": 6.84004801e-12,
+      "limit": 1e-08,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Pressure/energy round trip",
+      "value": 4.4408921e-16,
+      "limit": 1e-12,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Isentropic sound-speed derivative",
+      "value": 4.9360933e-12,
+      "limit": 1e-08,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "PR / stiffened-gas mixture inversion",
+      "value": 1.11022302e-16,
+      "limit": 1e-10,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Schnerr-Sauer evaporation flux",
+      "value": 2.43069472e-08,
+      "limit": 0.0,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Schnerr-Sauer condensation flux",
+      "value": 3.22682851e-05,
+      "limit": 0.0,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "eos",
+      "label": "Phase-change total mass and energy",
+      "value": 0.0,
+      "limit": 1e-15,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Oblique uniform-state flux consistency",
+      "value": 0.0,
+      "limit": 1e-14,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Interior-face antisymmetry",
+      "value": 0.0,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Oblique uniform-state flux consistency",
+      "value": 1.94289029e-16,
+      "limit": 1e-14,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Interior-face antisymmetry",
+      "value": 0.0,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Oblique uniform-state flux consistency",
+      "value": 0.0,
+      "limit": 1e-14,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Interior-face antisymmetry",
+      "value": 0.0,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Mach-scaled acoustic limiter",
+      "value": 0.0,
+      "limit": 1e-15,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Supersonic recovery of HLLC",
+      "value": 0.0,
+      "limit": 1e-15,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "HLLC supersonic upwind flux",
+      "value": 0.0,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "AUSM+-up supersonic upwind flux",
+      "value": 0.0,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Stationary contact mass flux",
+      "value": 0.0,
+      "limit": 1e-15,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Venkat smooth-extremum preservation",
+      "value": 1.85185201e-11,
+      "limit": 1e-06,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Venkat derivative across zero slope",
+      "value": 7.54951657e-15,
+      "limit": 1e-06,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Affine gradient on skew polyhedral stencil",
+      "value": 2.00148302e-16,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "3D skew polyhedra free-stream preservation",
+      "value": 0.0,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "ghost",
+      "label": "Curved-wall constant-field force",
+      "value": 0.0,
+      "limit": 1e-15,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "ghost",
+      "label": "Ghost direction / radial reconstruction",
+      "value": 1.86597442e-17,
+      "limit": 1e-15,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "opmis",
+      "label": "Bidirectional 3D affine state transfer",
+      "value": 4.4408921e-16,
+      "limit": 1e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "opmis",
+      "label": "Degenerate-stencil detection",
+      "value": 0.0,
+      "limit": 0.5,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "sod",
+      "label": "Sod density L1 / All-Mach HLLC",
+      "value": 0.00156150316,
+      "limit": 0.012,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "sod",
+      "label": "Sod mass budget (incl. boundary flux)",
+      "value": 3.0935902e-17,
+      "limit": 5e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "sod",
+      "label": "Sod density L1 / AUSM+-up",
+      "value": 0.00196281638,
+      "limit": 0.012,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "sod",
+      "label": "Sod mass budget (incl. boundary flux)",
+      "value": 8.2013871e-17,
+      "limit": 5e-13,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "acoustic",
+      "label": "Acoustic peak retention / HLLC",
+      "value": 0.997622626,
+      "limit": 0.96,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "acoustic",
+      "label": "Acoustic reference profile L1 / amplitude",
+      "value": 0.00311732177,
+      "limit": 0.02,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "acoustic",
+      "label": "Acoustic peak retention / AUSM+-up",
+      "value": 0.993574804,
+      "limit": 0.96,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "acoustic",
+      "label": "Acoustic reference profile L1 / amplitude",
+      "value": 0.0029507286,
+      "limit": 0.02,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "flux",
+      "label": "Smooth entropy-wave convergence order",
+      "value": 2.15795371,
+      "limit": 1.85,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "bubble",
+      "label": "Bubble area reduction after shock",
+      "value": 0.611060009,
+      "limit": 0.16,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "bubble",
+      "label": "Adaptive patch center displacement",
+      "value": 0.196028528,
+      "limit": 0.01,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "bubble",
+      "label": "Bubble mass budget (incl. boundary flux)",
+      "value": 6.74837853e-17,
+      "limit": 5e-12,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "bubble",
+      "label": "Bubble energy budget (incl. boundary flux)",
+      "value": 7.74117661e-18,
+      "limit": 5e-12,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "bubble",
+      "label": "Core particle support count",
+      "value": 160.0,
+      "limit": 20.0,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "bubble",
+      "label": "Real-gas bubble area reduction / AUSM+-up",
+      "value": 0.900330514,
+      "limit": 0.25,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "bubble",
+      "label": "Real-gas coupled mass budget",
+      "value": 6.5900044e-18,
+      "limit": 5e-12,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "film",
+      "label": "Spray + film + vapor mass budget",
+      "value": 4.07924772e-15,
+      "limit": 1e-12,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "film",
+      "label": "Positive film thickness",
+      "value": 0.000138897596,
+      "limit": 0.0,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "film",
+      "label": "Evaporated mass [kg]",
+      "value": 1.83639697e-06,
+      "limit": 0.0,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "film",
+      "label": "Secondary splash events",
+      "value": 1837.0,
+      "limit": 0.0,
+      "compare": ">",
+      "pass_": true
+    },
+    {
+      "group": "film",
+      "label": "Segment-to-faMesh triangle collision",
+      "value": 1.11022302e-16,
+      "limit": 1e-14,
+      "compare": "<",
+      "pass_": true
+    },
+    {
+      "group": "film",
+      "label": "Bai-Gosman regime-map classification",
+      "value": 0.0,
+      "limit": 0.5,
+      "compare": "<",
+      "pass_": true
+    }
+  ]
+}
