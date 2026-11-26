@@ -41,7 +41,13 @@ from backend.meshing._sdf_sizing import (
     CurvatureRefinement,
     ProximityRefinement,
 )
+from backend.meshing.feature_graph import FeatureGraph, extract_feature_graph
 from backend.meshing.native_loader import get_native_dll
+from backend.meshing.weingarten import (
+    WallCurvatureField,
+    compute_ccbc_corrections,
+    compute_weingarten_curvature,
+)
 
 __all__ = [
     "smooth_min",
@@ -71,5 +77,10 @@ __all__ = [
     "CurvatureRefinement",
     "ProximityRefinement",
     "AdaptiveSizeFunction",
+    "FeatureGraph",
+    "extract_feature_graph",
+    "WallCurvatureField",
+    "compute_weingarten_curvature",
+    "compute_ccbc_corrections",
     "get_native_dll",
 ]

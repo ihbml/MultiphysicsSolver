@@ -16,6 +16,7 @@ class CurvatureMethod(str, Enum):
     SDF_LAPLACIAN = "sdf_laplacian"
     SURFACE_MESH = "surface_mesh"
     HYBRID = "hybrid"
+    WEINGARTEN = "weingarten"
 
 
 class CurvatureRefinement:
@@ -27,11 +28,16 @@ class CurvatureRefinement:
         params: Optional[SizingParameters] = None,
         dim: int = 3,
         surface_mesh: Optional[Any] = None,
+        method: CurvatureMethod = CurvatureMethod.HYBRID,
+        feature_graph: Optional[Any] = None,
     ) -> None:
         self.sdf_evaluator = sdf_evaluator
         self.params = params or SizingParameters()
         self.dim = dim
         self.surface_mesh = surface_mesh
+        self.method = CurvatureMethod(method)
+        self.feature_graph = feature_graph
+        self.wall_curvature_field: Optional[Any] = None
         self._mesh_kdtree: Optional[Any] = None
         self._mesh_vertex_curvatures: Optional[np.ndarray] = None
 
@@ -43,6 +49,29 @@ class CurvatureRefinement:
         mesh = self.surface_mesh
         verts = mesh.vertices
         faces = mesh.faces
+
+        if self.method == CurvatureMethod.WEINGARTEN:
+            from backend.meshing.feature_graph import extract_feature_graph
+            from backend.meshing.weingarten import compute_weingarten_curvature
+
+            if self.feature_graph is None:
+                self.feature_graph = extract_feature_graph(
+                    verts,
+                    faces,
+                    h_min=self.params.h_min,
+                    patches=getattr(mesh, "patches", None),
+                )
+            field = compute_weingarten_curvature(
+                verts,
+                faces,
+                feature_graph=self.feature_graph,
+                h_min=self.params.h_min,
+            )
+            self.wall_curvature_field = field
+            self._mesh_vertex_curvatures = np.abs(field.mean_curvature)
+            self._mesh_kdtree = cKDTree(verts)
+            return
+
         normals = mesh.normals
 
         n_verts = len(verts)
@@ -79,6 +108,18 @@ class CurvatureRefinement:
         single_point = pts.ndim == 1
         if single_point:
             pts = pts.reshape(1, -1)
+
+        if (
+            self.method == CurvatureMethod.WEINGARTEN
+            and self._mesh_kdtree is not None
+            and self._mesh_vertex_curvatures is not None
+        ):
+            dists, idxs = self._mesh_kdtree.query(pts, k=1)
+            mesh_k = self._mesh_vertex_curvatures[idxs]
+            decay = 1.0 / (1.0 + dists / self.params.h0)
+            kappa = mesh_k * decay
+            return kappa[0] if single_point else kappa
+
         n_pts, d = pts.shape
         delta = self.params.fd_delta
 
@@ -263,12 +304,19 @@ class AdaptiveSizeFunction:
         params: Optional[SizingParameters] = None,
         dim: int = 3,
         surface_mesh: Optional[Any] = None,
+        curvature_method: CurvatureMethod = CurvatureMethod.HYBRID,
+        feature_graph: Optional[Any] = None,
     ) -> None:
         self.params = params or SizingParameters()
         self.dim = dim
         self.sdf_evaluator = sdf_evaluator
         self.curvature_engine = CurvatureRefinement(
-            sdf_evaluator=sdf_evaluator, params=self.params, dim=dim, surface_mesh=surface_mesh
+            sdf_evaluator=sdf_evaluator,
+            params=self.params,
+            dim=dim,
+            surface_mesh=surface_mesh,
+            method=curvature_method,
+            feature_graph=feature_graph,
         )
         self.proximity_engine = ProximityRefinement(
             sdf_evaluator=sdf_evaluator, params=self.params, dim=dim

@@ -33,6 +33,7 @@ add_library(cfd_mesher_native SHARED
     src/rcm.cpp
     src/cht_cyclic.cpp
     src/sdf_engine.cpp
+    src/linear_octree.cpp
     src/octree_hexcore.cpp
     src/passes/setup_and_root_grid.cpp
     src/passes/refine_and_balance.cpp

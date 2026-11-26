@@ -30,6 +30,18 @@ class TriangleAABBTree {
                      Vec3& out_q, int32_t& out_facet,
                      Vec3& out_bary, double& out_dist) const;
 
+  bool segment_intersects(const Vec3& a, const Vec3& b) const;
+
+  size_t memory_bytes() const noexcept {
+    return vertices_.capacity() * sizeof(Vec3)
+         + faces_.capacity() * sizeof(std::array<int32_t, 3>)
+         + tri_bmin_.capacity() * sizeof(Vec3)
+         + tri_bmax_.capacity() * sizeof(Vec3)
+         + tri_centroids_.capacity() * sizeof(Vec3)
+         + tri_indices_.capacity() * sizeof(int32_t)
+         + nodes_.capacity() * sizeof(AABBNode);
+  }
+
   const std::vector<Vec3>& vertices() const { return vertices_; }
   const std::vector<std::array<int32_t, 3>>& faces() const { return faces_; }
   const Vec3& root_bmin() const {
@@ -80,8 +92,17 @@ class MeshSDF {
   int32_t evaluate(const double* points, int64_t n_points,
                    double* out_phi, double* out_grad) const;
 
+  double evaluate_point(const Vec3& p, int32_t& prev_facet) const;
+
+  int32_t segments_blocked(const double* pts_a, const double* pts_b,
+                           int64_t n_seg, uint8_t* out_blocked) const;
+
   int32_t winding_number(const double* points, int64_t n_points,
                          double* out_wn) const;
+
+  size_t memory_bytes() const noexcept {
+    return tree_.memory_bytes();
+  }
 
   static int32_t voromesh_loss(
       const double* points, int64_t n_points,

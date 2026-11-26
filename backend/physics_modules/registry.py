@@ -6,9 +6,10 @@ Registriert Standardmodule und erlaubt dynamisches Aktivieren/Deaktivieren.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Type
+from typing import Any, Dict, List, Optional, Union
 from .base_module import BasePhysicsModule
 from .monolithic_fsi import MonolithicFSIModule
+from .plugin_registry import get_module_spec_registry
 
 
 class EnergyModule(BasePhysicsModule):
@@ -522,27 +523,58 @@ class ModuleRegistry:
         for m in modules:
             self._modules[m.name] = m
 
+    def _resolve_module_name(self, name: str) -> Optional[str]:
+        """Resolve an exact module key or declarative ModuleSpec alias to ``self._modules``."""
+        if name in self._modules:
+            return name
+        spec_reg = get_module_spec_registry()
+        if spec_reg.has(name):
+            spec = spec_reg.get(name)
+            candidates = (spec.display_name, spec.id, *spec.aliases)
+            for cand in candidates:
+                if cand in self._modules:
+                    return cand
+        for mod_key, mod in self._modules.items():
+            ui = mod.get_ui_schema()
+            if ui.get("module_id") == name or ui.get("display_name") == name:
+                return mod_key
+        return None
+
     def get_module(self, name: str) -> Optional[BasePhysicsModule]:
-        return self._modules.get(name)
+        resolved = self._resolve_module_name(name)
+        return self._modules.get(resolved) if resolved is not None else None
 
     def get_all_modules(self) -> Dict[str, BasePhysicsModule]:
         return self._modules
 
     def enable_module(self, name: str, variant: Optional[str] = None):
-        if name in self._modules:
-            self._modules[name].config.enabled = True
+        resolved = self._resolve_module_name(name)
+        if resolved is not None:
+            self._modules[resolved].config.enabled = True
             if variant:
-                self._modules[name].config.model_variant = variant
+                self._modules[resolved].config.model_variant = variant
 
     def disable_module(self, name: str):
-        if name in self._modules:
-            self._modules[name].config.enabled = False
+        resolved = self._resolve_module_name(name)
+        if resolved is not None:
+            self._modules[resolved].config.enabled = False
 
     def validate_configuration(self) -> List[str]:
         warnings = []
         for mod in self._modules.values():
             if mod.config.enabled:
                 warnings.extend(mod.validate_dependencies(self._modules))
+
+        spec_reg = get_module_spec_registry()
+        enabled_ids = set()
+        for mod_key, mod in self._modules.items():
+            if mod.config.enabled and spec_reg.has(mod_key):
+                enabled_ids.add(spec_reg.get(mod_key).id)
+        for spec_id in sorted(enabled_ids):
+            spec = spec_reg.get(spec_id)
+            for conflict_id in spec.conflicts:
+                if conflict_id in enabled_ids:
+                    warnings.append(f"Module '{spec.display_name}' conflicts with '{conflict_id}'.")
         return warnings
 
     def export_ui_schema(self, module_id: Optional[str] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
@@ -555,9 +587,8 @@ class ModuleRegistry:
             Einzelnes Schema-Dictionary oder Liste aller Modul-Schemata.
         """
         if module_id is not None:
-            for mod in self._modules.values():
-                s = mod.get_ui_schema()
-                if s["module_id"] == module_id or mod.name == module_id:
-                    return s
+            resolved = self._resolve_module_name(module_id)
+            if resolved is not None:
+                return self._modules[resolved].get_ui_schema()
             raise KeyError(f"Module '{module_id}' not found in registry")
         return [mod.get_ui_schema() for mod in self._modules.values()]

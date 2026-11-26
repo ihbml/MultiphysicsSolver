@@ -6,6 +6,7 @@
 #include "cht_cyclic.hpp"
 #include "sdf_engine.hpp"
 #include "octree_hexcore.hpp"
+#include "linear_octree.hpp"
 #include <cstring>
 #include <cstddef>
 #include <cmath>
@@ -816,6 +817,102 @@ CFD_EXPORT int32_t cfd_sdf_voromesh_loss(
     return cfd::MeshSDF::voromesh_loss(
         points, n_points, seeds, n_seeds, k, out_loss, out_dists, out_grads, seed_signs
     );
+  } catch (...) {
+    return -2;
+  }
+}
+
+CFD_EXPORT int32_t cfd_sdf_segment_blocked(
+    void* sdf_handle,
+    const double* pts_a,
+    const double* pts_b,
+    int64_t n_seg,
+    uint8_t* out_blocked
+) {
+  try {
+    auto* engine = static_cast<CfdSdfEngine*>(sdf_handle);
+    if (!engine || n_seg < 0) {
+      set_err(nullptr, "pass=sdf_segment_blocked code=INVALID_ARGUMENT detail=null_handle_or_negative_n_seg");
+      return -1;
+    }
+    if (n_seg == 0) {
+      return 0;
+    }
+    if (!pts_a || !pts_b || !out_blocked) {
+      set_err(nullptr, "pass=sdf_segment_blocked code=INVALID_ARGUMENT detail=null_segment_buffer");
+      return -1;
+    }
+    int32_t rc = engine->sdf.segments_blocked(pts_a, pts_b, n_seg, out_blocked);
+    if (rc == -1) {
+      set_err(nullptr, "pass=sdf_segment_blocked code=INVALID_ARGUMENT detail=non_finite_segment_coordinate");
+    } else if (rc == -2) {
+      set_err(nullptr, "pass=sdf_segment_blocked code=OMP_ERROR detail=openmp_exception_in_segment_blocked");
+    }
+    return rc;
+  } catch (...) {
+    return -2;
+  }
+}
+
+CFD_EXPORT int32_t cfd_morton_octree_build_stats(
+    const double* surf_points,
+    int64_t n_points,
+    const int32_t* surf_faces,
+    int64_t n_faces,
+    double h0,
+    int32_t max_depth,
+    const double* farfield_bbox,
+    int64_t* out_n_leaves,
+    int64_t* out_n_cells,
+    int64_t* out_n_regular_faces,
+    int64_t* out_n_general_faces,
+    int64_t* out_n_vertices,
+    uint64_t* out_peak_bytes,
+    double* out_build_time_s,
+    int32_t* out_balanced_ok
+) {
+  try {
+    if (!std::isfinite(h0) || h0 <= 0.0 || max_depth < 0 ||
+        !validate_surface_inputs(nullptr, surf_points, n_points, surf_faces, n_faces)) {
+      if (g_last_global_error.empty()) {
+        set_err(nullptr, "pass=morton_octree code=INVALID_ARGUMENT detail=invalid_h0_or_max_depth");
+      }
+      return -1;
+    }
+    if (farfield_bbox) {
+      for (int k = 0; k < 6; ++k) {
+        if (!std::isfinite(farfield_bbox[k])) {
+          set_err(nullptr, "pass=morton_octree code=INVALID_ARGUMENT detail=non_finite_farfield_bbox");
+          return -1;
+        }
+      }
+      if (farfield_bbox[0] >= farfield_bbox[3] ||
+          farfield_bbox[1] >= farfield_bbox[4] ||
+          farfield_bbox[2] >= farfield_bbox[5]) {
+        set_err(nullptr, "pass=morton_octree code=INVALID_ARGUMENT detail=inverted_farfield_bbox");
+        return -1;
+      }
+    }
+
+    cfd::octree::LinearMortonForest forest;
+    cfd::octree::MortonBuildStats stats{};
+    int32_t rc = forest.build(
+        surf_points, n_points, surf_faces, n_faces, h0, max_depth, farfield_bbox, &stats
+    );
+    if (rc != 0) {
+      set_err(nullptr, "pass=morton_octree code=BUILD_ERROR detail=linear_morton_forest_build_failed");
+      return rc;
+    }
+
+    if (out_n_leaves) *out_n_leaves = stats.n_leaves;
+    if (out_n_cells) *out_n_cells = stats.n_cells;
+    if (out_n_regular_faces) *out_n_regular_faces = stats.n_regular_faces;
+    if (out_n_general_faces) *out_n_general_faces = stats.n_general_faces;
+    if (out_n_vertices) *out_n_vertices = stats.n_vertices;
+    if (out_peak_bytes) *out_peak_bytes = stats.peak_bytes;
+    if (out_build_time_s) *out_build_time_s = stats.build_time_s;
+    if (out_balanced_ok) *out_balanced_ok = stats.balanced_ok;
+    return 0;
   } catch (...) {
     return -2;
   }

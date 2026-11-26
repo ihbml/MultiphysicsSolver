@@ -18,6 +18,24 @@ import numpy as np
 
 from backend.meshing.difvm_topology import compute_difvm_topology
 from backend.meshing.models import InflationConfig, UnstructuredMesh
+from backend.meshing.bl_strategy_c import (
+    StrandSet,
+    bl_prep_thickness_field,
+    generate_conformal_bl_strategy_c,
+    generate_offset_bl_mesh,
+    solve_strand_growth_rates,
+)
+from backend.meshing.famesh_geodesic import FiniteAreaMesh
+
+__all__ = [
+    "BoundaryLayerGenerator",
+    "StrandSet",
+    "bl_prep_thickness_field",
+    "solve_strand_growth_rates",
+    "generate_conformal_bl_strategy_c",
+    "generate_offset_bl_mesh",
+    "FiniteAreaMesh",
+]
 
 
 class BoundaryLayerGenerator:

@@ -11,6 +11,8 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -69,6 +71,150 @@ from .binary_buffers import (
 )
 from .async_jobs import AsyncJobManager, JobRecord, JobStatus
 from .telemetry import TelemetryStreamer
+
+
+def _generate_mesh_payload(
+    surf_mesh: Optional[SurfaceMesh] = None,
+    cad_path: Optional[str] = None,
+    case_dir: Optional[str] = None,
+    base_h: float = 0.05,
+    domain_mode: str = "internal_fluid",
+) -> Tuple[UnstructuredMesh, bytes, MeshQualityBufferDescriptor, Dict[str, Any]]:
+    """Execute meshing, compute quality metrics, and pack Paket 2 buffer."""
+    from backend.meshing.models import compute_mesh_j_ens
+
+    mesh_engine = MeshEngine()
+    cfg = MeshingConfig(
+        domain_mode=domain_mode,
+        sizing=CurvatureSizingConfig(h0=base_h, h_min=base_h * 0.2, h_max=base_h * 2.0),
+    )
+
+    if surf_mesh is not None:
+        unstructured = mesh_engine.generate_mesh(surf_mesh, config=cfg)
+    elif cad_path:
+        unstructured = mesh_engine.generate_mesh(cad_path, config=cfg)
+    else:
+        pts = np.array([
+            [0.0, 0.0, 0.0], [base_h, 0.0, 0.0], [base_h, base_h, 0.0], [0.0, base_h, 0.0],
+            [0.0, 0.0, base_h], [base_h, 0.0, base_h], [base_h, base_h, base_h], [0.0, base_h, base_h],
+        ], dtype=np.float64)
+        cells = [np.arange(8)]
+        owner = np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)
+        neighbour = np.full(6, -1, dtype=np.int64)
+        fa = np.zeros((6, 3), dtype=np.float64)
+        fc = np.zeros((6, 3), dtype=np.float64)
+        cc = np.array([[base_h / 2, base_h / 2, base_h / 2]], dtype=np.float64)
+        cv = np.array([base_h ** 3], dtype=np.float64)
+        df = np.zeros((6, 3), dtype=np.float64)
+        kf = np.zeros((6, 3), dtype=np.float64)
+        faces = [
+            np.array([0, 3, 2, 1], dtype=np.int64),
+            np.array([4, 5, 6, 7], dtype=np.int64),
+            np.array([0, 1, 5, 4], dtype=np.int64),
+            np.array([2, 3, 7, 6], dtype=np.int64),
+            np.array([0, 4, 7, 3], dtype=np.int64),
+            np.array([1, 2, 6, 5], dtype=np.int64),
+        ]
+        unstructured = UnstructuredMesh(
+            points=pts, cells=cells, owner=owner, neighbour=neighbour,
+            face_areas=fa, face_centres=fc, cell_centres=cc, cell_volumes=cv,
+            delta_f=df, k_f=kf, boundaries={"wall": (0, 6)}, faces=faces,
+        )
+
+    n_cells = unstructured.num_cells
+    err_map = unstructured.error_map if isinstance(unstructured.error_map, dict) else {}
+    skewness = np.zeros(n_cells, dtype=np.float32)
+    non_ortho = np.zeros(n_cells, dtype=np.float32)
+    no_raw = np.asarray(
+        err_map.get("non_orthogonality", err_map.get("non_ortho", np.zeros(0))),
+        dtype=np.float32,
+    )
+    sk_raw = np.asarray(
+        err_map.get("skewness", err_map.get("skew", np.zeros(0))),
+        dtype=np.float32,
+    )
+    if n_cells > 0:
+        internal_mask = unstructured.neighbour >= 0
+        if len(no_raw) == unstructured.num_faces:
+            np.maximum.at(non_ortho, unstructured.owner, no_raw)
+            if np.any(internal_mask):
+                np.maximum.at(non_ortho, unstructured.neighbour[internal_mask], no_raw[internal_mask])
+        elif len(no_raw) == n_cells:
+            non_ortho = no_raw.copy()
+        if len(sk_raw) == unstructured.num_faces:
+            np.maximum.at(skewness, unstructured.owner, sk_raw)
+            if np.any(internal_mask):
+                np.maximum.at(skewness, unstructured.neighbour[internal_mask], sk_raw[internal_mask])
+        elif len(sk_raw) == n_cells:
+            skewness = sk_raw.copy()
+
+    ar_raw = np.asarray(err_map.get("aspect_ratio", np.zeros(0)), dtype=np.float32)
+    aspect_ratio = ar_raw.copy() if len(ar_raw) == n_cells else np.ones(n_cells, dtype=np.float32)
+    volume = np.asarray(unstructured.cell_volumes, dtype=np.float32)
+    wsrd_raw = np.asarray(err_map.get("wsrd_weights", np.zeros(0)), dtype=np.float32)
+    wsrd = wsrd_raw.copy() if len(wsrd_raw) == n_cells else np.ones(n_cells, dtype=np.float32)
+    if n_cells > 0 and unstructured.cells and len(unstructured.cells) == n_cells:
+        j_ens, _ = compute_mesh_j_ens(unstructured)
+        amips = (1.0 / np.clip(j_ens, 1e-3, 1.0)).astype(np.float32)
+    else:
+        amips = np.ones(n_cells, dtype=np.float32)
+
+    mesh_id = f"mesh_{uuid.uuid4().hex[:8]}"
+    rev = 1
+    poly_path = str(export_openfoam_polymesh(unstructured, case_dir=case_dir)) if case_dir else None
+
+    max_skew_val = float(np.max(skewness)) if len(skewness) > 0 else 0.0
+    max_no_val = float(np.max(non_ortho)) if len(non_ortho) > 0 else 0.0
+    min_vol_val = float(np.min(volume)) if len(volume) > 0 else 0.0
+    summary = {
+        "n_cells": n_cells,
+        "n_points": unstructured.num_points,
+        "n_faces": unstructured.num_faces,
+        "max_skewness": max_skew_val,
+        "max_non_ortho": max_no_val,
+        "min_volume": min_vol_val,
+    }
+    buf, descriptor = pack_mesh_quality_buffer(
+        skewness=skewness,
+        non_orthogonality=non_ortho,
+        aspect_ratio=aspect_ratio,
+        volume=volume,
+        wsrd_weights=wsrd,
+        amips_energy=amips,
+        folded_face_indices=np.empty(0, dtype=np.uint32),
+        summary=summary,
+        mesh_id=mesh_id,
+        mesh_revision=rev,
+    )
+    payload = {
+        "mesh_id": mesh_id,
+        "mesh_revision": rev,
+        "cell_count": n_cells,
+        "polyMesh_path": poly_path,
+        "quality_report": summary,
+        "binary_descriptor": descriptor.to_dict(),
+        "binary_buffer_bytes": len(buf),
+        "folded_face_indices": [],
+    }
+    return unstructured, buf, descriptor, payload
+
+
+def _run_isolated_mesh_generate(
+    surf_mesh: Optional[SurfaceMesh] = None,
+    cad_path: Optional[str] = None,
+    case_dir: Optional[str] = None,
+    base_h: float = 0.05,
+    domain_mode: str = "internal_fluid",
+) -> Dict[str, Any]:
+    """Top-level spawn-safe worker for subprocess-isolated ``mesh.generate``."""
+    _, _, _, payload = _generate_mesh_payload(
+        surf_mesh=surf_mesh,
+        cad_path=cad_path,
+        case_dir=case_dir,
+        base_h=base_h,
+        domain_mode=domain_mode,
+    )
+    return payload
 
 # Configure dedicated stderr logger for IPC diagnostic output
 logger = logging.getLogger("CFD_IPC")
@@ -384,175 +530,62 @@ class IPCService:
         base_h = float(params.get("base_cell_size_m", 0.05))
         domain_mode = str(params.get("domain_mode", "internal_fluid"))
         is_async = bool(params.get("async", False))
+        isolated = bool(params.get("isolated", False))
+        raw_max_ram = params.get("max_ram_mb")
+        max_ram_mb = float(raw_max_ram) if raw_max_ram is not None else None
 
+        surf_mesh: Optional[SurfaceMesh] = None
         if geo_id is not None and str(geo_id).strip() != "":
             geo_id = str(geo_id)
             if geo_id not in self._geometry_cache:
                 raise KeyError(f"Geometry ID '{geo_id}' not found in active session")
+            surf_mesh = self._geometry_cache[geo_id]["mesh"]
+
+        if isolated:
+            iso_kwargs = {
+                "surf_mesh": surf_mesh,
+                "cad_path": str(cad_path) if cad_path else None,
+                "case_dir": str(case_dir) if case_dir else None,
+                "base_h": base_h,
+                "domain_mode": domain_mode,
+            }
+            job = self.job_manager.create_job(
+                "mesh.generate",
+                _run_isolated_mesh_generate,
+                isolated=True,
+                max_ram_mb=max_ram_mb,
+                kwargs=iso_kwargs,
+            )
+            if is_async:
+                return {"job_id": job.job_id, "status": job.status.value, "isolated": True}
+            if job._thread is not None:
+                job._thread.join()
+            if job.status != JobStatus.COMPLETED or job.result is None:
+                raise RuntimeError(job.error or f"Isolated mesh.generate ended with {job.status.value}")
+            return job.result
 
         def _do_meshing(job_rec: Optional[JobRecord] = None) -> Dict[str, Any]:
-            mesh_engine = MeshEngine()
-
-            if geo_id and geo_id in self._geometry_cache:
-                surf_mesh = self._geometry_cache[geo_id]["mesh"]
-                unstructured = mesh_engine.generate_mesh(
-                    surf_mesh,
-                    config=MeshingConfig(
-                        domain_mode=domain_mode,
-                        sizing=CurvatureSizingConfig(h0=base_h, h_min=base_h * 0.2, h_max=base_h * 2.0),
-                    ),
-                )
-            elif cad_path:
-                unstructured = mesh_engine.generate_mesh(
-                    cad_path,
-                    config=MeshingConfig(
-                        domain_mode=domain_mode,
-                        sizing=CurvatureSizingConfig(h0=base_h, h_min=base_h * 0.2, h_max=base_h * 2.0),
-                    ),
-                )
-            else:
-                # Built-in sample grid for testing/validation
-                from backend.meshing.distmesh_core import ear_clipping_triangulate
-                pts = np.array([
-                    [0.0, 0.0, 0.0], [base_h, 0.0, 0.0], [base_h, base_h, 0.0], [0.0, base_h, 0.0],
-                    [0.0, 0.0, base_h], [base_h, 0.0, base_h], [base_h, base_h, base_h], [0.0, base_h, base_h],
-                ], dtype=np.float64)
-                cells = [np.arange(8)]
-                owner = np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)
-                neighbour = np.full(6, -1, dtype=np.int64)
-                fa = np.zeros((6, 3), dtype=np.float64)
-                fc = np.zeros((6, 3), dtype=np.float64)
-                cc = np.array([[base_h/2, base_h/2, base_h/2]], dtype=np.float64)
-                cv = np.array([base_h**3], dtype=np.float64)
-                df = np.zeros((6, 3), dtype=np.float64)
-                kf = np.zeros((6, 3), dtype=np.float64)
-                faces = [
-                    np.array([0, 3, 2, 1], dtype=np.int64),
-                    np.array([4, 5, 6, 7], dtype=np.int64),
-                    np.array([0, 1, 5, 4], dtype=np.int64),
-                    np.array([2, 3, 7, 6], dtype=np.int64),
-                    np.array([0, 4, 7, 3], dtype=np.int64),
-                    np.array([1, 2, 6, 5], dtype=np.int64),
-                ]
-                unstructured = UnstructuredMesh(
-                    points=pts, cells=cells, owner=owner, neighbour=neighbour,
-                    face_areas=fa, face_centres=fc, cell_centres=cc, cell_volumes=cv,
-                    delta_f=df, k_f=kf, boundaries={"wall": (0, 6)}, faces=faces,
-                )
-
-            # Compute real per-cell quality arrays from DiFVM error_map & J_ENS
-            from backend.meshing.models import compute_mesh_j_ens
-
-            n_cells = unstructured.num_cells
-            err_map = unstructured.error_map if isinstance(unstructured.error_map, dict) else {}
-            skewness = np.zeros(n_cells, dtype=np.float32)
-            non_ortho = np.zeros(n_cells, dtype=np.float32)
-            no_raw = np.asarray(
-                err_map.get("non_orthogonality", err_map.get("non_ortho", np.zeros(0))),
-                dtype=np.float32,
+            unstructured, buf, descriptor, payload = _generate_mesh_payload(
+                surf_mesh=surf_mesh,
+                cad_path=str(cad_path) if cad_path else None,
+                case_dir=str(case_dir) if case_dir else None,
+                base_h=base_h,
+                domain_mode=domain_mode,
             )
-            sk_raw = np.asarray(
-                err_map.get("skewness", err_map.get("skew", np.zeros(0))),
-                dtype=np.float32,
-            )
-            if n_cells > 0:
-                internal_mask = unstructured.neighbour >= 0
-                if len(no_raw) == unstructured.num_faces:
-                    np.maximum.at(non_ortho, unstructured.owner, no_raw)
-                    if np.any(internal_mask):
-                        np.maximum.at(
-                            non_ortho,
-                            unstructured.neighbour[internal_mask],
-                            no_raw[internal_mask],
-                        )
-                elif len(no_raw) == n_cells:
-                    non_ortho = no_raw.copy()
-                if len(sk_raw) == unstructured.num_faces:
-                    np.maximum.at(skewness, unstructured.owner, sk_raw)
-                    if np.any(internal_mask):
-                        np.maximum.at(
-                            skewness,
-                            unstructured.neighbour[internal_mask],
-                            sk_raw[internal_mask],
-                        )
-                elif len(sk_raw) == n_cells:
-                    skewness = sk_raw.copy()
-
-            ar_raw = np.asarray(err_map.get("aspect_ratio", np.zeros(0)), dtype=np.float32)
-            aspect_ratio = ar_raw.copy() if len(ar_raw) == n_cells else np.ones(n_cells, dtype=np.float32)
-            volume = np.asarray(unstructured.cell_volumes, dtype=np.float32)
-            wsrd_raw = np.asarray(err_map.get("wsrd_weights", np.zeros(0)), dtype=np.float32)
-            wsrd = wsrd_raw.copy() if len(wsrd_raw) == n_cells else np.ones(n_cells, dtype=np.float32)
-            if n_cells > 0 and unstructured.cells and len(unstructured.cells) == n_cells:
-                j_ens, _ = compute_mesh_j_ens(unstructured)
-                amips = (1.0 / np.clip(j_ens, 1e-3, 1.0)).astype(np.float32)
-            else:
-                amips = np.ones(n_cells, dtype=np.float32)
-
-            mesh_id = f"mesh_{uuid.uuid4().hex[:8]}"
-            rev = 1
-
-            # Export OpenFOAM polyMesh if requested
-            poly_path = None
-            if case_dir:
-                poly_path = str(export_openfoam_polymesh(unstructured, case_dir=case_dir))
-
-            max_skew_val = float(np.max(skewness)) if len(skewness) > 0 else 0.0
-            max_no_val = float(np.max(non_ortho)) if len(non_ortho) > 0 else 0.0
-            min_vol_val = float(np.min(volume)) if len(volume) > 0 else 0.0
-
-            # Pack Paket 2 binary buffer
-            buf, descriptor = pack_mesh_quality_buffer(
-                skewness=skewness,
-                non_orthogonality=non_ortho,
-                aspect_ratio=aspect_ratio,
-                volume=volume,
-                wsrd_weights=wsrd,
-                amips_energy=amips,
-                folded_face_indices=np.empty(0, dtype=np.uint32),
-                summary={
-                    "n_cells": n_cells,
-                    "n_points": unstructured.num_points,
-                    "n_faces": unstructured.num_faces,
-                    "max_skewness": max_skew_val,
-                    "max_non_ortho": max_no_val,
-                    "min_volume": min_vol_val,
-                },
-                mesh_id=mesh_id,
-                mesh_revision=rev,
-            )
-
+            mesh_id = payload["mesh_id"]
             self._mesh_cache[mesh_id] = {
                 "mesh_id": mesh_id,
-                "mesh_revision": rev,
+                "mesh_revision": payload["mesh_revision"],
                 "mesh": unstructured,
                 "buffer": buf,
                 "descriptor": descriptor,
             }
-
-            return {
-                "mesh_id": mesh_id,
-                "mesh_revision": rev,
-                "cell_count": n_cells,
-                "polyMesh_path": poly_path,
-                "quality_report": {
-                    "n_cells": n_cells,
-                    "n_points": unstructured.num_points,
-                    "n_faces": unstructured.num_faces,
-                    "max_skewness": max_skew_val,
-                    "max_non_ortho": max_no_val,
-                    "min_volume": min_vol_val,
-                },
-                "binary_descriptor": descriptor.to_dict(),
-                "binary_buffer_bytes": len(buf),
-                "folded_face_indices": [],
-            }
+            return payload
 
         if is_async:
             job = self.job_manager.create_job("mesh.generate", _do_meshing)
             return {"job_id": job.job_id, "status": job.status.value}
-        else:
-            return _do_meshing(None)
+        return _do_meshing(None)
 
     # -------------------------------------------------------------------------
     # 6. job.cancel
@@ -700,22 +733,72 @@ class IPCService:
             raise FileNotFoundError(f"Case directory does not exist: {case_dir}")
 
         run_id = f"run_{uuid.uuid4().hex[:8]}"
-        solver = params.get("solver_name", "simpleFoam")
+        solver = str(params.get("solver_name", "simpleFoam"))
         mpi_ranks = int(params.get("mpi_ranks", 16))
+        execute_binary = bool(params.get("execute_binary", False))
+        solver_cmd = params.get("solver_cmd")
 
+        if not execute_binary:
+            self._active_solvers[run_id] = {
+                "run_id": run_id,
+                "case_dir": str(case_dir),
+                "solver": solver,
+                "mpi_ranks": mpi_ranks,
+                "status": "running",
+                "solver_mode": "dry_run_registered",
+                "start_time": time.time(),
+            }
+            return {
+                "run_id": run_id,
+                "status": "started",
+                "case_dir": str(case_dir),
+                "solver_mode": "dry_run_registered",
+            }
+
+        bin_name = str(solver_cmd or solver)
+        exe_path = shutil.which(bin_name)
+        cmd: Optional[List[str]] = [exe_path] if exe_path else None
+        if cmd is None and shutil.which("wsl"):
+            try:
+                wsl_probe = subprocess.run(
+                    ["wsl", "which", bin_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if wsl_probe.returncode == 0 and wsl_probe.stdout.strip():
+                    cmd = ["wsl", bin_name]
+            except Exception:
+                cmd = None
+
+        if cmd is None:
+            raise FileNotFoundError(
+                f"Solver binary '{bin_name}' not found on PATH or WSL2"
+            )
+
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(case_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self._active_solvers[run_id] = {
             "run_id": run_id,
             "case_dir": str(case_dir),
             "solver": solver,
             "mpi_ranks": mpi_ranks,
             "status": "running",
+            "solver_mode": "subprocess",
+            "process": proc,
+            "pid": proc.pid,
             "start_time": time.time(),
         }
-
         return {
             "run_id": run_id,
             "status": "started",
             "case_dir": str(case_dir),
+            "solver_mode": "subprocess",
+            "pid": proc.pid,
         }
 
     # -------------------------------------------------------------------------
@@ -784,7 +867,15 @@ class IPCService:
 
         run_id = params.get("run_id")
         if run_id in self._active_solvers:
-            self._active_solvers[run_id]["status"] = "aborted"
+            entry = self._active_solvers[run_id]
+            entry["status"] = "aborted"
+            proc = entry.get("process")
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
             self.job_manager.cancel_job(run_id)
 
         return {

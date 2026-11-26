@@ -9,8 +9,8 @@
 
 ```mermaid
 flowchart LR
-    P1["Phase 1: Fundament, CAD &<br/>Prototyp-Kern (Erledigt)"] --> P20["Phase 2.0: Architektur-Härtung,<br/>Pass-Pipeline & High-Scale Mesher<br/>(Sprints 1–3, AKTUELL)"]
-    P20 --> P25["Phase 2.5: Dual-Mode Coupled/PISO<br/>C++20/CUDA Solver & .mphys Streaming"]
+    P1["Phase 1: Fundament, CAD &<br/>Prototyp-Kern (Erledigt)"] --> P20["Phase 2.0: Architektur-Härtung,<br/>Pass-Pipeline & High-Scale Mesher<br/>(Sprints 1–3, Erledigt)"]
+    P20 --> P25["Phase 2.5: Dual-Mode Coupled/PISO<br/>C++20/CUDA Solver & .mphys Streaming (AKTUELL)"]
     P25 --> P3["Phase 3: Die 13 Physik-Module &<br/>Natives Rust wgpu/egui Cockpit"]
     P3 --> P4["Phase 4: Hybrider Enzyme/NURBS-Adjoint,<br/>SIMP/FOSM TopOpt & ASME V&V 20"]
     P4 --> P5["Phase 5 (Future Horizon): MPI-Cluster<br/>(100M+ Zellen) & Quantum-Ready CFD"]
@@ -57,14 +57,16 @@ flowchart LR
   * Relative `h_min`/`h_max`-Skalierung (`1e-3..1e3 m`), automatische Normalisierung geschlossener/invertierter Schalen (`AUD-010`), `strict_native=True` als Standard (`AUD-016`), `split_regions` mit `mappedWall` (`nearestPatchFace`) + `export_multiregion_openfoam_case`, lauffähige `simpleFoam`/`chtMultiRegionFoam`-Templates (`CaseGenerator`, verifiziert via `FoamReader` & Strukturgates; lokale WSL2-Instanz ohne OpenFOAM-Binaries), lineare `STORE_VAR`/`LOAD_VAR`-`expression_engine` (`AUD-035`) und IPC-`geometry_id`-Prüfung (`AUD-020`). Verifiziert über [`test_sprint2_scale_and_hardening.py`](tests/test_sprint2_scale_and_hardening.py) (`L0 21 passed in 27.3s`, `L1 190 passed in 118.4s`).
 
 ### Sprint 3 — Konforme Strategie-C Grenzschicht, `FeatureGraph`, Linearer Morton-Octree & Plugin-System
-* [ ] **Skalenbewusster `FeatureGraph` & Weingarten-Krümmung (`Blueprint §1.2.1–1.2.2`, `AUD-033`):**
-  * Gefensterter Normalensprung $\Theta_w(e)$ ($w = 2h_{\min}$), analytische B-Rep-Krümmung (STEP) bzw. Cazals/Pouget Weingarten-Jet-Fit innerhalb glatter `smooth_patch`-Gebiete sowie echtes Krümmungs- und Medial-Axis-Proximity-Größenfeld.
-* [ ] **Konforme 3D-Grenzschicht nach Strategie C (`Blueprint §1.1`, `AUD-011`–`013`):**
-  * `BLPrep` ($t_{\text{reach}}$, Lipschitz-geglättetes $\delta$), Offset-Schnitt auf $\psi = \varphi - \delta$, Cap-Schleifen-Vervollständigung, wandwärts extrudierte `StrandSet`-Stapel mit `bl_scale`-Feld, **stetiger quadratischer Prismen-Jacobi-Schranke** $\min_{t\in[0,1]}(At^2+Bt+C)$ (`Snippet 25`) und Hinterkanten-Keilregel; dazu gekoppeltes **2D-`faMesh`** mit exakten Dreiecks-Abwicklungs-Geodäten.
-* [ ] **Topologisches `ZoneDetect` mit Strahl-Blockierung & Baffles (`Blueprint §1.3`):**
-  * BVH-Segmenttest $\mathbf{c}_i \to \mathbf{c}_j$ sperrt Leckpfade durch dünne Wände ($< h_0$); wahlweise automatische Spaltverfeinerung oder thermisches Baffle ($R_{\text{th}} = \tau/\lambda$).
-* [ ] **16-Byte Linearer Morton-Octree, `regular_faces`/`general_faces`-Split & Deklarative `ModuleSpec`-Plugins (`Blueprint §1.4.1–1.4.2`, `§2.2`, `AUD-036`, `AUD-038`):**
-  * Direktes `mmap`-Schreiben von 65.536er `.mphys`-Chunks, Unterprozess-Isolation im IPC-Service (echtes Cancel + RAM-Limit) und generische `Registry[T]` (`cfdsolver.physics_modules`, `boundary_conditions`, `material_laws`).
+* [x] **Skalenbewusster `FeatureGraph` & Weingarten-Krümmung (`Blueprint §1.2.1–1.2.2`, `AUD-033`):**
+  * Gefensterter Normalensprung $\Theta_w(e)$ ($w = 2h_{\min}$), Canny-Hysterese, `smooth_patch`-Flood-Fill ([`feature_graph.py`](backend/meshing/feature_graph.py)), Cazals/Pouget Weingarten-Jet-Fit $\mathbf{W}=\mathbf{I}^{-1}\mathbf{II}$ innerhalb glatter Gebiete mit 20-B-CCBC-Export ([`weingarten.py`](backend/meshing/weingarten.py)) sowie `CurvatureMethod.WEINGARTEN` ([`_sdf_sizing.py`](backend/meshing/_sdf_sizing.py)).
+* [x] **Konforme 3D-Grenzschicht nach Strategie C (`Blueprint §1.1`, `AUD-011`–`013`):**
+  * `bl_prep_thickness_field` ($t_{\text{reach}}$, Lipschitz-geglättetes $\delta$), `solve_strand_growth_rates` mit `bl_scale`-Feld, `generate_conformal_bl_strategy_c` / `generate_offset_bl_mesh` ([`bl_strategy_c.py`](backend/meshing/bl_strategy_c.py)) mit **quadratischer Prismen-Jacobi-Schranke** (`compute_prism_jacobian_bound`, `Snippet 25`), konformem LDU-Stitching (`assert_fvm_invariants` bestanden) und Hinterkanten-Keilerkennung; dazu gekoppeltes **2D-`faMesh`** mit exakter Dreiecks-Abwicklungs-Geodäten ([`famesh_geodesic.py`](backend/meshing/famesh_geodesic.py)).
+* [x] **Topologisches `ZoneDetect` mit Strahl-Blockierung & Baffles (`Blueprint §1.3`):**
+  * Natives `cfd_sdf_segment_blocked` (`TriangleAABBTree::segment_intersects` in [`sdf_engine.cpp`](backend/meshing/native/src/sdf_engine.cpp)) + [`zone_detect.py`](backend/meshing/zone_detect.py) sperren Leckpfade durch dünne Wände ($< h_0$) zuverlässig und berechnen $R_{\text{th}} = \tau/\lambda$ inkl. optionalem `extract_cht_twin_faces`-Stitching.
+* [x] **16-Byte Linearer Morton-Octree, `regular_faces`/`general_faces`-Split & Deklarative `ModuleSpec`-Plugins (`Blueprint §1.4.1–1.4.2`, `§2.2`, `AUD-021`, `AUD-036`, `AUD-038`):**
+  * `Leaf` (`sizeof == 16`) & `RegularFace` (`sizeof == 12`) in [`linear_octree.hpp`](backend/meshing/native/include/linear_octree.hpp) / [`linear_octree.cpp`](backend/meshing/native/src/linear_octree.cpp) mit lock-freier 4096er-Suche & 8-Bit-Lattice-Besitzregel: **218,0 B/Zelle** bei **6,12M Zellen** (`13,37 s`, 10T) bzw. **110,7 B/Zelle** & **7,56× Speedup** (`1T -> 10T` auf 320k Zellen).
+  * Zero-Copy `mmap` `MeshHandle` für 65.536er `.mphys`-Chunks ([`mesh_handle.py`](backend/native_rust/mesh_handle.py)), Subprocess-IPC-Isolation mit Hart-Cancel & RAM-Watchdog ([`async_jobs.py`](backend/ipc/async_jobs.py)) und generische `Registry[T]` (`cfdsolver.*`, `ModuleSpec`, `BoundaryConditionSpec`, `MaterialLaw`-`d_dT`-Parität in [`plugin_registry.py`](backend/physics_modules/plugin_registry.py)).
+  * **WSL2 OpenFOAM v2606 Live-Gate (`openfoam2606` in `Ubuntu-26.04`):** `checkMesh`, `simpleFoam` (2 Iterationen) und `checkMesh -allRegions` (`Mesh OK.` auf Fluid + Solid) in Real-OpenFOAM verifiziert; verifiziert via [`test_sprint3_features_and_scale.py`](tests/test_sprint3_features_and_scale.py) (`L0 28 passed in 48.08s`, `L1 197 passed in 181.15s`).
 
 ---
 

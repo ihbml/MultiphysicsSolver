@@ -1,6 +1,7 @@
 #include "sdf_engine.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -305,6 +306,141 @@ void TriangleAABBTree::closest_point(const Vec3& p, int32_t prev_facet,
   out_facet = best_facet;
   out_bary = best_bary;
   out_dist = best_dist;
+}
+
+namespace {
+
+inline bool slab_intersects_segment(
+    const Vec3& a,
+    const Vec3& d,
+    const Vec3& bmin,
+    const Vec3& bmax
+) noexcept {
+  double tmin = 0.0;
+  double tmax = 1.0;
+
+  const double a_arr[3] = {a.x, a.y, a.z};
+  const double d_arr[3] = {d.x, d.y, d.z};
+  const double mn_arr[3] = {bmin.x, bmin.y, bmin.z};
+  const double mx_arr[3] = {bmax.x, bmax.y, bmax.z};
+
+  for (int axis = 0; axis < 3; ++axis) {
+    const double da = d_arr[axis];
+    if (std::abs(da) <= 1e-30) {
+      if (a_arr[axis] < mn_arr[axis] - 1e-12 || a_arr[axis] > mx_arr[axis] + 1e-12) {
+        return false;
+      }
+    } else {
+      const double inv_d = 1.0 / da;
+      double t0 = (mn_arr[axis] - a_arr[axis]) * inv_d;
+      double t1 = (mx_arr[axis] - a_arr[axis]) * inv_d;
+      if (inv_d < 0.0) {
+        const double tmp = t0;
+        t0 = t1;
+        t1 = tmp;
+      }
+      if (t0 > tmin) tmin = t0;
+      if (t1 < tmax) tmax = t1;
+      if (tmax < tmin) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+inline bool moller_trumbore_segment(
+    const Vec3& a,
+    const Vec3& d,
+    const Vec3& v0,
+    const Vec3& v1,
+    const Vec3& v2
+) noexcept {
+  const Vec3 e1 = v1 - v0;
+  const Vec3 e2 = v2 - v0;
+  const Vec3 pvec = cross(d, e2);
+  const double det = dot(e1, pvec);
+
+  const double scale2 = e1.norm2() * e2.norm2() * d.norm2();
+  const double denom_tol = (scale2 > 0.0)
+      ? std::max(1e-300, 1e-14 * std::sqrt(scale2))
+      : 1e-300;
+  if (std::abs(det) <= denom_tol) {
+    return false;
+  }
+
+  const double inv_det = 1.0 / det;
+  const Vec3 tvec = a - v0;
+  const double u = dot(tvec, pvec) * inv_det;
+  if (u < -1e-11 || u > 1.0 + 1e-11) {
+    return false;
+  }
+
+  const Vec3 qvec = cross(tvec, e1);
+  const double v = dot(d, qvec) * inv_det;
+  if (v < -1e-11 || u + v > 1.0 + 1e-11) {
+    return false;
+  }
+
+  const double t = dot(e2, qvec) * inv_det;
+  return (t > 1e-9 && t < 1.0 - 1e-9);
+}
+
+}  // namespace
+
+bool TriangleAABBTree::segment_intersects(const Vec3& a, const Vec3& b) const {
+  if (nodes_.empty()) {
+    return false;
+  }
+  const Vec3 d = b - a;
+  if (d.norm2() <= 1e-30) {
+    return false;
+  }
+  if (!slab_intersects_segment(a, d, nodes_[0].bmin, nodes_[0].bmax)) {
+    return false;
+  }
+
+  int32_t stack[128];
+  int32_t stack_ptr = 0;
+  stack[stack_ptr++] = 0;
+
+  while (stack_ptr > 0) {
+    const int32_t node_idx = stack[--stack_ptr];
+    const auto& node = nodes_[static_cast<size_t>(node_idx)];
+
+    if (node.tri_count > 0) {
+      for (int32_t i = 0; i < node.tri_count; ++i) {
+        const int32_t tid = tri_indices_[static_cast<size_t>(node.tri_start + i)];
+        if (!slab_intersects_segment(a, d, tri_bmin_[static_cast<size_t>(tid)],
+                                     tri_bmax_[static_cast<size_t>(tid)])) {
+          continue;
+        }
+        const auto& f = faces_[static_cast<size_t>(tid)];
+        if (moller_trumbore_segment(
+                a, d,
+                vertices_[static_cast<size_t>(f[0])],
+                vertices_[static_cast<size_t>(f[1])],
+                vertices_[static_cast<size_t>(f[2])])) {
+          return true;
+        }
+      }
+    } else {
+      if (node.left >= 0) {
+        const auto& left = nodes_[static_cast<size_t>(node.left)];
+        if (slab_intersects_segment(a, d, left.bmin, left.bmax) && stack_ptr < 127) {
+          stack[stack_ptr++] = node.left;
+        }
+      }
+      if (node.right >= 0) {
+        const auto& right = nodes_[static_cast<size_t>(node.right)];
+        if (slab_intersects_segment(a, d, right.bmin, right.bmax) && stack_ptr < 127) {
+          stack[stack_ptr++] = node.right;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 // ==============================================================================
@@ -834,6 +970,83 @@ int32_t MeshSDF::voromesh_loss(
     *out_loss = loss_acc / static_cast<double>(n_points);
   }
 
+  return 0;
+}
+
+double MeshSDF::evaluate_point(const Vec3& p, int32_t& prev_facet) const {
+  double p_max = std::max({std::abs(p.x), std::abs(p.y), std::abs(p.z)});
+  if (p_max >= 1e30) {
+    return p.norm();
+  }
+
+  Vec3 q, bary;
+  int32_t facet = -1;
+  double dist = 0.0;
+  tree_.closest_point(p, prev_facet, q, facet, bary, dist);
+  prev_facet = facet;
+
+  if (facet < 0 || facet >= static_cast<int32_t>(tree_.faces().size())) {
+    return p.norm();
+  }
+
+  const Vec3 np = pseudonormals_.evaluate(facet, bary);
+  double sign = (dot(p - q, np) >= 0.0) ? 1.0 : -1.0;
+
+  const Vec3 root_bmin = tree_.root_bmin();
+  const Vec3 root_bmax = tree_.root_bmax();
+  const double diag = (root_bmax - root_bmin).norm();
+  const double bbox_tol = 1e-5 * diag;
+  const bool outside_bbox = (p.x < root_bmin.x - bbox_tol || p.x > root_bmax.x + bbox_tol ||
+                             p.y < root_bmin.y - bbox_tol || p.y > root_bmax.y + bbox_tol ||
+                             p.z < root_bmin.z - bbox_tol || p.z > root_bmax.z + bbox_tol);
+  if (outside_bbox && sign < 0.0) {
+    sign = 1.0;
+  }
+  return sign * dist;
+}
+
+int32_t MeshSDF::segments_blocked(const double* pts_a, const double* pts_b,
+                                  int64_t n_seg, uint8_t* out_blocked) const {
+  if (n_seg < 0) return -1;
+  if (n_seg == 0) return 0;
+  if (!pts_a || !pts_b || !out_blocked) return -1;
+
+  std::atomic<bool> omp_failed{false};
+  std::atomic<bool> non_finite{false};
+
+#ifdef _OPENMP
+#pragma omp parallel
+  {
+    try {
+#pragma omp for schedule(dynamic, 64)
+#endif
+      for (int64_t i = 0; i < n_seg; ++i) {
+        if (omp_failed.load(std::memory_order_relaxed) ||
+            non_finite.load(std::memory_order_relaxed)) {
+          continue;
+        }
+        const double ax = pts_a[3 * i + 0];
+        const double ay = pts_a[3 * i + 1];
+        const double az = pts_a[3 * i + 2];
+        const double bx = pts_b[3 * i + 0];
+        const double by = pts_b[3 * i + 1];
+        const double bz = pts_b[3 * i + 2];
+        if (!std::isfinite(ax) || !std::isfinite(ay) || !std::isfinite(az) ||
+            !std::isfinite(bx) || !std::isfinite(by) || !std::isfinite(bz)) {
+          non_finite.store(true, std::memory_order_relaxed);
+          continue;
+        }
+        out_blocked[i] = tree_.segment_intersects(Vec3(ax, ay, az), Vec3(bx, by, bz)) ? 1u : 0u;
+      }
+#ifdef _OPENMP
+    } catch (...) {
+      omp_failed.store(true, std::memory_order_relaxed);
+    }
+  }
+#endif
+
+  if (omp_failed.load(std::memory_order_relaxed)) return -2;
+  if (non_finite.load(std::memory_order_relaxed)) return -1;
   return 0;
 }
 

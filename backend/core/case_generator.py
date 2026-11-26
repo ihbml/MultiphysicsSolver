@@ -433,16 +433,9 @@ scotchCoeffs
                 "    div((nuEff*dev2(T(grad(U))))) Gauss linear;"
             )
 
-        content = f"""/*--------------------------------*- C++ -*----------------------------------*\\
-FoamFile
-{{
-    version     2.0;
-    format      ascii;
-    class       dictionary;
-    location    "{location}";
-    object      fvSchemes;
-}}
-ddtSchemes
+        content = (
+            _foam_dict_header("fvSchemes", location=location)
+            + f"""ddtSchemes
 {{
     default         {ddt_scheme};
 }}
@@ -467,6 +460,7 @@ snGradSchemes
     default         corrected;
 }}
 """
+        )
         with open(system_dir / "fvSchemes", "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -479,133 +473,122 @@ snGradSchemes
     ):
         _ = solver_name
         if is_solid:
-            content = f"""/*--------------------------------*- C++ -*----------------------------------*\\
-FoamFile
-{{
-    version     2.0;
-    format      ascii;
-    class       dictionary;
-    location    "{location}";
-    object      fvSolution;
-}}
-solvers
-{{
+            content = (
+                _foam_dict_header("fvSolution", location=location)
+                + """solvers
+{
     "(h|e|T)"
-    {{
+    {
         solver          PCG;
         preconditioner  DIC;
         tolerance       1e-7;
         relTol          0.01;
-    }}
+    }
     "(h|e|T)Final"
-    {{
-        $"(h|e|T)";
+    {
+        solver          PCG;
+        preconditioner  DIC;
+        tolerance       1e-7;
         relTol          0;
-    }}
-}}
+    }
+}
 PIMPLE
-{{
+{
     nNonOrthogonalCorrectors 0;
-}}
+}
 relaxationFactors
-{{
+{
     equations
-    {{
+    {
         "(h|e|T)"       0.7;
-    }}
-}}
+    }
+}
 """
+            )
         else:
-            content = f"""/*--------------------------------*- C++ -*----------------------------------*\\
-FoamFile
-{{
-    version     2.0;
-    format      ascii;
-    class       dictionary;
-    location    "{location}";
-    object      fvSolution;
-}}
-solvers
-{{
+            content = (
+                _foam_dict_header("fvSolution", location=location)
+                + """solvers
+{
     p
-    {{
+    {
         solver          GAMG;
         smoother        DIC;
         tolerance       1e-7;
         relTol          0.01;
-    }}
+    }
     pFinal
-    {{
+    {
         $p;
         relTol          0;
-    }}
+    }
     p_rgh
-    {{
+    {
         solver          GAMG;
         smoother        DIC;
         tolerance       1e-7;
         relTol          0.01;
-    }}
+    }
     p_rghFinal
-    {{
+    {
         $p_rgh;
         relTol          0;
-    }}
+    }
     rho
-    {{
+    {
         solver          diagonal;
-    }}
+    }
     U
-    {{
+    {
         solver          smoothSolver;
         smoother        symGaussSeidel;
         tolerance       1e-8;
         relTol          0.1;
-    }}
+    }
     "(h|e|T|k|omega|epsilon|alphat|nut|Yi|Ydefault.*)"
-    {{
+    {
         $U;
-    }}
+    }
     "(U|h|e|T|k|omega|epsilon|alphat|nut|Yi|Ydefault.*)Final"
-    {{
+    {
         $U;
         relTol          0;
-    }}
-}}
+    }
+}
 SIMPLE
-{{
+{
     nNonOrthogonalCorrectors 0;
     consistent      yes;
     pRefCell        0;
     pRefValue       0;
     residualControl
-    {{
+    {
         p               1e-4;
         U               1e-4;
         "(h|e|T|k|omega|epsilon)" 1e-4;
-    }}
-}}
+    }
+}
 PIMPLE
-{{
+{
     nOuterCorrectors 2;
     nCorrectors     2;
     nNonOrthogonalCorrectors 1;
     residualControl
-    {{
+    {
         p               1e-4;
         U               1e-4;
         "(h|e|T|k|omega|epsilon)" 1e-4;
-    }}
-}}
+    }
+}
 relaxationFactors
-{{
+{
     fields
-    {{
+    {
         p               0.3;
         p_rgh           0.3;
-    }}
+    }
     equations
-    {{
+    {
         U               0.7;
         h               0.7;
         e               0.7;
@@ -614,9 +597,10 @@ relaxationFactors
         omega           0.7;
         epsilon         0.7;
         "(Yi|Ydefault.*)" 0.7;
-    }}
-}}
+    }
+}
 """
+            )
         with open(system_dir / "fvSolution", "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -897,6 +881,12 @@ relaxationFactors
 
             if "empty" in pt_lower or "empty" in p_lower or patch == "frontAndBack":
                 entry = "        type            empty;"
+            elif "plane" in p_lower or "symmetryplane" in pt_lower.replace("_", ""):
+                entry = "        type            symmetryPlane;"
+            elif pt_lower.strip() == "symmetry" or (
+                p_lower in ("top", "sides", "bottom") and pt_lower.strip() in ("", "farfield")
+            ):
+                entry = "        type            symmetry;"
             elif "symmetry" in pt_lower or "sym" in p_lower:
                 entry = "        type            symmetryPlane;"
             elif "cyclic" in pt_lower or "cyclic" in p_lower:
