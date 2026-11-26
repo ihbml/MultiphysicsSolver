@@ -34,6 +34,15 @@ add_library(cfd_mesher_native SHARED
     src/cht_cyclic.cpp
     src/sdf_engine.cpp
     src/octree_hexcore.cpp
+    src/passes/setup_and_root_grid.cpp
+    src/passes/refine_and_balance.cpp
+    src/passes/classify_leaves.cpp
+    src/passes/faces_and_vertices.cpp
+    src/passes/snap.cpp
+    src/passes/geometry.cpp
+    src/passes/small_cell_merge.cpp
+    src/passes/dedup_and_rcm.cpp
+    src/passes/assemble.cpp
 )
 
 target_link_libraries(cfd_mesher_native PRIVATE OpenMP::OpenMP_CXX)

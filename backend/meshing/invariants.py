@@ -82,14 +82,18 @@ def recompute_geometry_from_nodes(
         if m < 3:
             continue
         f_pts = pts[fn]
-        c_avg = f_pts.mean(axis=0)
-        p_next = np.roll(f_pts, -1, axis=0)
-        cross_p = 0.5 * np.cross(f_pts - c_avg, p_next - c_avg)
+        p0 = f_pts[0]
+        rel = f_pts - p0
+        c_rel = rel.mean(axis=0)
+        d = rel - c_rel
+        p_next = np.roll(d, -1, axis=0)
+        cross_p = 0.5 * np.cross(d, p_next)
         tri_areas = np.linalg.norm(cross_p, axis=1)
         tot_area = float(tri_areas.sum())
         sf[f] = cross_p.sum(axis=0)
+        c_avg = p0 + c_rel
         if tot_area > 1e-30:
-            tri_centres = (c_avg + f_pts + p_next) / 3.0
+            tri_centres = p0 + (c_rel[:, None] if False else (c_rel + rel + np.roll(rel, -1, axis=0)) / 3.0)
             cf[f] = (tri_centres * tri_areas[:, None]).sum(axis=0) / tot_area
         else:
             cf[f] = c_avg
@@ -112,10 +116,13 @@ def recompute_geometry_from_nodes(
         if len(fn) < 3:
             continue
         f_pts = pts[fn]
-        c_avg = f_pts.mean(axis=0)
-        p_next = np.roll(f_pts, -1, axis=0)
-        tri_s = 0.5 * np.cross(f_pts - c_avg, p_next - c_avg)
-        tri_c = (c_avg + f_pts + p_next) / 3.0
+        p0 = f_pts[0]
+        rel = f_pts - p0
+        c_rel = rel.mean(axis=0)
+        d = rel - c_rel
+        p_next = np.roll(d, -1, axis=0)
+        tri_s = 0.5 * np.cross(d, p_next)
+        tri_c = p0 + (c_rel + rel + np.roll(rel, -1, axis=0)) / 3.0
 
         ow = int(owner[f])
         if 0 <= ow < n_cells:
@@ -147,6 +154,7 @@ def check_invariants(
     closure_tol: float = 1e-11,
     volume_tol: float = 1e-10,
     decomp_tol: float = 1e-12,
+    stored_tol: float = 1e-9,
     expect_patches: Optional[Iterable[str]] = None,
     analytic_volume: Optional[float] = None,
     analytic_volume_rtol: float = 0.05,
@@ -246,7 +254,7 @@ def check_invariants(
     sf_err = float(
         np.max(np.linalg.norm(mesh.face_areas - sf_rec, axis=1) / np.maximum(sf_mag, 1e-30))
     ) if n_faces > 0 else 0.0
-    if sf_err >= 1e-9:
+    if sf_err >= stored_tol:
         violations.append(
             InvariantViolation("I-05", f"Stored face_areas deviate from Newell recomputation by {sf_err:.3e}", sf_err)
         )

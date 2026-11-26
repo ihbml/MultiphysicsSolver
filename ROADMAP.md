@@ -47,14 +47,14 @@ flowchart LR
 * [x] **Test-Hygiene & Asset-Entkopplung (`AUD-026`, `Blueprint §3.2`):** Entfernen sämtlicher manueller `mesh.boundaries`-Überschreibungen in E2E-Tests, sauberes `pytest.skip` bei fehlenden externen Groß-Assets (`CFD_EXTERNAL_ASSETS`), CAD-Tessellierungs-Plattencache (`.cache/cad/*.npz`) und harte Zeit-/RAM-Budgets je Testebene (`L0`–`L4`).
 
 ### Sprint 2 — Pass-Zerlegung, $\mathcal{O}(h^2)$ Cut-Cell/Snapping & `< 600 B/Zelle` Skalierung (`scale_5m`)
-* [ ] **Bit-identische Monolith-Zerlegung in `HexcoreState`- / `MeshPass`-Module (`Blueprint §2.1`):**
-  * Aufteilen von `octree_hexcore.cpp` (2.458 Z.), `difvm_topology.py` (2.932 Z.), `geometry_sdf.py` (2.439 Z.) und `mesh_engine.py` (1.833 Z.) in fokussierte Pass-Module (< 600 Zeilen), abgesichert über `mesh_fingerprint` und `1 Thread == 16 Threads`-Determinismus (`I-10`).
-* [ ] **Wand-Snapping-Sanierung & QEF Dual-Contouring Cut-Cells (`AUD-002`, `Blueprint §1.2.3`):**
-  * Beseitigung der $\varphi \ge -0{,}15\,\text{diag}$-Überaktivierung und des 8-Ecken-Domino-Rollbacks durch simultanes Snapping mit lokaler Einzelknoten-Relaxation auf `wall_incident_cells` ($\mathcal{O}(n_{\text{wall}})$) sowie Ebenen-Clipping + QEF-Vertexplatzierung an scharfen Kanten ($\mathcal{O}(h^2)$ Konvergenz von Wandfläche und Volumen).
-* [ ] **Speicher- & Parallelisierungs-Umbau (`AUD-006`, `AUD-017`–`019`, `Blueprint §1.4.3`):**
-  * Ersatz von `RawQuad`/`MosaicFace` (mit `std::string`/Heap-Vektoren) durch flache SoA-Arrays, ganzzahlige Lattice-Vertex-Besitzregel ohne Hash-Map, OpenMP-Exception-Safety, CSR-basiertes `UnstructuredMesh` + `MeshHandle` ohne Python-Listen und kalibrierter RAM-Guard (Ziel: **$\le 600\text{ B/Zelle}$**, Speedup $\ge 5\times$ bei 8 Threads auf 5M Zellen).
-* [ ] **Skalen- & Translationsinvarianz + OpenFOAM-Laufzeit-Gate (`AUD-009`, `AUD-010`, `AUD-016`, `AUD-022`, `AUD-029`, `AUD-031`):**
-  * Relative `h_min`/`h_max`-Skalierung, Rechnung relativ zum lokalen Domain-Ursprung ($\pm 10^6\text{ m}$-Invarianz), Kanten-basiertes Aspect Ratio, `strict_native=True` als Standard und geprüfte, direkt in OpenFOAM (`checkMesh` + 2 Solver-Iterationen) startfähige Case-Templates inkl. `split_regions` für `chtMultiRegionFoam`.
+* [x] **Bit-identische Monolith-Zerlegung von `octree_hexcore.cpp` in `HexcoreState`-Pass-Module (`Sprint 2A`, `Blueprint §2.1`):**
+  * Aufteilen von `octree_hexcore.cpp` (2.432 Z.) in 9 fokussierte Pass-Module (`backend/meshing/native/src/passes/*.cpp`, < 450 Zeilen/Datei) + `hexcore_state.hpp` / `polygon_geometry.hpp`, verifiziert über bit-identische `mesh_fingerprint`-Hashes (`ext`/`int`/`sol`). *(Offen in Sprint 2C/2D: Zerlegung der Python-Monolithen `difvm_topology.py`, `geometry_sdf.py`, `mesh_engine.py`, `models.py`).*
+* [x] **Wand-Snapping-Sanierung (`Sprint 2B`, `AUD-002`):**
+  * Beseitigung der $\varphi \ge -0{,}15\,\text{diag}$-Überaktivierung durch strikte Vorzeichenaktivierung und des 8-Ecken-Domino-Rollbacks durch simultanes Snapping mit gedämpfter lokaler Relaxation (`alpha[v] *= 0.6`) auf `wall_incident_cells` ($\mathcal{O}(n_{\text{wall}})$) + Polyeder-Promotion abgeflachter Ecken (Kugelflächenfehler sinkt monoton auf `-1,1 %`, `100 %` gesnappte Wandknoten). *(Geplant weiter: QEF Dual-Contouring Ebenen-Clipping an scharfen Kanten).*
+* [ ] **Speicher- & Parallelisierungs-Umbau (`Sprint 2C`, `AUD-006`, `AUD-018`, `AUD-019`, `Blueprint §1.4.3` — `AUD-017` OpenMP Exception Safety bereits erledigt):**
+  * Ersatz von `RawQuad`/`MosaicFace` (mit `std::string`/Heap-Vektoren) durch flache SoA-Arrays, ganzzahlige Lattice-Vertex-Besitzregel ohne Hash-Map, CSR-basiertes `UnstructuredMesh` + `MeshHandle` ohne Python-Listen und kalibrierter RAM-Guard (Ziel: **$\le 600\text{ B/Zelle}$**, Speedup $\ge 5\times$ bei 8 Threads auf 5M Zellen).
+* [ ] **Skalen- & Translationsinvarianz + OpenFOAM-Laufzeit-Gate (`Sprint 2D`, `AUD-009`, `AUD-010`, `AUD-016`, `AUD-022` — `AUD-029` Kanten-AR & `AUD-031` $\pm 10^6\,\text{m}$-Translationsinvarianz bereits erledigt):**
+  * Relative `h_min`/`h_max`-Skalierung, Orientierungsnormalisierung offener/invertierter Schalen (`AUD-010`), `strict_native=True` als Standard und geprüfte, direkt in OpenFOAM (`checkMesh` + 2 Solver-Iterationen) startfähige Case-Templates inkl. `split_regions` für `chtMultiRegionFoam`.
 
 ### Sprint 3 — Konforme Strategie-C Grenzschicht, `FeatureGraph`, Linearer Morton-Octree & Plugin-System
 * [ ] **Skalenbewusster `FeatureGraph` & Weingarten-Krümmung (`Blueprint §1.2.1–1.2.2`, `AUD-033`):**

@@ -102,15 +102,26 @@ def cmd_verify(full: bool = False, skip_build: bool = False, include_slow: bool 
 
     if include_slow:
         tier = "L2"
-        targets = ["tests/test_sprint1_audit_and_invariants.py", "tests/e2e_mesher_suite"]
+        targets = [
+            "tests/test_sprint1_audit_and_invariants.py",
+            "tests/test_sprint2_passes_and_snapping.py",
+            "tests/e2e_mesher_suite",
+        ]
         marker_expr = "not scale_5m and not wsl_checkmesh and not fluent_ref"
     elif full:
         tier = "L1"
-        targets = ["tests/test_sprint1_audit_and_invariants.py", "tests/e2e_mesher_suite"]
+        targets = [
+            "tests/test_sprint1_audit_and_invariants.py",
+            "tests/test_sprint2_passes_and_snapping.py",
+            "tests/e2e_mesher_suite",
+        ]
         marker_expr = "not slow and not scale_5m and not wsl_checkmesh and not fluent_ref"
     else:
         tier = "L0"
-        targets = ["tests/test_sprint1_audit_and_invariants.py"]
+        targets = [
+            "tests/test_sprint1_audit_and_invariants.py",
+            "tests/test_sprint2_passes_and_snapping.py",
+        ]
         marker_expr = "not scale_5m and not wsl_checkmesh and not fluent_ref"
 
     budget = TIER_BUDGETS[tier]
