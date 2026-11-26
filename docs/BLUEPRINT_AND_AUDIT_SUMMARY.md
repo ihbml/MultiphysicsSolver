@@ -1,0 +1,18 @@
+# Strategische Synthese: Architecture Blueprint & Opus/Fable Audit (`a3e3a61`)
+
+Dieses Dokument fasst die übernommenen Leitlinien aus `INSPIRATION_AND_ARCHITECTURE_BLUEPRINT.md` und `AUDIT_REPORT_OPUS_FABLE.md` zusammen und dient als normative Brücke zu [`AGENTS.md`](../AGENTS.md), [`INVARIANTS.md`](../INVARIANTS.md), [`CONTRACTS.md`](../CONTRACTS.md) und [`ROADMAP.md`](../ROADMAP.md).
+
+## 1. Sofort behobene kritische P0-Blocker (Sprint 1 Quick-Fixes)
+- **`AUD-001` & `AUD-032` (Farfield-Patch-Verlust durch Use-after-move):** `octree_hexcore.cpp` las `final_boundary_faces[i].patch_name` nach `std::move` in `all_faces`. Behoben durch Lesen aus `all_faces[n_internal + i].patch_name` und Beschränkung der Farfield-Namen (`inlet`, `outlet`, `sides`, `top`, `bottom`) auf `external_fluid` (`domain_mode == 0`).
+- **`AUD-003` (`farfield_bbox`-Layout-Mehrdeutigkeit):** Heuristik in `octree_hexcore.cpp` entfernt; kanonisches Layout überall strikt `[xmin, ymin, zmin, xmax, ymax, zmax]`.
+- **`AUD-004`, `AUD-014` & `AUD-025` (CHT-Regionen & Twin-Patch-Namen):** Nächster-Dreiecksschwerpunkt-`cKDTree` in `mesh_engine.py` durch exakte **Generalized Winding Number** ersetzt; Schalenverschachtelung unabhängig von der Dreiecksanzahl bestimmt; `coupledWall_solid` / `coupledWall_fluid` korrekt nach Zonenrolle benannt.
+- **`AUD-005` (STEP-Einheiten & Gmsh-OOM):** Ganzdatei-Regex-Scan für `SI_UNIT` / `CONVERSION_BASED_UNIT`, Setzen von `Geometry.OCCTargetUnit` in Gmsh, Dreiecksbudget-Guard vor `generate(2)` und automatische SI-Skalierung in `CADGeometryEngine.scale()`.
+- **`AUD-007` & `AUD-039` (C-ABI Bounds/SEGV & stille `0.0`-Fehler):** Vollständige Eingabevalidierung (`std::isfinite`, Dreiecks-Indexgrenzen `[0, n_points)`, Mindestknotenzahl pro Zelle), `cfd_mesher_last_error()`, `NaN` bei ungültigen Handles und Laufzeit-Offset-Prüfung via `cfd_abi_layout_json()` (`abi/cfd_abi.toml` + `tools/abi_gen.py`).
+- **`AUD-008` & `AUD-015` (API-Vorrang & OpenFOAM-Binärformat):** Explizites `domain_mode`-Argument schlägt `MeshingConfig`-Default; `FoamFile` schreibt `arch "LSB;label=64;scalar=64";` und `<N>\n(` ohne Whitespace-Byte-Fraß im Reader.
+
+## 2. Strategische Leitplanken für Sprint 2 & Sprint 3
+1. **Pass-Pipeline & Monolith-Zerlegung (`Blueprint §2.1`):** Schrittweise Zerlegung von `octree_hexcore.cpp`, `difvm_topology.py`, `geometry_sdf.py` und `mesh_engine.py` in isoliert testbare Pässe (`HexcoreState` / `MeshPass`), abgesichert über deterministische `mesh_fingerprint`-Hashes.
+2. **High-Scale Linearer Morton-Octree (`Blueprint §1.4`):** 16-Byte `Leaf`-Struct (`morton3 << 5 | level`), ganzzahlige Lattice-Vertex-Besitzregel („kleinster `(root, key)` besitzt") und Trennung in `regular_faces` (85–95 %, implizite Geometrie) vs. `general_faces` (< 600 B/Zelle bis 100 Mio. Zellen; direktes Fundament für MPI-SFC-Partitionierung).
+3. **Konforme 3D-Grenzschicht nach Strategie C (`Blueprint §1.1` + quadratische Jacobi-Schranke):** Offset-SDF-Schnitt bei $\psi(\mathbf{x}) = \varphi(\mathbf{x}) - \delta(\Pi(\mathbf{x}))$ mit lokaler Reach-Begrenzung $t_{\text{reach}}$ und wandwärts extrudierten `StrandSet`-Stapeln – ergänzt um die stetige quadratische Prismen-Jacobi-Prüfung $\min_{t\in[0,1]}(At^2+Bt+C)$ an $t^* = -B/(2A)$ gegen innere Verdrillung.
+4. **Skalenbewusste Feature-Entkopplung & Krümmung (`Blueprint §1.2`):** Gefensterter Normalensprung $\Theta_w(e)$ ($w = 2h_{\min}$), Weingarten-Jet-Fit nach Cazals/Pouget innerhalb glatter Patches (`smooth_patch`) und QEF Dual-Contouring-Snap an scharfen Kanten (`AUD-002`).
+5. **Ein-Quellen-Plugin-System (`Blueprint §2.2`):** Generische `Registry[T]` mit `ModuleSpec` / `ParamSpec` und `importlib.metadata.entry_points` für Physikmodule, Randbedingungen und Materialgesetze.

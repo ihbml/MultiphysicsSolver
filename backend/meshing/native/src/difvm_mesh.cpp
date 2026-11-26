@@ -183,6 +183,9 @@ std::vector<std::vector<int64_t>> extractCellFaces(
     faces.push_back({cell[1], cell[2]});
     faces.push_back({cell[2], cell[0]});
   } else {
+    if (nv < 3) {
+      throw std::invalid_argument("extractCellFaces: cell must contain at least 3 vertices");
+    }
     // Check if cell vertices are coplanar (2D polygon) or span a 3D volume (3D Polyhedron)
     Vec3 p0 = node_coords[cell[0]];
     Vec3 cell_c_est(0, 0, 0);

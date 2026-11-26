@@ -828,6 +828,178 @@ Um während des Solver-Laufs 3D-Felder, Schnittebenen, Wirbelkerne, Stromlinien 
 10. **$S_8/S_{16}$ Gauss-Legendre fvDOM Strahlung mit Spiegel-Symmetrie-Map & P1-Marshak-Rand (`Snippet 29`):**
     * Übernahme von `makeOrdinates` + `solveDOM` (`Turbulence2GLM53max/src/cpp/cluster_a_radiation.hpp:161-274`) zusammen mit der eliminationsfreien P1-Marshak-Randbedingung `p1MarshakBoundary` (`Turbulence3GPT6LunaMax/cpp/include/cluster_a/cluster_a.hpp:535-551`).
 
+---
+
+## 16. Strategischer Architektur-Blueprint & Opus/Fable-Audit auf Quellstand `a3e3a61` (Stand: 2026-11-25)
+
+> **Kontext & Normative Referenzen:** Synthese aus `INSPIRATION_AND_ARCHITECTURE_BLUEPRINT.md` (konstruktiver Algorithmen-, High-Scale- & Agent-DX-Entwurf) und `AUDIT_REPORT_OPUS_FABLE.md` (empirisches Black-/White-Box- & ASan/UBSan-Audit am gebauten Stand `a3e3a61`), ergänzt um unsere drei numerischen Präzisierungen. Normativ verankert in **[`AGENTS.md`](file:///G:/Datein/Projects/CFDSolver/AGENTS.md)**, **[`INVARIANTS.md`](file:///G:/Datein/Projects/CFDSolver/INVARIANTS.md)**, **[`CONTRACTS.md`](file:///G:/Datein/Projects/CFDSolver/CONTRACTS.md)**, **[`docs/BLUEPRINT_AND_AUDIT_SUMMARY.md`](file:///G:/Datein/Projects/CFDSolver/docs/BLUEPRINT_AND_AUDIT_SUMMARY.md)** und **[`ROADMAP.md`](file:///G:/Datein/Projects/CFDSolver/ROADMAP.md)**.
+
+---
+
+### 16.1 Die 5 strategischen Architektur-Entscheidungen mit dem größten Hebel (aus `INSPIRATION_AND_ARCHITECTURE_BLUEPRINT.md`)
+
+1. **Konforme 3D-Grenzschicht nach „Strategie C" (Offset-Cut bei $\psi = \varphi - \delta$ + wandwärts extrudierte `StrandSet`-Stapel, Blueprint §1.1):**
+   * **Warum Strategie C statt A oder B:** Strategie A (Oberflächennetz $\to$ Prismen $\to$ allgemeiner Polyeder-Füller wie Fluent Mosaic) erfordert einen komplett neuen Polyeder-Volumenvernetzer; Strategie B (Schneiden bei $\varphi=0$, Kernnetz um $\delta \approx 5 h_0$ zurückschieben wie `snappyHexMesh addLayers`) zerstört die Hex-Regelmäßigkeit und verliert in Spalten Schichten. **Strategie C** schneidet das unveränderte Octree-/Cut-Cell-Netz auf der verschobenen SDF $\psi(\mathbf{x}) = \varphi(\mathbf{x}) - \delta(\Pi(\mathbf{x})) = 0$ und extrudiert von jeder Cap-Fläche $N$ konforme Schichten wandwärts auf $\varphi = 0$ ($\sim 800\text{–}1\,200$ Zeilen C++20, null Änderungen an den Kernpässen 3–12, **100 % konform zum Hexcore**, da die Cap-Fläche schlicht von Randfläche zu innerer Fläche wechselt!).
+   * **Kernformeln (`BL-1` bis `BL-5`):**
+     - *Lokaler Reach ohne Heuristik (`BL-3`):* $t_{\text{reach}}(\mathbf{p}) = \sup\{t : \varphi(\mathbf{p} + t\mathbf{n}) \ge (1-\varepsilon)t\}$ per 6–8 Bisektionsschritten (liefert automatisch $G/2$ im Spalt der Weite $G$ und $r$ im konkaven Fillet!).
+     - *Lipschitz-geglättetes Dickenfeld & Offset-SDF (`BL-4`):* $\delta(\mathbf{p}) = \min(\delta_{\text{soll}}, \eta\,t_{\text{reach}}(\mathbf{p}))$ ($\eta \approx 0.4$, $\|\nabla_\Gamma \delta\| \le 0.3$) und $\psi(\mathbf{x}) = \varphi(\mathbf{x}) - \delta(\Pi(\mathbf{x}))$.
+     - *Konstante Schichtzahl $N$, lokale Wachstumsrate $g_v$ (`BL-2`):* $y_1\frac{g_v^N - 1}{g_v - 1} = L_v$ per Bisektion; falls $L_v < N y_1$, wird $g_v = 1, y_{1,v} = L_v/N$ gesetzt und transparent als Diagnosefeld **`bl_scale` $= L_v/\delta_{\text{soll}} \in (0, 1]$** exportiert (niemals stilles Weglassen von Schichten!).
+     - *Exakter Newell-Flächenschluss (`BL-5`):* $\mathbf{S}_f = \frac{1}{2}\sum_i \mathbf{x}_i \times \mathbf{x}_{i+1}$ schließt kantenweise exakt auch für verwundene Seitenvierecke, sofern hängende Mittelknoten am Verfeinerungssprung zuvor in die Cap-Schleife eingefügt wurden.
+   * **Unsere zwei verbindlichen Ergänzungen zu Strategie C:**
+     - **Ergänzung 1a — Stetige quadratische Prismen-Jacobi-Schranke (`Snippet 25`):** Das Prüfen der $2n$ Eck-Tetraeder bei $t \in \{0, 1\}$ allein übersieht verdrillte Seitenflächen, die an Boden und Deckel positiv sind, aber bei einer inneren Höhe $t^* \in (0,1)$ selbst durchdringen. Wir prüfen daher zusätzlich das exakte quadratische Determinanten-Polynom $\det\mathbf{J}_i(t) = A t^2 + B t + C$ am inneren Extremwert $t^* = -B/(2A) \in (0,1)$ (`BoundaryLayerMeshing1GPTAstra62max/engine/geometry.hpp:185-204`).
+     - **Ergänzung 1b — Keil-/Collar-Regel an scharfen konvexen Kanten ($> 120^\circ$) & CHT-Stufe 1/2:** An scharfen Hinterkanten (z. B. Turbinenschaufel) dürfen konvergierende Cap-Strands kontrolliert denselben Feature-Kurven-Fußpunkt teilen (entartetes Boden-Dreieck/Keil, durch Newell `BL-5` exakt geschlossen), statt durch extremes tangentiales Auseinanderziehen $85^\circ+$ Nicht-Orthogonalität zu erzwingen. An gekoppelten `coupledWall`-Wänden läuft Stufe 1 über `compute_ami_weights` ($\sum w = 1$), Stufe 2 verlängert die Strands 2–3 Schichten in den Festkörper (1:1-Konformität direkt am Interface).
+
+2. **High-Scale-Kern für 10M bis 100M+ Zellen (< 600 B/Zelle statt ~5,2 kB/Zelle, Blueprint §1.4 & `AUD-006`/`AUD-018`):**
+   * **16-Byte Linearer Morton-Octree (`Leaf`):** Ersetzt den 72-B-Baumknoten durch `struct Leaf { uint64_t key; uint32_t root; uint16_t zone; uint8_t flags; uint8_t owned; }` (`sizeof == 16`, `key = (morton3(x,y,z) << 5) | level`). Verfeinerung, 26er-Ripple-Balance und Nachbarsuche (`find_leaf` über 4096er Sample-Index + `upper_bound`) laufen lock-frei parallel.
+   * **Ganzzahlige Lattice-Vertex-Besitzregel („kleinster `(root, key)` besitzt"):** Jede Blattecke hat exakte Ganzzahlkoordinaten $(I, J, K)$ im globalen Lattice; `quantize(p, tol)`, serielle `std::unordered_map` und `eps_probe`-Abfragen entfallen restlos.
+   * **Trennung `regular_faces` (85–95 %, 12–16 B) vs. `general_faces`:** Ungesnappte kartesische Innenflächen tragen implizite Geometrie ($\mathbf{S}_f = h^2\mathbf{e}_d, \mathbf{k}_f = \mathbf{0}, \mathbf{m}_{\text{skew}} = \mathbf{0}, \beta_f = 1$). Das spart bei $10^8$ Zellen **~41 GB RAM** allein bei den 6 `Vec3`-Flächenfeldern und erlaubt im Solver einen hochvektorisierten Stencil-Fast-Path!
+   * **Zeigersprung-Merging & Chunk-lokales RCM (Ergänzung 2 — Morton + Hilbert/RCM-Synergie):** Small-Cell-Merging läuft deterministisch über paralleles Pointer-Jumping (`parent[c] = parent[parent[c]]`); global bleibt die Morton-SFC-Ordnung für $\mathcal{O}(1)$-MPI-Partitionierung (`MPI_Exscan` in Stufe 2) erhalten, während RCM parallel *innerhalb* jedes 65.536-Zellen-`.mphys`-Chunks ausgeführt wird. Final werden die SoA-Arrays direkt per `mmap`/`CreateFileMapping` in die `.mphys`-Datei geschrieben (`MeshHandle` ohne Python-Objektlisten!).
+
+3. **Skalenbewusste Feature-Entkopplung (`FeatureGraph`), Rauschfreie Weingarten-Krümmung & QEF-Snap (Blueprint §1.2):**
+   * **Gefensterter Normalensprung (`FE-1`):** $\Theta_w(e) = \angle(\mathbf{n}(\mathbf{m} - \frac{w}{2}\mathbf{t}^-), \mathbf{n}(\mathbf{m} + \frac{w}{2}\mathbf{t}^+))$ mit $w = 2h_{\min}$ und Canny-Hysterese ($\theta_{\text{sharp}} = 35^\circ$). Behandelt Fillets mit $r < 3{,}3\,h_{\min}$ sauber als Knick und aufgelöste Fillets unabhängig von der STL-Tessellierung als glatt; BC-Patchgrenzen sind immer harte `BC`-Kanten.
+   * **Weingarten-Abbildung $\mathbf{W} = \mathbf{I}^{-1}\mathbf{II}$ per quadratischem Jet-Fit (Cazals/Pouget):** Fittet $z(x,y)$ im geodätischen Radius $\rho = \max(2\bar{e}, 1{,}5\,h_{\text{lokal}})$ **strikt innerhalb desselben `smooth_patch`** (kein Überschreiten harter Kanten!) bzw. nutzt bei STEP analytische B-Rep-Krümmungen. Speist die anisotrope Metrik $\mathcal{M}$ sowie die beiden CCBC-Korrekturen ($\partial p/\partial n = \rho\kappa_n|\mathbf{u}_t|^2$ und Sehnenhöhen-Versatz $s = \kappa h^2/8$).
+   * **QEF Dual-Contouring Feature-Snap (§1.2.3):** Sieht der 1-Ring eines Cut-Vertices Normalen aus $k \ge 2$ verschiedenen `smooth_patch`-Gebieten, platziert $\mathbf{x}^\star = \arg\min_{\mathbf{x}}\sum_i (\mathbf{n}_i\cdot(\mathbf{x}-\mathbf{p}_i))^2$ (abgeschnittene SVD) den Knoten exakt auf die scharfe Kante ($k=2$) bzw. Ecke ($k\ge 3$).
+
+4. **Topologische Multi-Zonen-CHT-Erkennung (`ZoneDetect`, Blueprint §1.3 & `AUD-004`/`AUD-025`):**
+   * Definiert Zonen streng topologisch als Zusammenhangskomponenten gleicher Körper-Windungszahl-Signatur $\sigma(\mathbf{x}) = \{b : w_b(\mathbf{x}) > 0{,}5\}$ unter **strahlblockiertem Flood-Fill** (`blocked(i,j)` = Segment $\mathbf{c}_i \to \mathbf{c}_j$ schneidet ein Oberflächendreieck im BVH).
+   * Sperrt selbst bei Wänden dünner als eine Zellweite ($\tau < h_0$) zuverlässig jeden Leckpfad (modellierbar über Verfeinerung $h \le \tau/2$ oder thermisches **Baffle** $R_{\text{th}} = \tau/\lambda$) und erzeugt konstruktiv 1:1-sortierte Twin-Patches `<zoneA>_to_<zoneB>`.
+
+5. **Pass-Pipeline (`HexcoreState` / `MeshPass`), `ModuleSpec`-Registry & Agent-DX-Werkzeuge (Blueprint §2–§3):**
+   * **Pass-Architektur:** `Ingest -> FeatureDecouple -> Sizing -> BLPrep -> [Octree -> CutCell -> BL -> Stitch] -> Zones -> Quality -> Export`, wobei große Arrays niemals pro Pass die FFI-Grenze überqueren, sondern hinter `CfdNativeMesh*` (`HexcoreState`) bleiben.
+   * **Ein-Quellen-`ModuleSpec` & `Registry[T]` (`importlib.metadata.entry_points`):** Vereinheitlicht Modul-Slug (`"viscous"` + `aliases=("Viscous & Turbulence",)`), Parameter-Validierung, UI-Schema und `MaterialLaw::d_dT` (für Adjoint) ohne Code-Duplizierung.
+   * **Die 5 Hebel-Werkzeuge (§3.4):** (1) `mesh_fingerprint` (Refactoring-Sicherung & Race-Detektor `1 Thread == 16 Threads`), (2) metamorphes CSG-Geometrie-Fuzzing (Skalierung, Rotation, Gitterebenen-Snap), (3) löserfreier Polynom-Exaktheitsbericht `P0–P4`, (4) automatischer `bad_cells.vtk/.png`-Dump bei Testfehlern und (5) `uint8 Origin`-Herkunftsmarken je Zelle/Fläche mit `dev.py bisect`.
+
+---
+
+### 16.2 Diagnose-Ergänzung zu `AUD-002` (Warum das Wand-Snapping bei Verfeinerung von +7,7 % auf +31,7 % Flächenfehler divergierte)
+
+Das Audit (`AUDIT_REPORT_OPUS_FABLE.md` `AUD-002`) wies an der Kugel ($R = 0{,}5$) nach, dass der Anteil ungesnappter Wandknoten mit feinerem $h_0$ von **39,1 % auf 85,7 % stieg**. Unsere Code-Inspektion in [`octree_hexcore.cpp`](file:///G:/Datein/Projects/CFDSolver/backend/meshing/native/src/octree_hexcore.cpp#L1085-L1637) hat die **drei exakten technischen Ursachen** isoliert:
+1. **Über-Aktivierung ins Körperinnere (`Zeile 1086`):** `phi >= -0.15 * diag` ($\approx -0{,}26\,h_0$) aktiviert Fluidzellen, deren Schwerpunkt $\mathbf{x}_P$ bereits *innerhalb* des Festkörpers liegt ($\varphi_P < 0$). Deren innere Treppenwand liegt bei $\varphi \approx -0{,}76\,h_0$ und muss beim Snappen auf $\varphi = 0$ **über den eigenen Zellschwerpunkt `cell_approx_center` hinwegspringen**, wodurch `pyr_vol <= 0` sofort anschlägt (erklärt zugleich den $-11{,}8\,\%$ Körpervolumenfehler bei grobem $h_0$!).
+2. **Einzelknoten-Prüfung gegen unverschobene Nachbarn (`Zeile 1548`):** Jeder Wandknoten wurde einzeln verschoben, während seine 3 Nachbarknoten auf derselben Wandfläche festgehalten wurden – das erzeugt künstliche $45^\circ$-Flächenknicke, die bei gemeinsamer Verschiebung aller Wandknoten gar nicht existieren.
+3. **8-Ecken-Domino-Rollback (`Zeilen 1601–1637`):** Sobald in `guard_pass` *ein einziges* Hexaeder `j_val <= 0 || isFaceFolded` meldet, setzt die Schleife **alle 8 Ecken** dieses Hexaeders hart auf `orig_wall_coords` zurück. Dadurch verwindet sich in der nächsten Runde die gemeinsame Seitenfläche zum gesnappten Nachbar-Hexaeder, das wiederum alle seine Ecken zurücksetzt – eine **Domino-Kettenreaktion in $\mathcal{O}(n_{\text{wall}}\cdot n_{\text{cells}})$**, die bei feinem Gitter fast die gesamte Kugelwand wieder auf die Treppenstufe (+50 % Flächengrenzwert) aufreißt!
+* **Lösungsplan für Sprint 2:** Aktivierung strikt nach Vorzeichen ($\varphi \ge 0$ bzw. Winding Number), simultanes Aufbringen des Verschiebungsfeldes mit gedämpfter lokaler Einzelknoten-Relaxation (`alpha[v] *= 0.6`) auf einer reinen `wall_incident_cells`-Worklist ($\mathcal{O}(n_{\text{wall}})$), gefolgt von echtem Ebenen-/QEF-Clipping (Blueprint §1.2.3).
+
+---
+
+### 16.3 Status-Matrix der Audit-Befunde (`AUD-001` bis `AUD-044`): Erledigte Sprint-1-Sofortfixes vs. Sprint-2/3-Backlog
+
+| Status | Audit-IDs | Zusammenfassung der Umsetzung / Geplante Sprint-Zuordnung |
+| :--- | :--- | :--- |
+| **✅ Erledigt (Sprint 1 Quick-Fixes, verifiziert in [`test_sprint1_audit_and_invariants.py`](file:///G:/Datein/Projects/CFDSolver/tests/test_sprint1_audit_and_invariants.py))** | **`AUD-001`, `AUD-003`, `AUD-004`, `AUD-005`, `AUD-007`, `AUD-008`, `AUD-014`, `AUD-015`, `AUD-025`, `AUD-026`, `AUD-032`, `AUD-037` (Loader/ABI), `AUD-039`, `AUD-042` (`.ignore`/`.gitattributes`/DLL untracked), `AUD-043` (`CONTRACTS.md`/`INVARIANTS.md`)** | • **Farfield-Patches (`AUD-001`/`032`):** Lesen aus `all_faces[n_internal + i]` statt Use-after-move; Farfield-Namen nur bei `external_fluid`.<br/>• **`farfield_bbox` (`AUD-003`):** Überall strikt `[xmin, ymin, zmin, xmax, ymax, zmax]`.<br/>• **CHT-Zonen & Patchnamen (`AUD-004`/`014`/`025`):** Generalized Winding Number statt `cKDTree`; Verschachtelungsbaum statt Dreiecksanzahl; `coupledWall_solid`/`fluid` den korrekten Regionen zugeordnet.<br/>• **STEP-Einheiten (`AUD-005`):** Ganzdatei-Regex, `Geometry.OCCTargetUnit` in Gmsh, 2M-Dreiecksbudget-Guard & automatische SI-Skalierung.<br/>• **C-ABI & Binär-IO (`AUD-007`/`015`/`037`/`039`):** Bounds-/NaN-Checks gegen SEGV/OOB, `cfd_abi_layout_json()` Offset-Handshake (`abi/cfd_abi.toml`), `cfd_mesher_last_error()`, `NaN` statt `0.0` und OpenFOAM-konformes Binärformat (`arch` + `<N>\n(`).<br/>• **Test-Hygiene & Repo-Hygiene (`AUD-026`/`042`):** Keine `if "" in mesh.boundaries`-Maskierung mehr, `pytest.skip` bei fehlenden externen Assets (`CFD_EXTERNAL_ASSETS`/`h5py`/WSL2), `.cache/cad/*.npz`-Plattencache, `L0`–`L4`-Budgets in `tools/dev.py` & `pytest.ini`, kompilierte DLL aus Git entfernt (`git rm --cached`). |
+| **🔜 Sprint 2 (Qualität, Skalierung, Pässe & I/O-Härtung)** | **`AUD-002`, `AUD-006`, `AUD-009`, `AUD-010`, `AUD-016`–`024`, `AUD-027`–`031`, `AUD-034`–`036`, `AUD-040`, `AUD-041`** | • `HexcoreState`-Pass-Zerlegung (< 600 Zeilen/Modul, gesichert via `mesh_fingerprint`).<br/>• Behebung des Snapping-Domino-Rollbacks + QEF-Cut-Cell-Clipping (`AUD-002`, $\mathcal{O}(h^2)$ Wandfläche).<br/>• `RawQuad`/`MosaicFace` ohne Heap-Strings, Ganzzahl-Lattice-Vertices, CSR-`UnstructuredMesh` in Python & kalibrierter RAM-Guard (< 600 B/Zelle, Speedup $\ge 5\times$ bei 8 Threads, `AUD-006`/`017`/`018`/`019`/`041`).<br/>• Skaleninvariantes Größenmodell (`h_min`/`h_max` relativ zu `h0`), Translationsinvarianz um Domain-Mitte (`AUD-009`/`031`), Orientierungsnormalisierung offener/invertierter Schalen (`AUD-010`), Kanten-basiertes Aspect Ratio (`AUD-029`), Strict-Native-Default (`AUD-016`) und lauffähige OpenFOAM-Case-Templates (`AUD-022`). |
+| **🚀 Sprint 3 (Phase 2.5+ Features, High-Scale & Plugins)** | **`AUD-011`–`013`, `AUD-033`, `AUD-038`** | • Konforme 3D-Grenzschicht nach **Strategie C** (Offset-Cut $\psi = \varphi - \delta$ + `StrandSet` + quadratische Prismen-Jacobi-Schranke, `AUD-011`–`013`).<br/>• `FeatureDecouple` ($\Theta_w$), Cazals/Pouget Weingarten-Jet-Fit & echtes Krümmungs-/Proximity-Größenfeld (`AUD-033`) + CCBC.<br/>• 16-Byte linearer Morton-Octree + `regular_faces`/`general_faces`-Split + `mmap`-`.mphys` + Unterprozess-IPC mit Cancel/RAM-Limit (`AUD-036`) + deklarative `ModuleSpec`-Plugin-Registry (`AUD-038`). |
+
+---
+
+### 16.4 Detaillierte Algorithmen- & Datenstruktur-Spezifikationen aus `INSPIRATION_AND_ARCHITECTURE_BLUEPRINT.md` (§1.1–§1.4, inkl. unserer Ergänzungen)
+
+#### A. Konforme 3D-Grenzschicht nach Strategie C (`StrandSet`, 8-Schritt-Ablauf & Failure-Modes, Blueprint §1.1.3–1.1.5)
+```cpp
+// Ein Strand je Cap-Vertex (liegt auf psi = 0). SoA, trivially copyable:
+struct StrandSet {
+  std::vector<int64_t> cap_vertex;    // Vertex-ID im Kernnetz (auf psi = 0)
+  std::vector<Vec3>    foot;          // Fusspunkt auf der wahren Wand (phi = 0)
+  std::vector<double>  growth;        // Lokale Wachstumsrate g_v aus y_1*(g_v^N - 1)/(g_v - 1) = L_v
+  std::vector<float>   scale;         // Diagnosefeld bl_scale = L_v / delta_soll in (0, 1]
+  std::vector<int32_t> smooth_patch;  // aus FeatureGraph; -1 = Feature-Kurve, -2 = Feature-Ecke
+  int32_t n_layers = 0;               // Ueberall konstante Schichtzahl N -> triviale Indexrechnung!
+};
+// Map-freie O(1)-Indexrechnung:
+//   Knoten (Strand s, Ebene k in 0..N-1) -> node_base + s*N + k      (k = N ist cap_vertex[s])
+//   Zelle  (Cap-Flaeche F, Schicht k)    -> cell_base + F*N + k      (k = 0 liegt an der Wand)
+//   Seite  (Cap-Kante E, Schicht k)      -> Viereck [a_k, b_k, b_{k+1}, a_{k+1}]
+```
+* **Der verbindliche 8-Schritt-Ablauf im C++20-Kern:**
+  1. **`BLPrep` (vor dem Octree):** Auf dem CAD-Dreiecksnetz lokalen Reach $t_{\text{reach}}(\mathbf{p}) = \sup\{t : \varphi(\mathbf{p}+t\mathbf{n}) \ge (1-\varepsilon)t\}$ (6–8 SDF-Bisektionsschritte), Dickenfeld $\delta(\mathbf{p}) = \min(\delta_{\text{soll}}, 0{,}4\,t_{\text{reach}}(\mathbf{p}))$ und Lipschitz-Glättung $\|\nabla_\Gamma\delta\| \le 0{,}3$ berechnen; Patches ohne Grenzschicht (Einlass, Symmetrie) erhalten $\delta = 0$.
+  2. **$\psi$-Schnitt statt $\varphi$-Schnitt:** `MeshSDF` liefert über einen Offset-Adapter $\psi(\mathbf{x}) = \varphi(\mathbf{x}) - \delta(\Pi(\mathbf{x}))$; in der Cap-Zone wird $h \le c\cdot h_{\text{last}}$ ($c \approx 1\text{–}2$) erzwungen, damit der Volumensprung von der obersten Schicht zur Hexcore-Zelle klein bleibt.
+  3. **Cap-Extraktion & T-Stoß-freie Schleifenvervollständigung:** Wo eine grobe Cut-Cell an feinere grenzt, wird der Mittelknoten der feinen Kanten in die Polygon-Schleife der groben Cap-Fläche eingefügt (Viereck $\to$ Fünfeck $\implies$ jede innere Cap-Kante hat exakt 2 anliegende Cap-Flächen).
+  4. **Fußpunkt-Projektion $\mathbf{w}_v = \Pi(\mathbf{c}_v)$ mit 3 Zwangsbedingungen:**
+     * *Feature-Snap:* Liegen Fußpunkte einer Cap-Fläche in verschiedenen `smooth_patch`-Gebieten, snappt der nächste Fußpunkt exakt auf die Feature-Polylinie (`smooth_patch = -1`) bzw. Ecke (`-2`).
+     * *Gebietsebenen-Zwang:* Cap-Vertices auf Einlass-/Symmetrie-/Farfield-Ebenen gleiten ausschließlich *in* dieser Ebene.
+     * *Tangentiale Relaxation + Hinterkanten-Keilregel (unsere Ergänzung):* Sinkt $A_{\text{wall}}/A_{\text{cap}} < 0{,}3$ an konvexen Kanten, relaxiert $\mathbf{w} \leftarrow \Pi_\Gamma(\mathbf{w} + \lambda\sum(\mathbf{w}_u - \mathbf{w}))$ tangential; an scharfen Hinterkanten ($> 120^\circ$) dürfen konvergierende Strands kontrolliert denselben Feature-Kurven-Fußpunkt teilen (Keil-Boden, exakt geschlossen via Newell `BL-5`).
+  5. **Wachstumsrate $g_v$ lösen** (`BL-2`; bei $L_v < N y_1$: $g_v = 1, y_{1,v} = L_v/N$, dokumentiert in `bl_scale`).
+  6. **Zweistufige Gültigkeitsschleife (inkl. quadratischer Jacobi-Ergänzung):** Prüft alle $2n$ Eck-Tetraeder ($> 0$), den Strahlwinkel ($< 70^\circ$) **und das innere Minimum des quadratischen Prismen-Determinanten-Polynoms $\min_{t\in[0,1]}(A t^2 + B t + C) > 0$ bei $t^* = -B/(2A)$ (`Snippet 25`)**:
+     * *Innere Schleife ($\le 5$ Runden):* Tangentiale Fußpunkt-Relaxation auf dem 1-Ring ungültiger Stapel (Cap-Vertices bleiben unberührt!).
+     * *Äußere Schleife ($\le 2$ Runden):* Lokales Reduzieren $\delta \leftarrow 0{,}7\,\delta$, Neuglätten und Wiederholung ab Schritt 2; scheitert auch das, harter Fehlercode + `bad_cells.vtk`-Dump (niemals stilles Weglassen einzelner Schichten!).
+  7. **Zellen/Flächen emittieren** (Cap-Fläche wechselt von Randfläche zu innerer Fläche `neighbour = Zelle(F, N-1)`).
+  8. **Newell-Flächenvektoren & Fächer-Volumina (`BL-5`)** berechnen.
+
+#### B. `FeatureGraph`, Cazals/Pouget Weingarten-Jet-Fit & CCBC-Spezifikation (Blueprint §1.2)
+* **Einheitlicher `FeatureGraph` für STEP und STL/OBJ:**
+  - Kandidatenkanten $\theta_e > 10^\circ$ werden über geodätisches Dreiecks-Entfalten im Fenster $w = 2h_{\min}$ ausgewertet: $\Theta_w(e) \ge 35^\circ$ markiert `SHARP` (mit Canny-Hysterese $0{,}6\,\theta_{\text{sharp}}$; Ketten $< 2h_{\min}$ ohne BC-Typ verworfen); unterschiedliche `bc_patch`-IDs markieren immer harte `BC`-Kanten; Flood-Fill dazwischen liefert `tri_smooth_patch`.
+* **Weingarten-Abbildung $\mathbf{W} = \mathbf{I}^{-1}\mathbf{II}$ & die 2 CCBC-Solver-Korrekturen:**
+  - Auf STEP analytisch aus dem Flächentyp (Ebene, Zylinder, Kugel, Kegel, Torus, NURBS), auf STL/OBJ per quadratischem Höhenfunktions-Fit $z(x,y) = c_0 + g_x x + g_y y + \frac{1}{2}a x^2 + b x y + \frac{1}{2}c y^2$ im Radius $\rho = \max(2\bar{e}, 1{,}5\,h_{\text{lokal}})$ strikt innerhalb von `smooth_patch`, gekappt auf $|\kappa_i| \le 1/(c\,h_{\min})$.
+  - Optionaler 20-Byte-Wandflächen-Export (`float k1, k2, e1[3]`) für:
+    1. *Krümmungskorrigierter Wanddruckgradient (Symmetrie/Slip):* $\frac{\partial p}{\partial n} = \rho\,\kappa_n\,|\mathbf{u}_t|^2$ mit $\kappa_n = \frac{\mathbf{u}_t^T \mathbf{W}\mathbf{u}_t}{|\mathbf{u}_t|^2}$.
+    2. *Sehnenhöhen-Korrektur des ersten Wandabstands ($y^+ \approx 1$):* $y_{\text{eff}} = y_1 + s$ mit $s = \frac{\kappa h_{\text{lat}}^2}{8}$.
+
+#### C. 16-Byte Linearer Morton-Octree, Lock-Free Lattice-Ownership & Speicherbilanz bei $10^8$ Zellen (Blueprint §1.4)
+```cpp
+// 16 Byte pro aktivem Blatt (statt 72 B OctreeNode), sortierbar nach (root, key):
+struct Leaf {
+  uint64_t key;    // [63..5] 57-Bit 3D-Morton-Code (L_max = 19), [4..0] Level (0..19)
+  uint32_t root;   // Index des gradierten Wurzelblocks in SFC-Reihenfolge (p4est-Waldprinzip)
+  uint16_t zone;   // Zonen-ID aus ZoneDetect (ersetzt int16 region 0/1)
+  uint8_t  flags;  // Bit0 active, Bit1 cut, Bit2 refine-mark, Bit3 bl-band
+  uint8_t  owned;  // 8-Bit-Maske der Blattecken, die dieses Blatt besitzt ("kleinster (root,key) besitzt")
+};
+static_assert(sizeof(Leaf) == 16);
+```
+* **Speicherreduktion bei $N = 10^8$ Zellen (~3,2 Flächen & ~1,1 Vertices je Zelle):**
+  | Posten | Bestand (`a3e3a61`) | Ziel-Architektur (Blueprint §1.4.1) |
+  | :--- | :---: | :---: |
+  | Octree-Knoten | ~8,2 GB (72 B $\times \frac{8}{7}N$) | **1,6 GB** (`16 B Leaf`) |
+  | Transiente Flächen (`RawQuad`, `MosaicFace`) | ~48–58 GB (Heap-Strings/Vektoren) | **0 GB** (Zwei-Pass: zählen $\to$ Präfixsumme $\to$ direkt in Ausgabe-SoA) |
+  | `cell_to_faces` / `cell_verts` | ~9,0 GB (`vector<vector>`) | **~3,0 GB** (flaches CSR) |
+  | `owner` + `neighbour` + `face_nodes` | ~17,9 GB (`int64` überall) | **~7,6 GB** (`int32` bis $2^{31}$ Flächen, reguläre Quads ohne Offsets) |
+  | 6 `Vec3`-Geometriefelder ($\mathbf{S}_f, \mathbf{x}_f, \boldsymbol{\Delta}_f, \mathbf{k}_f, \mathbf{m}_{\text{skew}}, \mathbf{k}_f^{\text{comp}}$) | **46,0 GB** (144 B auf allen Flächen) | **~5,0 GB** (nur für die 5–15 % `general_faces`; `regular_faces` implizit!) |
+  | **Summe / Bytes pro Zelle** | **> 130 GB (~5,2 kB/Zelle gemessen)** | **~19,8 GB (< 250–600 B/Zelle)** |
+* **Zwei-Stufen-Weg zu Remote & MPI-Cluster (§1.4.6):**
+  - *Entwurfsregel ab sofort:* Jeder Nachbarzugriff läuft ausschließlich über `find_leaf(root, key)`.
+  - *Stufe 1 (Remote-Meshing-Daemon):* Streamt fertige 65.536-Zellen-`.mphys`-Chunks progressiv über WebSocket-Binärframes direkt in eine lokal per `mmap`/`CreateFileMapping` abgebildete Datei (mit grober Morton-Vorschau ab Level $k$).
+  - *Stufe 2 (MPI Morton-SFC):* Teilt die sortierte `Leaf`-Liste nach Gewicht in $P$ Intervalle ($P+1$ Trennschlüssel), tauscht Geisterblätter über `find_leaf` aus und vergibt globale IDs per `MPI_Exscan`.
+
+---
+
+### 16.5 Erweiterbare Pass-Pipeline, Monolith-Zerlegungsplan & Deklarative `ModuleSpec`-Registry (Blueprint §2.1–§2.2)
+
+1. **Einheitliche Pass-Kette ohne FFI-Kopien pro Pass (`Blueprint §2.1`):**
+   $$\underbrace{\text{Ingest} \to \text{FeatureDecouple} \to \text{Sizing}}_{\text{Python (kleine Artefakte)}} \to \underbrace{\text{BLPrep} \to \text{Octree} \to \text{CutCell} \to \text{BL} \to \text{Stitch} \to \text{Zones}}_{\text{Nativ C++20 auf } \texttt{HexcoreState} \text{ hinter } \texttt{CfdNativeMesh*}} \to \text{Quality} \to \text{Export}$$
+   * Neue C-ABI-Einstiegspunkte für gezieltes Pass-Debugging, Zustandssicherung und Crash-Replay:
+     `cfd_mesher_run(mesh, first_pass, last_pass)`, `cfd_mesher_dump_state(mesh, path)`, `cfd_mesher_load_state(mesh, path)` und `cfd_mesher_diag_json(mesh, buf, cap)`.
+2. **Verbindlicher Zerlegungsplan für die 5 Monolith-Dateien (< 600 Zeilen je Zielmodul, `Blueprint §2.1.4` & `Audit Hebel 8`):**
+   | Heutiger Monolith | Zeilen | Zielmodule (risikofreier Schnitt unter `mesh_fingerprint`-Kontrolle + Python Re-Export-Hüllen) |
+   | :--- | :---: | :--- |
+   | `octree_hexcore.cpp` | ~2.430 | `passes/{sdf_setup,root_grid,refine,balance,classify,faces_vertices,snap,geometry,small_cell_merge,assemble,patches}.cpp` + `{linear_octree,hexcore_state,polygon_geometry}.hpp` + `memory_budget.cpp` |
+   | `difvm_topology.py` | ~2.990 | `native/{loader,_abi_gen}.py`, `topology/{reference,wsrd}.py`, `coupling/{cht,ami,cyclic,symmetry}.py`, `quality/error_map.py`, `ordering.py` |
+   | `geometry_sdf.py` | 2.439 | `sdf/{base,primitives,csg,bvh,winding,cad_mesh_sdf}.py`, `cad/feature_filter.py`, `sizing/{curvature,proximity,size_function}.py` |
+   | `mesh_engine.py` | ~1.930 | `engine.py` (Fassade), `pipeline/{context,registry}.py`, `passes/*.py`, `farfield.py`, `metrics/lp_metric.py`, `zones.py` |
+   | `models.py` | 1.341 | `config.py`, `mesh.py` (CSR-basiertes `UnstructuredMesh` + `MeshHandle`), `validate.py`, `quality.py` |
+3. **Deklarative Ein-Quellen-Plugin-Registry (`ModuleSpec`, `BoundaryConditionSpec`, `MaterialLaw`, `Blueprint §2.2`):**
+   * Eine generische Klasse `Registry[T]` mit `importlib.metadata.entry_points` bedient vier Domänen: `cfdsolver.physics_modules`, `cfdsolver.boundary_conditions`, `cfdsolver.material_laws` und `cfdsolver.mesh_passes`.
+   * `ModuleSpec` definiert einen stabilen Slug (`id="viscous"`), `aliases=("Viscous & Turbulence",)` für Rückwärtskompatibilität, Abhängigkeiten (`requires`, `conflicts`, `provides_fields`) und typisierte `ParamSpec`-Einträge (`unit_si`, `min`, `max`, `visible_if`), aus denen `spec_to_ui_schema` und `spec_to_json_schema` automatisch abgeleitet werden.
+   * `BoundaryConditionSpec` enthält `needs_wall_curvature: bool = False` (fordert bei Bedarf `k1, k2, e1` vom Mesher an); `MaterialLaw` erzwingt neben `evaluate(T, p)` auch die analytische Ableitung `d_dT(T, p)` für den Adjoint-Löser!
+
+---
+
+### 16.6 Agent-Ergonomics, Test-Pyramide (`L0`–`L4`), die 5 Hebel-Werkzeuge & Ausführungs-Reihenfolge (Blueprint §3–§4)
+
+1. **Fünfstufige Test- & Benchmark-Pyramide mit harten Zeit-/RAM-Budgets (`Blueprint §3.2`):**
+   * **`L0` Invarianten (< 10 s gesamt, 1 s / 300 MB je Test):** Analytische SDFs ($\le 5\,000$ Zellen), ABI-Offset-Check (`tools/abi_gen.py --check`) und Plugin-Kontrakttests (`test_module_contract`) nach jeder Änderung.
+   * **`L1` Nativ (< 20 s, CTest / doctest):** Isolierte C++20-Tests für Morton-Keys, `find_leaf`, 26er-Balance, Lattice-Besitzregel, Newell-Schluss, Pointer-Jumping und einzelne `HexcoreState`-Pässe (inkl. WSL Clang ASan/UBSan/TSan).
+   * **`L2` Integration (< 3 min, 20 s / 2 GB je Test):** Auf Platte gecachte CAD-Flächen (`.cache/cad/<stem>-<sha256>.npz`), goldene `mesh_fingerprint`-Hashes und Thread-Determinismus `OMP_NUM_THREADS=1` vs. `16`.
+   * **`L3` E2E (< 30 min) & `L4` Skala (5–100M Zellen):** Reale Groß-Assets (`CFD_EXTERNAL_ASSETS`), OpenFOAM `checkMesh` + 2 Solver-Iterationen im Container sowie RSS-/Zeitkurven je Pass.
+2. **Die 5 Hochhebel-Diagnosewerkzeuge (`Blueprint §3.4`):**
+   * **Waffe 1 (`mesh_fingerprint`):** Berechnet bereits in [`backend/meshing/invariants.py`](file:///G:/Datein/Projects/CFDSolver/backend/meshing/invariants.py) deterministische BLAKE2b-Hashes über `topology`, `patches`, `points`, `areas`, `volumes` und `regions` (mit optionaler Mantissen-Quantisierung `float_bits` für Compiler-übergreifende Vergleiche).
+   * **Waffe 2 (Metamorphes CSG-Geometrie-Fuzzing):** Prüft ohne Referenzlöser Skalierungsinvarianz ($\text{Volumen}\times s^3$, identischer Topologie-Hash), Rotationsinvarianz ($\mathcal{O}(h^2)$) und den kritischen Grenzfall „Fläche liegt exakt auf einer Octree-Gitterebene" (`snap=True`), gekoppelt mit automatischer `ddmin`-Dreiecksminimierung (`crash_replay.minimize`).
+   * **Waffe 3 (Löserfreier Polynom-Exaktheitsbericht `P0–P4`):** Prüft jedes Netz vor dem ersten Solverstart auf $\sum\mathbf{S}_f = \mathbf{0}$ (`P0`), $\sum\mathbf{x}_f\otimes\mathbf{S}_f = V_c\mathbf{I}_3$ (`P1`), exakten linearen Gauß-Gradienten (`P2`), quadratischen Laplace-Abbruchfehler mit $\boldsymbol{\Delta}_f, \mathbf{k}_f$ (`P3`) und beobachtete 3-Gitter-Ordnung (`P4`).
+   * **Waffe 4 & 5 (`bad_cells.vtk/.png` + `uint8 Origin`-Marken & `dev.py bisect`):** Jede Zelle trägt ihr Entstehungs-Tag (`REGULAR_HEX`, `MOSAIC_TRANSITION`, `CUT_SNAPPED`, `CUT_QEF_FEATURE`, `MERGED_SMALL`, `BL_LAYER`, `AMIPS_REVERTED`), sodass Qualitätsberichte und Pass-Bisektion sofort den verantwortlichen Code-Pass benennen; ergänzt durch Debug-FP-Traps (`_controlfp_s` / `feenableexcept`) und exakte Shewchuk-`orient3d`-Prädikate im Cut-Cell-Pass.
+3. **Verbindliche Abhängigkeits-Reihenfolge & Bewusst Zurückgestelltes (`Blueprint §4.2–§4.3`):**
+   * **Reihenfolge:** Tag-1-Fundament (✅ steht) $\longrightarrow$ **2a/2b** (`HexcoreState`-Pass-Schnitt + Python-Modul-Hüllen) $\longrightarrow$ **3 & 4 parallel** (Ganzzahl-Lattice + SoA-Flächen $\parallel$ `FeatureGraph` + Weingarten-Jet-Fit) $\longrightarrow$ **5** (`ZoneDetect` mit Strahl-Blockierung) $\longrightarrow$ **6** (Strategie-C Grenzschicht, erst 2D-Polygon-Analogon, dann 3D) $\longrightarrow$ **7 & 8** (16-B Morton-Octree, `regular/general_faces`, `mmap`-`.mphys`, `MeshHandle`) $\longrightarrow$ **9** (`ModuleSpec`-Plugin-Registry, jederzeit parallel einschiebbar).
+   * **Bewusst erst danach (`§4.3`):** MPI-Stufe 2 (erst auf dem linearen Morton-Octree mit `find_leaf`-Disziplin), Remote-Streaming-Daemon (erst mit nativen `.mphys`-Chunks), 1:1-konforme CHT-Grenzschicht Stufe 2 (erst wenn Strategie C auf reinen Fluidfällen steht) und breites Geometrie-Fuzzing (erst sobald `dump_repro` + `minimize` aktiv sind).
+
+
+
 
 
 

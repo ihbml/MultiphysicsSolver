@@ -1,0 +1,41 @@
+# Single-Source C-ABI Schema (Blueprint §3.1)
+abi_version = 2
+
+[struct.MeshingConfigC]
+size = 120
+fields = [
+  ["h_min", "f64", 0],
+  ["h_max", "f64", 8],
+  ["h0", "f64", 16],
+  ["grading", "f64", 24],
+  ["alpha_curv", "f64", 32],
+  ["beta_prox", "f64", 40],
+  ["num_bl_layers", "i32", 48],
+  ["bl_first_height", "f64", 56],
+  ["bl_growth_rate", "f64", 64],
+  ["bl_pinching_enabled", "i32", 72],
+  ["bl_pinching_angle_deg", "f64", 80],
+  ["enable_rcm", "i32", 88],
+  ["enable_cht", "i32", 92],
+  ["enable_cyclic", "i32", 96],
+  ["cyclic_angle_rad", "f64", 104],
+  ["distmesh_iters", "i32", 112],
+]
+
+[struct.BoundaryPatchC]
+size = 120
+fields = [
+  ["name", "char[64]", 0],
+  ["patch_type", "char[32]", 64],
+  ["start_face", "i64", 96],
+  ["num_faces", "i64", 104],
+  ["region_id", "i32", 112],
+]
+
+[enum.CfdStatus]
+OK = 0
+INVALID_ARGUMENT = -1
+EXCEPTION_OR_OOM = -2
+NODE_BUDGET_EXCEEDED = -12
+INVARIANT_VIOLATED = -20
+ABI_MISMATCH = -30

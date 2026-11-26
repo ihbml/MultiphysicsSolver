@@ -19,6 +19,7 @@ resources/papers/*.pdf
 # 3. Python Virtual Environments & Test-Caches
 .venv/
 venv/
+.cache/
 __pycache__/
 *.py[cod]
 *$py.class

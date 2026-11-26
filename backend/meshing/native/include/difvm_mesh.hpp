@@ -176,4 +176,5 @@ std::vector<double> computeMeshJENS(const NativeMeshData& mesh);
 
 struct CfdNativeMesh {
     cfd::NativeMeshData data;
+    std::string last_error;
 };

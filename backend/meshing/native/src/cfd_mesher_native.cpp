@@ -7,11 +7,90 @@
 #include "sdf_engine.hpp"
 #include "octree_hexcore.hpp"
 #include <cstring>
+#include <cstddef>
+#include <cmath>
+#include <cstdio>
+#include <limits>
 #include <vector>
 #include <algorithm>
 #include <exception>
 
+static_assert(sizeof(MeshingConfigC) == 120, "MeshingConfigC ABI size drift");
+static_assert(offsetof(MeshingConfigC, num_bl_layers) == 48, "MeshingConfigC offset drift");
+static_assert(offsetof(MeshingConfigC, bl_first_height) == 56, "MeshingConfigC offset drift");
+static_assert(offsetof(MeshingConfigC, enable_rcm) == 88, "MeshingConfigC offset drift");
+static_assert(offsetof(MeshingConfigC, cyclic_angle_rad) == 104, "MeshingConfigC offset drift");
+static_assert(offsetof(MeshingConfigC, distmesh_iters) == 112, "MeshingConfigC offset drift");
+static_assert(sizeof(BoundaryPatchC) == 120, "BoundaryPatchC ABI size drift");
+static_assert(offsetof(BoundaryPatchC, start_face) == 96, "BoundaryPatchC offset drift");
+
+namespace {
+
+thread_local std::string g_last_global_error;
+
+void set_err(CfdNativeMesh* mesh, const char* msg) {
+  g_last_global_error = msg ? msg : "";
+  if (mesh) {
+    mesh->last_error = g_last_global_error;
+  }
+}
+
+bool validate_surface_inputs(
+    CfdNativeMesh* mesh,
+    const double* pts,
+    int64_t n_points,
+    const int32_t* tris,
+    int64_t n_faces
+) {
+  if (!pts || !tris || n_points < 3 || n_faces <= 0) {
+    set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=null_or_empty_surface");
+    return false;
+  }
+  for (int64_t i = 0; i < 3 * n_points; ++i) {
+    if (!std::isfinite(pts[i])) {
+      set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=non_finite_vertex_coordinate");
+      return false;
+    }
+  }
+  for (int64_t f = 0; f < 3 * n_faces; ++f) {
+    int32_t idx = tris[f];
+    if (idx < 0 || static_cast<int64_t>(idx) >= n_points) {
+      set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=triangle_vertex_index_out_of_bounds");
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 extern "C" {
+
+CFD_EXPORT int32_t cfd_mesher_abi_version(void) {
+  return 2;
+}
+
+CFD_EXPORT const char* cfd_abi_layout_json(void) {
+  static const char* kLayoutJson =
+      "{\"abi_version\":2,\"structs\":{"
+      "\"MeshingConfigC\":{\"size\":120,\"offsets\":{"
+      "\"h_min\":0,\"h_max\":8,\"h0\":16,\"grading\":24,\"alpha_curv\":32,\"beta_prox\":40,"
+      "\"num_bl_layers\":48,\"bl_first_height\":56,\"bl_growth_rate\":64,"
+      "\"bl_pinching_enabled\":72,\"bl_pinching_angle_deg\":80,"
+      "\"enable_rcm\":88,\"enable_cht\":92,\"enable_cyclic\":96,"
+      "\"cyclic_angle_rad\":104,\"distmesh_iters\":112}},"
+      "\"BoundaryPatchC\":{\"size\":120,\"offsets\":{"
+      "\"name\":0,\"patch_type\":64,\"start_face\":96,\"num_faces\":104,\"region_id\":112}}"
+      "}}";
+  return kLayoutJson;
+}
+
+CFD_EXPORT int32_t cfd_mesher_last_error(const CfdNativeMesh* mesh, char* buf, size_t cap) {
+  if (!buf || cap == 0) return -1;
+  const std::string& src = (mesh && !mesh->last_error.empty()) ? mesh->last_error : g_last_global_error;
+  std::snprintf(buf, cap, "%s", src.c_str());
+  return static_cast<int32_t>(src.size());
+}
 
 CFD_EXPORT CfdNativeMesh* cfd_mesher_create(void) {
   try {
@@ -44,7 +123,7 @@ CFD_EXPORT int32_t cfd_mesher_generate_from_surface(
     const MeshingConfigC* config
 ) {
   try {
-    if (!mesh || !points || !triangles || n_points <= 0 || n_triangles <= 0) {
+    if (!mesh || !validate_surface_inputs(mesh, points, n_points, triangles, n_triangles)) {
       return -1;
     }
 
@@ -119,9 +198,28 @@ CFD_EXPORT int32_t cfd_mesher_generate_hexcore(
     const MeshingConfigC* config
 ) {
   try {
-    if (!mesh || !surf_points || !surf_faces || n_points <= 0 || n_faces <= 0 || h0 <= 0.0) {
+    if (!mesh || !std::isfinite(h0) || h0 <= 0.0 ||
+        !validate_surface_inputs(mesh, surf_points, n_points, surf_faces, n_faces)) {
+      if (mesh && mesh->last_error.empty()) {
+        set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=invalid_h0_or_null_mesh");
+      }
       return -1;
     }
+    if (farfield_bbox) {
+      for (int k = 0; k < 6; ++k) {
+        if (!std::isfinite(farfield_bbox[k])) {
+          set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=non_finite_farfield_bbox");
+          return -1;
+        }
+      }
+      if (farfield_bbox[0] >= farfield_bbox[3] ||
+          farfield_bbox[1] >= farfield_bbox[4] ||
+          farfield_bbox[2] >= farfield_bbox[5]) {
+        set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=inverted_farfield_bbox");
+        return -1;
+      }
+    }
+    mesh->last_error.clear();
 
     cfd::OctreeOptions options;
     options.h0 = h0;
@@ -277,6 +375,20 @@ CFD_EXPORT int32_t cfd_mesher_build_from_cells(
     }
     for (int64_t k = 0; k < total_nodes; ++k) {
       if (cell_nodes[k] < 0 || cell_nodes[k] >= n_points) {
+        return -1;
+      }
+    }
+
+    for (int64_t i = 0; i < 3 * n_points; ++i) {
+      if (!std::isfinite(points[i])) {
+        set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=non_finite_point");
+        return -1;
+      }
+    }
+    for (int64_t c = 0; c < n_cells; ++c) {
+      int64_t nv = cell_offsets[c + 1] - cell_offsets[c];
+      if (nv < 3) {
+        set_err(mesh, "pass=c_abi code=INVALID_ARGUMENT detail=cell_fewer_than_3_vertices");
         return -1;
       }
     }
@@ -598,17 +710,19 @@ CFD_EXPORT int64_t cfd_mesher_extract_cyclic_pairs(
 
 CFD_EXPORT double cfd_mesher_compute_max_divergence_closure(const CfdNativeMesh* mesh) {
   try {
-    return mesh ? cfd::DiFVMTraversal::computeMaxDivergenceClosure(mesh->data) : 0.0;
+    return mesh ? cfd::DiFVMTraversal::computeMaxDivergenceClosure(mesh->data)
+                : std::numeric_limits<double>::quiet_NaN();
   } catch (...) {
-    return 0.0;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 }
 
 CFD_EXPORT double cfd_mesher_compute_max_decomposition_error(const CfdNativeMesh* mesh) {
   try {
-    return mesh ? cfd::DiFVMTraversal::computeMaxDecompositionError(mesh->data) : 0.0;
+    return mesh ? cfd::DiFVMTraversal::computeMaxDecompositionError(mesh->data)
+                : std::numeric_limits<double>::quiet_NaN();
   } catch (...) {
-    return 0.0;
+    return std::numeric_limits<double>::quiet_NaN();
   }
 }
 
@@ -628,7 +742,7 @@ CFD_EXPORT CfdSdfEngine* cfd_sdf_create(
     const int32_t* faces, int64_t n_faces
 ) {
   try {
-    if (!vertices || !faces || n_vertices <= 0 || n_faces <= 0) {
+    if (!validate_surface_inputs(nullptr, vertices, n_vertices, faces, n_faces)) {
       return nullptr;
     }
     return new CfdSdfEngine(vertices, n_vertices, faces, n_faces);

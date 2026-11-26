@@ -103,21 +103,61 @@ def _find_native_library() -> Optional[Path]:
         names = ["libcfd_mesher_native.so", "cfd_mesher_native.so"]
 
     search_dirs = [
-        pkg_dir,
         build_dir / "Release",
-        build_dir,
-        build_dir / "Debug",
         build_dir / "RelWithDebInfo",
+        build_dir,
+        pkg_dir,
+        build_dir / "Debug",
         pkg_dir / "native",
     ]
 
+    # Pick newest existing candidate across build/Release and pkg_dir so stale binaries never shadow fresh builds (AUD-037)
+    candidates: List[Path] = []
     for s_dir in search_dirs:
         for name in names:
             cand = s_dir / name
             if cand.is_file():
-                return cand
+                candidates.append(cand)
 
-    return None
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+
+def _verify_loaded_dll_abi(dll: ctypes.CDLL) -> None:
+    """Verify ABI version, struct sizeof, and field offsets on load (Blueprint §3.1, AUD-037)."""
+    if not hasattr(dll, "cfd_abi_layout_json"):
+        return
+    import json
+
+    dll.cfd_abi_layout_json.restype = ctypes.c_char_p
+    dll.cfd_abi_layout_json.argtypes = []
+    raw = dll.cfd_abi_layout_json()
+    if not raw:
+        raise RuntimeError("cfd_abi_layout_json() returned NULL.")
+    layout = json.loads(raw.decode("utf-8"))
+    if int(layout.get("abi_version", -1)) != 2:
+        raise RuntimeError(
+            f"C-ABI version mismatch: native={layout.get('abi_version')}, python=2. "
+            "Rebuild via: python tools/dev.py build"
+        )
+    py_structs = {
+        "MeshingConfigC": MeshingConfigC,
+        "BoundaryPatchC": BoundaryPatchC,
+    }
+    for sname, cls in py_structs.items():
+        n_info = layout["structs"][sname]
+        if ctypes.sizeof(cls) != int(n_info["size"]):
+            raise RuntimeError(
+                f"C-ABI sizeof({sname}) mismatch: python={ctypes.sizeof(cls)}, native={n_info['size']}"
+            )
+        for fname, n_off in n_info["offsets"].items():
+            py_off = getattr(cls, fname).offset
+            if py_off != int(n_off):
+                raise RuntimeError(
+                    f"C-ABI offsetof({sname}.{fname}) mismatch: python={py_off}, native={n_off}"
+                )
 
 
 def get_native_dll(strict_native: bool = False) -> Optional[ctypes.CDLL]:
@@ -167,6 +207,20 @@ def get_native_dll(strict_native: bool = False) -> Optional[ctypes.CDLL]:
 
     try:
         dll = ctypes.CDLL(str(dll_path))
+
+        if hasattr(dll, "cfd_mesher_abi_version"):
+            dll.cfd_mesher_abi_version.restype = ctypes.c_int32
+            dll.cfd_mesher_abi_version.argtypes = []
+
+        if hasattr(dll, "cfd_mesher_last_error"):
+            dll.cfd_mesher_last_error.restype = ctypes.c_int32
+            dll.cfd_mesher_last_error.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_char_p,
+                ctypes.c_size_t,
+            ]
+
+        _verify_loaded_dll_abi(dll)
 
         # Core lifecycle
         dll.cfd_mesher_create.restype = ctypes.c_void_p
@@ -1045,11 +1099,33 @@ def generate_hexcore_native(
     bbox_ptr = None
     bbox_arr = None
     if farfield_bbox is not None:
-        bbox_arr = np.ascontiguousarray(farfield_bbox, dtype=np.float64)
+        raw_bb = farfield_bbox
+        if hasattr(raw_bb, "min_pt") and hasattr(raw_bb, "max_pt"):
+            flat_bb = list(raw_bb.min_pt) + list(raw_bb.max_pt)
+        elif len(raw_bb) == 2:
+            flat_bb = list(raw_bb[0]) + list(raw_bb[1])
+        elif len(raw_bb) == 6:
+            flat_bb = list(raw_bb)
+        else:
+            raise ValueError(
+                f"farfield_bbox must be ((xmin,ymin,zmin),(xmax,ymax,zmax)) or 6-tuple "
+                f"(xmin,ymin,zmin,xmax,ymax,zmax), got {farfield_bbox!r}"
+            )
+        bbox_arr = np.ascontiguousarray(flat_bb, dtype=np.float64)
+        if not np.all(np.isfinite(bbox_arr)):
+            raise ValueError("farfield_bbox contains non-finite coordinates.")
+        if np.any(bbox_arr[:3] >= bbox_arr[3:]):
+            raise ValueError(
+                f"Inverted farfield_bbox (expected [xmin,ymin,zmin,xmax,ymax,zmax] with min < max): {bbox_arr.tolist()}"
+            )
         bbox_ptr = bbox_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
 
     mode_map = {"external_fluid": 0, "internal_fluid": 1, "solid_only": 2, "cht_coupled": 3}
-    d_mode = mode_map.get(domain_mode, 0)
+    if domain_mode not in mode_map:
+        raise ValueError(
+            f"Unknown domain_mode {domain_mode!r}; expected one of {sorted(mode_map.keys())}."
+        )
+    d_mode = mode_map[domain_mode]
 
     cfg_c = None
     cfg_ptr = None
@@ -1090,14 +1166,22 @@ def generate_hexcore_native(
             float(h0),
             cfg_ptr,
         )
-        if res == -12:
-            raise MemoryError(
-                "Native octree_hexcore exceeded configured node/memory safety limit "
-                "(CFD_MAX_OCTREE_NODES; set CFD_MAX_OCTREE_NODES=0 to allow unlimited RAM/pagefile). "
-                "Check CAD unit scale or h0."
-            )
         if res != 0:
-            raise RuntimeError(f"Native cfd_mesher_generate_hexcore failed with code {res}")
+            detail = ""
+            if hasattr(dll, "cfd_mesher_last_error"):
+                err_buf = ctypes.create_string_buffer(512)
+                dll.cfd_mesher_last_error(mesh_handle, err_buf, 512)
+                detail = err_buf.value.decode("utf-8", errors="replace").strip()
+            if res in (-12, -2) and ("budget" in detail.lower() or "alloc" in detail.lower() or res == -12):
+                raise MemoryError(
+                    f"Native octree_hexcore exceeded memory/node budget (code={res}"
+                    + (f", {detail}" if detail else "")
+                    + "; set CFD_MAX_OCTREE_NODES to adjust). Check CAD unit scale or h0."
+                )
+            raise RuntimeError(
+                f"Native cfd_mesher_generate_hexcore failed with code {res}"
+                + (f": {detail}" if detail else "")
+            )
 
         actual_n_cells = dll.cfd_mesher_get_n_cells(mesh_handle)
         actual_n_faces = dll.cfd_mesher_get_n_faces(mesh_handle)
@@ -1870,9 +1954,26 @@ def extract_cht_twin_faces(mesh: UnstructuredMesh) -> UnstructuredMesh:
         start_a = current_bnd_offset
         start_b = start_a + n_p
 
+        zone_names_meta = mesh.metadata.get("cht_zone_names")
         if is_two_region and pair == ordered_pairs[0]:
-            patch_name_a = "coupledWall_fluid"
-            patch_name_b = "coupledWall_solid"
+            z0_is_solid = (
+                isinstance(zone_names_meta, (list, tuple))
+                and len(zone_names_meta) > max(pair[0], pair[1])
+                and "solid" in str(zone_names_meta[pair[0]]).lower()
+                and "solid" not in str(zone_names_meta[pair[1]]).lower()
+            )
+            if z0_is_solid:
+                patch_name_a = "coupledWall_solid"
+                patch_name_b = "coupledWall_fluid"
+            else:
+                patch_name_a = "coupledWall_fluid"
+                patch_name_b = "coupledWall_solid"
+        elif (
+            isinstance(zone_names_meta, (list, tuple))
+            and len(zone_names_meta) > max(pair[0], pair[1])
+        ):
+            patch_name_a = f"coupledWall_{zone_names_meta[pair[0]]}_to_{zone_names_meta[pair[1]]}"
+            patch_name_b = f"coupledWall_{zone_names_meta[pair[1]]}_to_{zone_names_meta[pair[0]]}"
         else:
             patch_name_a = f"coupledWall_region{pair[0]}_to_{pair[1]}"
             patch_name_b = f"coupledWall_region{pair[1]}_to_{pair[0]}"

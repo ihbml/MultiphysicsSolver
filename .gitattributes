@@ -1,0 +1,21 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.dll binary
+*.so binary
+*.dylib binary
+*.lib binary
+*.exp binary
+*.pdb binary
+*.stp binary
+*.step binary
+*.prt binary
+*.stl binary
+*.h5 binary
+*.mphys binary
+*.npz binary
+*.gz binary
+*.pdf binary
+*.png binary

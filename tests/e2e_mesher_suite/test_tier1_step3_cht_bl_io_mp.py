@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from backend.core.case_generator import CaseGenerator
+from backend.meshing.invariants import assert_fvm_invariants
 from backend.core.materials import MaterialDatabase
 from backend.geometry.models import SurfaceMesh
 from backend.meshing.difvm_topology import (
@@ -417,6 +418,7 @@ class TestE2EMesherTier1F11SmallCutCellMergingAndDegenerateElimination:
         )
         assert_linear_field_exact(mesh, tol=1e-12)
 
+    @pytest.mark.slow
     def test_f11_04_zero_inverted_pyramids_on_rotated_cube_cut_cells(self) -> None:
         """Verify rotated cube cut-cell mesh has zero inverted pyramids and finite quality metrics."""
         v, f = create_unit_cube_arrays()
@@ -646,8 +648,7 @@ class TestE2EMesherTier1F13CheckMeshCrossValidation:
         """Verify WSL2 checkMesh passes on an exported native hexcore mesh."""
         v, f = create_unit_cube_arrays()
         mesh = generate_hexcore_native(v, f, h0=0.5, domain_mode="internal_fluid")
-        if "" in mesh.boundaries:
-            mesh.boundaries = {"wall": mesh.boundaries[""]}
+        assert_fvm_invariants(mesh, expect_patches=("wall",))
         case_dir = tmp_path / "wsl_hexcore_cube"
         export_openfoam_polymesh(mesh, case_dir)
         (case_dir / "system").mkdir(parents=True, exist_ok=True)

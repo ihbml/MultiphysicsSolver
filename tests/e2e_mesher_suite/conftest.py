@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
+import json
 import logging
 import os
 from pathlib import Path
 import subprocess
 from typing import Any, Dict, Iterator, Mapping, Optional
 
+import numpy as np
 import pytest
 
 from backend.geometry.models import SurfaceMesh
@@ -28,6 +31,18 @@ _OPENFOAM_GEO_DIR: Path = (
     REPO_ROOT / "OpenFOAM_base" / "openfoam" / "tutorials" / "resources" / "geometry"
 )
 
+_EXT_ASSETS_ENV = os.environ.get("CFD_EXTERNAL_ASSETS", "").strip()
+_EXT_ASSETS_DIR = (
+    Path(_EXT_ASSETS_ENV)
+    if _EXT_ASSETS_ENV
+    else Path(r"g:\Datein\Projects\NaturalgasTurbineReformer\CFD\Rev1Basis")
+)
+
+def _resolve_fluent_path(filename: str, fallback_rel: str) -> Path:
+    if _EXT_ASSETS_ENV:
+        return _EXT_ASSETS_DIR / filename
+    return _EXT_ASSETS_DIR / fallback_rel
+
 ASSET_PATHS: Dict[str, Path] = {
     # Canonical 11 Tier 4 targets
     "NACA0012": _OPENFOAM_GEO_DIR / "NACA0012.obj.gz",
@@ -39,13 +54,13 @@ ASSET_PATHS: Dict[str, Path] = {
     "snappyMultiRegionHeater": _OPENFOAM_GEO_DIR / "snappyMultiRegionHeater",
     "cpuCabinet": _OPENFOAM_GEO_DIR / "cpuCabinet",
     "opposite_walls": _OPENFOAM_GEO_DIR / "opposite_walls",
-    "FLTG": Path(
-        r"g:\Datein\Projects\NaturalgasTurbineReformer\CFD\Rev1Basis"
-        r"\FluentSimOfv1Reformer_files\dp0\FLTG\Fluent\FLTG.msh.h5"
+    "FLTG": _resolve_fluent_path(
+        "FLTG.msh.h5",
+        r"FluentSimOfv1Reformer_files\dp0\FLTG\Fluent\FLTG.msh.h5",
     ),
-    "FLTG_1_1": Path(
-        r"g:\Datein\Projects\NaturalgasTurbineReformer\CFD\Rev1Basis"
-        r"\FluentSimOfv1Reformer_files\dp0\FLTG-1\Fluent\FLTG 1.1.msh.h5"
+    "FLTG_1_1": _resolve_fluent_path(
+        "FLTG 1.1.msh.h5",
+        r"FluentSimOfv1Reformer_files\dp0\FLTG-1\Fluent\FLTG 1.1.msh.h5",
     ),
     # Helpful additional workspace geometry aliases
     "flange": _OPENFOAM_GEO_DIR / "flange.stl.gz",
@@ -54,6 +69,11 @@ ASSET_PATHS: Dict[str, Path] = {
     "TestCAD_obj": _CAD_SAMPLES_DIR / "TestCAD.obj",
     "TestCAD_stp": _CAD_SAMPLES_DIR / "TestCADSTPAP214.stp",
 }
+
+_CAD_CACHE_DIR = Path(
+    os.environ.get("CFD_CAD_CACHE_DIR", str(REPO_ROOT / ".cache" / "cad"))
+)
+_CAD_CACHE_ENABLED = os.environ.get("CFD_CAD_CACHE", "1") != "0"
 
 _SURFACE_CACHE: Dict[str, SurfaceMesh] = {}
 _DIR_SURFACE_CACHE: Dict[str, Dict[str, SurfaceMesh]] = {}
@@ -90,36 +110,109 @@ def _surface_stem(path: Path) -> str:
     return Path(name).stem
 
 
+def _cad_cache_path(asset_path: Path, deflection: float, min_edge: float) -> Path:
+    """Compute content/stat-keyed disk cache path for a tessellated SurfaceMesh."""
+    st = asset_path.stat()
+    payload = json.dumps(
+        ["v1", str(asset_path.resolve()), int(st.st_size), int(st.st_mtime_ns), float(deflection), float(min_edge)],
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()[:16]
+    return _CAD_CACHE_DIR / f"{_surface_stem(asset_path)}_{digest}.npz"
+
+
+def _save_surface_npz(path: Path, surf: SurfaceMesh) -> None:
+    """Atomically persist a SurfaceMesh losslessly to compressed .npz format."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    patch_names = list(surf.patches.keys())
+    arrays: Dict[str, Any] = {
+        "vertices": np.asarray(surf.vertices, dtype=np.float64),
+        "faces": np.asarray(surf.faces, dtype=np.int32),
+        "normals": (
+            np.asarray(surf.normals, dtype=np.float64)
+            if surf.normals is not None
+            else np.empty((0, 3), dtype=np.float64)
+        ),
+        "has_normals": np.array([1 if surf.normals is not None else 0], dtype=np.uint8),
+        "patch_names_json": np.array([json.dumps(patch_names)], dtype=object),
+        "metadata_json": np.array([json.dumps(surf.metadata or {}, default=str)], dtype=object),
+    }
+    for idx, pname in enumerate(patch_names):
+        arrays[f"patch_{idx}"] = np.asarray(surf.patches[pname], dtype=np.int32)
+
+    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp.npz")
+    try:
+        with open(tmp_path, "wb") as handle:
+            np.savez(handle, **arrays)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+def _load_surface_npz(path: Path) -> Optional[SurfaceMesh]:
+    """Load a cached SurfaceMesh from .npz; return None if missing or corrupt."""
+    if not path.is_file():
+        return None
+    try:
+        with np.load(path, allow_pickle=True) as data:
+            vertices = np.array(data["vertices"], dtype=np.float64, copy=True)
+            faces = np.array(data["faces"], dtype=np.int32, copy=True)
+            has_normals = bool(int(data["has_normals"][0])) if "has_normals" in data else True
+            normals = (
+                np.array(data["normals"], dtype=np.float64, copy=True)
+                if has_normals and len(data["normals"]) == len(faces)
+                else None
+            )
+            patch_names = json.loads(str(data["patch_names_json"][0]))
+            patches: Dict[str, np.ndarray] = {}
+            for idx, pname in enumerate(patch_names):
+                patches[str(pname)] = np.array(data[f"patch_{idx}"], dtype=np.int32, copy=True)
+            metadata = json.loads(str(data["metadata_json"][0]))
+        return SurfaceMesh(
+            vertices=vertices,
+            faces=faces,
+            normals=normals,
+            patches=patches,
+            metadata=metadata if isinstance(metadata, dict) else {},
+        )
+    except Exception as exc:
+        logger.warning("Ignoring corrupt CAD cache %s: %s", path, exc)
+        return None
+
+
 def load_cached_surface(
     key: str,
     *,
     deflection: float = 0.0001,
     min_edge: float = 0.00005,
 ) -> SurfaceMesh:
-    """Load and session-cache a single-file CAD surface, returning a deep copy.
+    """Load and session/disk-cache a single-file CAD surface, returning a deep copy.
 
-    Never calls ``gmsh.finalize()``. Fails the active test via ``pytest.fail``
-    if the asset key is unknown, missing on disk, or fails to parse.
-
-    Args:
-        key: Key in ``ASSET_PATHS`` pointing to a single geometry file.
-        deflection: Linear tessellation deflection for B-Rep STEP files.
-        min_edge: Minimum tessellation edge length for B-Rep STEP files.
-
-    Returns:
-        Deep-copied ``SurfaceMesh`` instance safe for test mutation.
+    Never calls ``gmsh.finalize()``. Calls ``pytest.skip`` if an external asset
+    file is absent on disk; calls ``pytest.fail`` if the key is unknown or parsing fails.
     """
     if key not in ASSET_PATHS:
         pytest.fail(f"Unknown CAD asset key '{key}'. Known keys: {sorted(ASSET_PATHS)}")
 
     asset_path = ASSET_PATHS[key]
     if not asset_path.is_file():
-        pytest.fail(
-            f"Required CAD asset '{key}' is missing or not a file: {asset_path}"
+        pytest.skip(
+            f"External CAD asset '{key}' not present at {asset_path} "
+            "(set CFD_EXTERNAL_ASSETS or populate OpenFOAM_base)"
         )
 
     cache_key = f"{key}|defl={deflection}|min_edge={min_edge}"
     cached = _SURFACE_CACHE.get(cache_key)
+    if cached is None and _CAD_CACHE_ENABLED:
+        disk_path = _cad_cache_path(asset_path, deflection, min_edge)
+        cached = _load_surface_npz(disk_path)
+        if cached is not None:
+            _SURFACE_CACHE[cache_key] = cached
+
     if cached is None:
         logger.info("Loading and caching CAD surface '%s' from %s", key, asset_path)
         try:
@@ -135,6 +228,11 @@ def load_cached_surface(
                 )
             cached = engine.current_mesh
             _SURFACE_CACHE[cache_key] = cached
+            if _CAD_CACHE_ENABLED:
+                try:
+                    _save_surface_npz(_cad_cache_path(asset_path, deflection, min_edge), cached)
+                except Exception as exc:
+                    logger.warning("Failed to write CAD cache for '%s': %s", key, exc)
         except Exception as exc:
             pytest.fail(
                 f"Failed to load CAD asset '{key}' from {asset_path}: "
@@ -144,22 +242,15 @@ def load_cached_surface(
 
 
 def load_cached_directory_surfaces(key: str) -> Dict[str, SurfaceMesh]:
-    """Load and session-cache all surface files inside a multi-part directory asset.
-
-    Args:
-        key: Key in ``ASSET_PATHS`` pointing to a directory containing
-            ``.stl``, ``.stl.gz``, ``.obj``, or ``.obj.gz`` files.
-
-    Returns:
-        Dictionary mapping geometry stem name to a deep-copied ``SurfaceMesh``.
-    """
+    """Load and session/disk-cache all surface files inside a multi-part directory asset."""
     if key not in ASSET_PATHS:
         pytest.fail(f"Unknown CAD directory asset key '{key}'.")
 
     asset_dir = ASSET_PATHS[key]
     if not asset_dir.is_dir():
-        pytest.fail(
-            f"Required multi-part CAD directory '{key}' is missing: {asset_dir}"
+        pytest.skip(
+            f"External multi-part CAD directory '{key}' not present at {asset_dir} "
+            "(set CFD_EXTERNAL_ASSETS or populate OpenFOAM_base)"
         )
 
     cached_map = _DIR_SURFACE_CACHE.get(key)
@@ -176,6 +267,15 @@ def load_cached_directory_surfaces(key: str) -> Dict[str, SurfaceMesh]:
             )
         loaded: Dict[str, SurfaceMesh] = {}
         for file_path in files:
+            stem = _surface_stem(file_path)
+            disk_surf: Optional[SurfaceMesh] = None
+            disk_path: Optional[Path] = None
+            if _CAD_CACHE_ENABLED:
+                disk_path = _cad_cache_path(file_path, 0.0, 0.0)
+                disk_surf = _load_surface_npz(disk_path)
+            if disk_surf is not None:
+                loaded[stem] = disk_surf
+                continue
             try:
                 engine = CADGeometryEngine()
                 engine.load(file_path)
@@ -183,7 +283,12 @@ def load_cached_directory_surfaces(key: str) -> Dict[str, SurfaceMesh]:
                     pytest.fail(
                         f"CADGeometryEngine.load('{file_path}') produced current_mesh=None"
                     )
-                loaded[_surface_stem(file_path)] = engine.current_mesh
+                loaded[stem] = engine.current_mesh
+                if disk_path is not None:
+                    try:
+                        _save_surface_npz(disk_path, engine.current_mesh)
+                    except Exception as exc:
+                        logger.warning("Failed to write CAD cache for '%s': %s", file_path, exc)
             except Exception as exc:
                 pytest.fail(
                     f"Failed to load surface file '{file_path}' in '{key}': "
@@ -380,18 +485,18 @@ def require_wsl_checkmesh() -> Dict[str, Any]:
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        pytest.fail(
+        pytest.skip(
             f"WSL2 Ubuntu-26.04 checkMesh probe timed out after 15s and "
             f"{wrapper_script} does not exist: {exc}"
         )
     except OSError as exc:
-        pytest.fail(
-            f"Failed to invoke WSL2 checkMesh probe and {wrapper_script} does not exist: "
+        pytest.skip(
+            f"WSL2 checkMesh probe unavailable and {wrapper_script} does not exist: "
             f"{type(exc).__name__}: {exc}"
         )
 
     if proc.returncode != 0 or not proc.stdout.strip():
-        pytest.fail(
+        pytest.skip(
             "WSL2 OpenFOAM checkMesh toolchain is unavailable: "
             f"script={wrapper_script} (exists={wrapper_script.is_file()}), "
             f"wsl probe exit={proc.returncode}, stdout={proc.stdout.strip()!r}, "
@@ -403,16 +508,18 @@ def require_wsl_checkmesh() -> Dict[str, Any]:
 @pytest.fixture
 def require_fluent_h5() -> Dict[str, Path]:
     """Verify h5py and both Ansys Fluent .msh.h5 reference files are readable."""
-    try:
-        import h5py  # noqa: WPS433
-    except Exception as exc:
-        pytest.fail(f"h5py failed to import: {type(exc).__name__}: {exc}")
+    h5py = pytest.importorskip(
+        "h5py", reason="h5py not installed; skipping Fluent .msh.h5 parity tests"
+    )
 
     paths: Dict[str, Path] = {}
     for key in ("FLTG", "FLTG_1_1"):
         p = ASSET_PATHS[key]
         if not p.is_file():
-            pytest.fail(f"Required Fluent reference HDF5 file '{key}' missing: {p}")
+            pytest.skip(
+                f"External Fluent reference '{key}' not present at {p} "
+                "(set CFD_EXTERNAL_ASSETS)"
+            )
         try:
             with h5py.File(p, "r") as handle:
                 if "meshes" not in handle:

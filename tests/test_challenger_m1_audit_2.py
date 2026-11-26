@@ -63,8 +63,8 @@ class TestAdversarialCutCellSnapping:
     def test_snapping_preserves_external_fluid_farfield_boundaries(self):
         """Verify farfield outer boundaries remain strictly planar and aligned with bounding box."""
         surf_pts, surf_faces = create_geodesic_icosphere(subdivisions=2)
-        # farfield_bbox format: (xmin, xmax, ymin, ymax, zmin, zmax)
-        farfield_bbox = (-3.0, 3.0, -3.0, 3.0, -3.0, 3.0)
+        # farfield_bbox format: (xmin, ymin, zmin, xmax, ymax, zmax)
+        farfield_bbox = (-3.0, -3.0, -3.0, 3.0, 3.0, 3.0)
         mesh = generate_hexcore_native(
             surf_points=surf_pts,
             surf_faces=surf_faces,

@@ -283,6 +283,7 @@ class TestE2EMesherTier1F7ScalingAndGciHierarchy:
             assert arr.dtype == np.float64, f"{name} dtype {arr.dtype} != float64"
             assert arr.flags["C_CONTIGUOUS"], f"{name} is not C_CONTIGUOUS"
 
+    @pytest.mark.slow
     def test_f7_04_moderate_refinement_memory_and_time_efficiency(self) -> None:
         """Verify ~10k-50k cell native octree generation runs in < 3s with < 200 MB mesh footprint."""
         v, f = create_unit_cube_arrays()
@@ -300,6 +301,7 @@ class TestE2EMesherTier1F7ScalingAndGciHierarchy:
         assert nbytes < 200 * 1024 * 1024
         assert_unstructured_mesh_valid(mesh)
 
+    @pytest.mark.slow
     def test_f7_05_parallel_openmp_two_threads_multi_geometry_batch(
         self,
         restore_native_env: None,

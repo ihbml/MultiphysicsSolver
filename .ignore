@@ -1,0 +1,17 @@
+resources/reference_spickzettel/
+resources/papers/
+.agents/
+docs/TEAMWORK_DEVELOPMENT_HISTORY.md
+SUGGESTIONS_BACKEND.md
+tests/report.json
+ugstep203.log
+ugstep214.log
+**/*.stp
+**/*.step
+**/*.prt
+**/Cargo.lock
+**/*.dll
+**/*.gen.h
+**/_abi_gen.py
+**/abi_gen.rs
+.cache/

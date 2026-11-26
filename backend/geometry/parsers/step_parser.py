@@ -139,19 +139,44 @@ class STEPParser(BaseParser):
 
     @staticmethod
     def detect_units(path: Path) -> str:
-        """Inspect STEP file header to detect length units ('mm', 'm', 'in')."""
+        """Inspect entire STEP file to detect length units ('mm', 'cm', 'm', 'in').
+
+        Scans all chunks (not only the first 64 KB, as ISO-10303-21 writers often
+        emit GLOBAL_UNIT_ASSIGNED_CONTEXT at the end of the DATA section) using
+        whitespace-tolerant regular expressions (AUD-005).
+        """
+        si_pattern = re.compile(
+            r"SI_UNIT\s*\(\s*(\.[A-Z_]+\.|\$)\s*,\s*\.METRE\.\s*\)",
+            re.IGNORECASE,
+        )
+        imp_pattern = re.compile(
+            r"CONVERSION_BASED_UNIT\s*\(\s*'([^']+)'",
+            re.IGNORECASE,
+        )
+        carry = ""
+        found_unit: Optional[str] = None
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read(65536)  # Read first 64KB
-            if "SI_UNIT(.MILLI.,.METRE.)" in content:
-                return "mm"
-            if "SI_UNIT($,.METRE.)" in content:
-                return "m"
-            if "'INCH'" in content.upper():
-                return "in"
+                for chunk in iter(lambda: f.read(1048576), ""):
+                    window = carry + chunk
+                    for imp_m in imp_pattern.finditer(window):
+                        uname = imp_m.group(1).strip().upper()
+                        if "INCH" in uname:
+                            return "in"
+                        if "FOOT" in uname or "FEET" in uname:
+                            return "ft"
+                    for si_m in si_pattern.finditer(window):
+                        prefix = si_m.group(1).upper()
+                        if prefix == ".MILLI.":
+                            found_unit = "mm"
+                        elif prefix == ".CENTI.":
+                            found_unit = "cm"
+                        elif prefix == "$":
+                            found_unit = "m"
+                    carry = window[-256:]
         except Exception:
             pass
-        return "mm"  # Default mechanical CAD standard
+        return found_unit or "mm"  # Default mechanical CAD standard
 
     def _parse_with_gmsh(
         self,
@@ -173,16 +198,52 @@ class STEPParser(BaseParser):
         gmsh.option.setNumber("General.NumThreads", num_cpus)
         gmsh.option.setNumber("Mesh.Algorithm", 6)  # Frontal-Delaunay for 2D surfaces
 
-        # Determine unit scaling factor from meters to CAD model units
-        if units == "mm":
-            to_model_units = 1000.0
-        elif units == "in":
-            to_model_units = 1000.0 / 25.4
-        else:
-            to_model_units = 1.0
+        # Lock OpenCASCADE target unit to match detected STEP file unit so Gmsh and
+        # B-Rep engines return identical native coordinates without 1000x mismatch (AUD-005).
+        occ_unit_map = {"mm": "MM", "cm": "CM", "m": "M", "in": "IN", "ft": "FT"}
+        gmsh.option.setString("Geometry.OCCTargetUnit", occ_unit_map.get(units, "MM"))
+
+        # Determine unit scaling factor from SI meters to CAD model units
+        unit_scale_from_m = {
+            "mm": 1000.0,
+            "cm": 100.0,
+            "m": 1.0,
+            "in": 1.0 / 0.0254,
+            "ft": 1.0 / 0.3048,
+        }
+        to_model_units = unit_scale_from_m.get(units, 1000.0)
 
         scaled_min = min_edge * to_model_units if min_edge > 0 else 0.0
         scaled_max = max_edge * to_model_units if max_edge > 0 else 0.0
+
+        gmsh.open(str(path))
+
+        # Surface triangle budget guard before generate(2) to prevent OOM kills on huge domains (AUD-005)
+        try:
+            xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(-1, -1)
+            dx = max(0.0, float(xmax - xmin))
+            dy = max(0.0, float(ymax - ymin))
+            dz = max(0.0, float(zmax - zmin))
+            approx_area = 2.0 * (dx * dy + dy * dz + dz * dx)
+            if scaled_max > 0.0 and approx_area > 0.0:
+                # Equilateral triangle area = (sqrt(3)/4) * h^2
+                est_tris = approx_area / (0.4330127 * scaled_max * scaled_max)
+                max_tri_budget = 2_000_000.0
+                if est_tris > max_tri_budget:
+                    safe_edge = float(np.sqrt(approx_area / (0.4330127 * max_tri_budget)))
+                    logger.warning(
+                        "STEP surface '%s' (%s) exceeds 2M triangle budget with max_edge=%g; "
+                        "clamping CharacteristicLengthMax to %g model units.",
+                        path.name,
+                        units,
+                        scaled_max,
+                        safe_edge,
+                    )
+                    scaled_max = max(scaled_max, safe_edge)
+                    if scaled_min > 0.0:
+                        scaled_min = max(scaled_min, 0.1 * safe_edge)
+        except Exception:
+            pass
 
         # Configure chordal and curvature deflection controls
         if deflection > 0:
@@ -193,7 +254,6 @@ class STEPParser(BaseParser):
         if scaled_max > 0:
             gmsh.option.setNumber("Mesh.CharacteristicLengthMax", scaled_max)
 
-        gmsh.open(str(path))
         gmsh.model.mesh.generate(2)  # 2D surface triangulation
 
         # Extract nodes (vertices)

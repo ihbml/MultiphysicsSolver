@@ -445,7 +445,7 @@ class TestE2EMesherTier2F12FluentH5EdgeAndErrorHandling:
         tmp_path: Path,
     ) -> None:
         """Verify read_fluent_msh_h5_summary parses a synthetic HDF5 with alphanumeric section keys."""
-        import h5py
+        h5py = pytest.importorskip("h5py")
 
         h5_file = tmp_path / "synthetic.msh.h5"
         with h5py.File(h5_file, "w") as f:
@@ -497,7 +497,7 @@ class TestE2EMesherTier2F12FluentH5EdgeAndErrorHandling:
         tmp_path: Path,
     ) -> None:
         """Verify read_fluent_msh_h5_summary asserts when sum(ctype_counts) != cellCount."""
-        import h5py
+        h5py = pytest.importorskip("h5py")
 
         h5_file = tmp_path / "mismatch.msh.h5"
         with h5py.File(h5_file, "w") as f:

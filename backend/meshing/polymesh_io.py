@@ -40,6 +40,7 @@ def _foam_file_header(class_name: str, object_name: str, write_binary: bool = Fa
         Formatted FoamFile header block string.
     """
     fmt = "binary" if write_binary else "ascii"
+    arch_line = '    arch        "LSB;label=64;scalar=64";\n' if write_binary else ""
     return (
         "/*--------------------------------*- C++ -*----------------------------------*\\\n"
         "| =========                 |                                                 |\n"
@@ -52,6 +53,7 @@ def _foam_file_header(class_name: str, object_name: str, write_binary: bool = Fa
         "{\n"
         "    version     2.0;\n"
         f"    format      {fmt};\n"
+        f"{arch_line}"
         f"    class       {class_name};\n"
         '    location    "constant/polyMesh";\n'
         f"    object      {object_name};\n"
@@ -106,9 +108,9 @@ def export_openfoam_polymesh(
         header = _foam_file_header("vectorField", "points", write_binary=True).encode("utf-8")
         with open(points_path, "wb") as f:
             f.write(header)
-            f.write(f"{n_points}\n(\n".encode("utf-8"))
+            f.write(f"{n_points}\n(".encode("utf-8"))
             f.write(pts.tobytes())
-            f.write(b"\n)\n\n// ************************************************************************* //\n")
+            f.write(b")\n\n// ************************************************************************* //\n")
     else:
         with open(points_path, "w", encoding="utf-8") as f:
             f.write(_foam_file_header("vectorField", "points", write_binary=False))
@@ -145,9 +147,9 @@ def export_openfoam_polymesh(
         header = _foam_file_header("labelList", "owner", write_binary=True).encode("utf-8")
         with open(owner_path, "wb") as f:
             f.write(header)
-            f.write(f"{n_faces}\n(\n".encode("utf-8"))
+            f.write(f"{n_faces}\n(".encode("utf-8"))
             f.write(ow.tobytes())
-            f.write(b"\n)\n\n// ************************************************************************* //\n")
+            f.write(b")\n\n// ************************************************************************* //\n")
     else:
         with open(owner_path, "w", encoding="utf-8") as f:
             f.write(_foam_file_header("labelList", "owner", write_binary=False))
@@ -164,9 +166,9 @@ def export_openfoam_polymesh(
         header = _foam_file_header("labelList", "neighbour", write_binary=True).encode("utf-8")
         with open(neighbour_path, "wb") as f:
             f.write(header)
-            f.write(f"{n_internal}\n(\n".encode("utf-8"))
+            f.write(f"{n_internal}\n(".encode("utf-8"))
             f.write(nb.tobytes())
-            f.write(b"\n)\n\n// ************************************************************************* //\n")
+            f.write(b")\n\n// ************************************************************************* //\n")
     else:
         with open(neighbour_path, "w", encoding="utf-8") as f:
             f.write(_foam_file_header("labelList", "neighbour", write_binary=False))
@@ -443,15 +445,14 @@ def extrude_2d_to_3d_slab(
         else:
             raise ValueError(f"Unsupported 2D cell with {nv} vertices for 3D slab extrusion")
 
-    # Build 3D topology
-    from backend.meshing.difvm_topology import compute_difvm_topology
+    # Build 3D topology via pure-Python constructor (strict_native-safe slab extrusion)
+    from backend.meshing.difvm_topology import compute_difvm_topology_python
 
-    mesh_3d = compute_difvm_topology(
+    mesh_3d = compute_difvm_topology_python(
         points=pts_3d,
         cells=cells_3d,
         cell_types=np.array(cell_types_3d, dtype=np.int32),
         topological_dim=3,
-        use_native=False,  # Use pure Python for slab extrusion to ensure exact patch tagging
     )
 
     # Separate boundaries into:

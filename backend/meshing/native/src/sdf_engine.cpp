@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <stdexcept>
 #include <vector>
 
 #ifdef _OPENMP
@@ -53,6 +54,12 @@ TriangleAABBTree::TriangleAABBTree(const double* vertices, int64_t n_vertices,
     int32_t i0 = faces[3 * i];
     int32_t i1 = faces[3 * i + 1];
     int32_t i2 = faces[3 * i + 2];
+    if (i0 < 0 || i1 < 0 || i2 < 0 ||
+        static_cast<int64_t>(i0) >= n_vertices ||
+        static_cast<int64_t>(i1) >= n_vertices ||
+        static_cast<int64_t>(i2) >= n_vertices) {
+      throw std::out_of_range("TriangleAABBTree: triangle vertex index out of bounds");
+    }
     faces_[i] = {i0, i1, i2};
     tri_indices_[i] = static_cast<int32_t>(i);
 

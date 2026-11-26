@@ -94,8 +94,102 @@ def _connected_face_components(
     return comps
 
 
+def _signed_shell_volume(verts: np.ndarray, tri_faces: np.ndarray) -> float:
+    """Compute signed volume of a triangulated shell relative to its centroid."""
+    if len(tri_faces) == 0:
+        return 0.0
+    v0 = verts[tri_faces[:, 0]]
+    v1 = verts[tri_faces[:, 1]]
+    v2 = verts[tri_faces[:, 2]]
+    ref = v0.mean(axis=0)
+    return float(np.sum(np.einsum("ij,ij->i", v0 - ref, np.cross(v1 - ref, v2 - ref))) / 6.0)
+
+
+def _generalized_winding_number(
+    verts: np.ndarray, tri_faces: np.ndarray, query_pts: np.ndarray
+) -> np.ndarray:
+    """Evaluate exact solid-angle generalized winding number w(x) in R^3 (Jacobson et al.).
+
+    Uses native C++ Barnes-Hut `cfd_sdf_winding_number` when available, with an
+    exact vectorized Van Oosterom-Strackee numpy fallback.
+    """
+    pts = np.ascontiguousarray(query_pts, dtype=np.float64)
+    if len(pts) == 0 or len(tri_faces) == 0:
+        return np.zeros(len(pts), dtype=np.float64)
+
+    # Ensure outward orientation (positive signed volume) for closed shells
+    f_oriented = np.ascontiguousarray(tri_faces, dtype=np.int32)
+    if _signed_shell_volume(verts, f_oriented) < 0.0:
+        f_oriented = np.ascontiguousarray(f_oriented[:, [0, 2, 1]], dtype=np.int32)
+
+    dll = get_native_dll(strict_native=False)
+    if dll is not None and hasattr(dll, "cfd_sdf_create") and hasattr(dll, "cfd_sdf_winding_number"):
+        import ctypes
+
+        dll.cfd_sdf_create.restype = ctypes.c_void_p
+        dll.cfd_sdf_create.argtypes = [
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int64,
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.c_int64,
+        ]
+        dll.cfd_sdf_free.restype = None
+        dll.cfd_sdf_free.argtypes = [ctypes.c_void_p]
+        dll.cfd_sdf_winding_number.restype = ctypes.c_int32
+        dll.cfd_sdf_winding_number.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int64,
+            ctypes.POINTER(ctypes.c_double),
+        ]
+        v_c = np.ascontiguousarray(verts, dtype=np.float64)
+        eng = dll.cfd_sdf_create(
+            v_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+            len(v_c),
+            f_oriented.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
+            len(f_oriented),
+        )
+        if eng:
+            try:
+                out_wn = np.zeros(len(pts), dtype=np.float64)
+                rc = dll.cfd_sdf_winding_number(
+                    eng,
+                    pts.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                    len(pts),
+                    out_wn.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                )
+                if rc == 0:
+                    return out_wn
+            finally:
+                dll.cfd_sdf_free(eng)
+
+    # Vectorized Van Oosterom-Strackee solid angle fallback
+    v0 = verts[f_oriented[:, 0]]
+    v1 = verts[f_oriented[:, 1]]
+    v2 = verts[f_oriented[:, 2]]
+    wn = np.zeros(len(pts), dtype=np.float64)
+    batch = max(1, 200_000 // max(len(f_oriented), 1))
+    for i0 in range(0, len(pts), batch):
+        q = pts[i0 : i0 + batch, None, :]
+        a = v0[None, :, :] - q
+        b = v1[None, :, :] - q
+        c = v2[None, :, :] - q
+        la = np.linalg.norm(a, axis=-1)
+        lb = np.linalg.norm(b, axis=-1)
+        lc = np.linalg.norm(c, axis=-1)
+        num = np.einsum("pmi,pmi->pm", a, np.cross(b, c))
+        den = (
+            la * lb * lc
+            + np.einsum("pmi,pmi->pm", a, b) * lc
+            + np.einsum("pmi,pmi->pm", b, c) * la
+            + np.einsum("pmi,pmi->pm", c, a) * lb
+        )
+        wn[i0 : i0 + batch] = np.sum(2.0 * np.arctan2(num, den), axis=1) / (4.0 * np.pi)
+    return wn
+
+
 def _decompose_cht_shell_zones(surface: SurfaceMesh) -> List[Tuple[str, np.ndarray]]:
-    """Decompose a CHT shell assembly into solid body and internal/protruding passage zones."""
+    """Decompose a CHT shell assembly into outer solid and nested cavities/inserts via Winding Number (Blueprint §1.3, AUD-025)."""
     verts = np.asarray(surface.vertices, dtype=np.float64)
     faces = np.asarray(surface.faces, dtype=np.int64)
     if len(faces) == 0 or len(verts) == 0:
@@ -104,7 +198,24 @@ def _decompose_cht_shell_zones(surface: SurfaceMesh) -> List[Tuple[str, np.ndarr
     if len(comps) < 2:
         return [("solid_0", np.arange(len(faces), dtype=np.int64))]
 
-    solid_idx = max(range(len(comps)), key=lambda idx: len(comps[idx]))
+    # Build nesting tree via generalized winding number (never pick solid by max triangle count, AUD-025!)
+    n_c = len(comps)
+    sample_pts = np.array([verts[faces[c[0]]].mean(axis=0) for c in comps], dtype=np.float64)
+    abs_vols = [abs(_signed_shell_volume(verts, faces[c])) for c in comps]
+
+    # parent_count[j] = number of other larger shells i that enclose sample_pts[j]
+    depth = np.zeros(n_c, dtype=np.int32)
+    for i in range(n_c):
+        if len(comps[i]) < 4:
+            continue
+        w = np.abs(_generalized_winding_number(verts, faces[comps[i]], sample_pts))
+        for j in range(n_c):
+            if i != j and abs_vols[i] > abs_vols[j] and w[j] > 0.5:
+                depth[j] += 1
+
+    # Outermost largest shell (depth == 0, largest enclosed volume) is primary solid body
+    root_candidates = [i for i in range(n_c) if depth[i] == 0]
+    solid_idx = max(root_candidates, key=lambda idx: abs_vols[idx]) if root_candidates else 0
     solid_faces = comps[solid_idx]
     solid_verts = verts[np.unique(faces[solid_faces].ravel())]
     bmin = solid_verts.min(axis=0)
@@ -114,63 +225,32 @@ def _decompose_cht_shell_zones(surface: SurfaceMesh) -> List[Tuple[str, np.ndarr
     zones: List[Tuple[str, np.ndarray]] = [(f"solid_{solid_idx}", solid_faces)]
     chamber_count = 0
     duct_count = 0
+    nested_solid_count = 1
 
-    for c_idx, comp_f_idx in enumerate(comps):
-        if c_idx == solid_idx or len(comp_f_idx) < 10:
+    # Order remaining shells by nesting depth (shallowest to deepest) so deeper overrides shallower
+    other_indices = [i for i in range(n_c) if i != solid_idx]
+    other_indices.sort(key=lambda idx: (int(depth[idx]), -abs_vols[idx]))
+
+    for c_idx in other_indices:
+        comp_f_idx = comps[c_idx]
+        if len(comp_f_idx) < 4:
             continue
+        # Even nesting depth >= 2 inside primary solid: nested solid insert inside fluid cavity!
+        if depth[c_idx] >= 2 and (depth[c_idx] % 2 == 0):
+            zones.append((f"solid_insert_{nested_solid_count}", comp_f_idx))
+            nested_solid_count += 1
+            continue
+
         comp_tris = faces[comp_f_idx]
         fc = verts[comp_tris].mean(axis=1)
-        tol_vec = np.maximum(1e-3 * bspan, 1e-4)
+        tol_vec = 1e-3 * bspan
         out_bbox_mask = np.any((fc < (bmin - tol_vec)) | (fc > (bmax + tol_vec)), axis=1)
         if not np.any(out_bbox_mask):
             zones.append((f"chamber_{chamber_count}", comp_f_idx))
             chamber_count += 1
-            continue
-
-        cmin = fc.min(axis=0)
-        cmax = fc.max(axis=0)
-        cspan = np.maximum(cmax - cmin, 1e-12)
-        ofc = fc[out_bbox_mask]
-        omin = ofc.min(axis=0)
-        omax = ofc.max(axis=0)
-
-        best_margin = 0.05
-        best_cut: Optional[Tuple[int, bool, float]] = None
-        for ax in range(3):
-            low_margin = float(cmax[ax] - omax[ax]) / float(cspan[ax])
-            if low_margin > best_margin:
-                best_margin = low_margin
-                best_cut = (ax, True, float(omax[ax]) + 1e-4)
-            high_margin = float(omin[ax] - cmin[ax]) / float(cspan[ax])
-            if high_margin > best_margin:
-                best_margin = high_margin
-                best_cut = (ax, False, float(omin[ax]) - 1e-4)
-
-        if best_cut is None:
-            zones.append((f"chamber_{chamber_count}", comp_f_idx))
-            chamber_count += 1
-            continue
-
-        ax, is_low, split_coord = best_cut
-        if is_low:
-            out_mask = fc[:, ax] <= split_coord
         else:
-            out_mask = fc[:, ax] >= split_coord
-        in_mask = ~out_mask
-
-        in_comps = [c for c in _connected_face_components(faces, comp_f_idx[in_mask]) if len(c) >= 10]
-        out_comps = [c for c in _connected_face_components(faces, comp_f_idx[out_mask]) if len(c) >= 10]
-
-        if in_comps and out_comps:
-            for sc in in_comps:
-                zones.append((f"chamber_{chamber_count}", sc))
-                chamber_count += 1
-            for sc in out_comps:
-                zones.append((f"duct_{duct_count}", sc))
-                duct_count += 1
-        else:
-            zones.append((f"chamber_{chamber_count}", comp_f_idx))
-            chamber_count += 1
+            zones.append((f"duct_{duct_count}", comp_f_idx))
+            duct_count += 1
 
     return zones
 
@@ -372,32 +452,49 @@ class MeshEngine:
         surface: SurfaceMesh,
         h0: float = 0.05,
         scale: float = 1.0,
-        domain_mode: str = "external_fluid",
-        farfield_bbox: Optional[Tuple[float, float, float, float, float, float]] = None,
+        domain_mode: Optional[str] = None,
+        farfield_bbox: Optional[Union[Tuple[float, float, float, float, float, float], Tuple[Tuple[float, float, float], Tuple[float, float, float]]]] = None,
         config: Optional[MeshingConfig] = None,
     ) -> UnstructuredMesh:
         """Generate 3D 2:1 balanced adaptive Cartesian Octree and Mosaic Poly-Hexcore mesh."""
+        valid_modes = {"external_fluid", "internal_fluid", "solid_only", "cht_coupled"}
+        if domain_mode is not None and domain_mode not in valid_modes:
+            raise ValueError(f"Unsupported domain_mode {domain_mode!r}; expected one of {sorted(valid_modes)}")
+
         active_cfg = (
             config
             if config is not None
-            else (self.config if self.config is not None else MeshingConfig(domain_mode=domain_mode))
+            else (
+                self.config
+                if self.config is not None
+                else MeshingConfig(domain_mode=domain_mode or "external_fluid")
+            )
         )
+        # Explicit domain_mode argument ALWAYS wins over config default (AUD-008)
+        effective_domain_mode = domain_mode if domain_mode is not None else active_cfg.domain_mode
+        if effective_domain_mode not in valid_modes:
+            raise ValueError(
+                f"Unsupported config.domain_mode {effective_domain_mode!r}; expected one of {sorted(valid_modes)}"
+            )
+
         scaled_surf = SurfaceMesh(
             vertices=surface.vertices * scale,
             faces=surface.faces.copy(),
             normals=surface.normals.copy() if surface.normals is not None else None,
             patches=dict(surface.patches) if surface.patches else {},
         )
-        effective_domain_mode = active_cfg.domain_mode if active_cfg.domain_mode else domain_mode
         if effective_domain_mode == "external_fluid" and farfield_bbox is None:
-            padding = active_cfg.farfield_padding if active_cfg.farfield_padding is not None else FarfieldPadding()
             bmin = np.min(scaled_surf.vertices, axis=0)
             bmax = np.max(scaled_surf.vertices, axis=0)
             ff_min, ff_max = self._compute_farfield_bounds(bmin, bmax, active_cfg)
+            # Canonical C-ABI layout: (xmin, ymin, zmin, xmax, ymax, zmax) (AUD-003)
             farfield_bbox = (
-                float(ff_min[0]), float(ff_max[0]),
-                float(ff_min[1]), float(ff_max[1]),
-                float(ff_min[2]), float(ff_max[2]),
+                float(ff_min[0]),
+                float(ff_min[1]),
+                float(ff_min[2]),
+                float(ff_max[0]),
+                float(ff_max[1]),
+                float(ff_max[2]),
             )
         is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
         if self.use_native and self.has_native_core and len(scaled_surf.faces) > 0:
@@ -407,32 +504,40 @@ class MeshEngine:
                     if len(cht_zones) >= 2:
                         solid_cfg = copy.copy(active_cfg)
                         solid_cfg.rcm_reorder = False
+                        # Mesh union of outer solid + protruding ducts so all CHT zones exist in volume
+                        outer_faces = np.concatenate(
+                            [
+                                z_f
+                                for z_name, z_f in cht_zones
+                                if z_name.startswith("solid_0")
+                                or (z_name.startswith("solid_") and not z_name.startswith("solid_insert_"))
+                                or z_name.startswith("duct_")
+                            ]
+                        )
                         native_mesh = generate_hexcore_native(
                             surf_points=scaled_surf.vertices,
-                            surf_faces=scaled_surf.faces,
+                            surf_faces=scaled_surf.faces[outer_faces],
                             h0=h0,
                             domain_mode="solid_only",
                             farfield_bbox=farfield_bbox,
                             config=solid_cfg,
                         )
-                        from scipy.spatial import cKDTree
-
                         verts_arr = np.asarray(scaled_surf.vertices, dtype=np.float64)
-                        faces_arr = np.asarray(scaled_surf.faces, dtype=np.int64)
-                        tri_centres_list = []
-                        tri_region_list = []
-                        for reg_id, (_z_name, z_f_idx) in enumerate(cht_zones):
-                            if len(z_f_idx) == 0:
-                                continue
-                            z_fc = verts_arr[faces_arr[z_f_idx]].mean(axis=1)
-                            tri_centres_list.append(z_fc)
-                            tri_region_list.append(np.full(len(z_fc), reg_id, dtype=np.int32))
-                        if native_mesh.num_cells > 0 and tri_centres_list:
-                            all_tri_centres = np.vstack(tri_centres_list)
-                            all_tri_regions = np.concatenate(tri_region_list)
-                            tree = cKDTree(all_tri_centres)
-                            _, nn_idx = tree.query(native_mesh.cell_centres)
-                            native_mesh.cell_regions = all_tri_regions[nn_idx].astype(np.int32)
+                        faces_arr = np.asarray(scaled_surf.faces, dtype=np.int32)
+                        if native_mesh.num_cells > 0:
+                            # Assign regions via generalized winding number per nested shell (AUD-004, Blueprint §1.3)
+                            regions = np.zeros(native_mesh.num_cells, dtype=np.int32)
+                            for reg_id in range(1, len(cht_zones)):
+                                _z_name, z_f_idx = cht_zones[reg_id]
+                                if len(z_f_idx) < 4:
+                                    continue
+                                wn = np.abs(
+                                    _generalized_winding_number(
+                                        verts_arr, faces_arr[z_f_idx], native_mesh.cell_centres
+                                    )
+                                )
+                                regions[wn > 0.5] = reg_id
+                            native_mesh.cell_regions = regions
                         zone_names = [z_name for z_name, _ in cht_zones]
                         native_mesh.metadata["cht_zone_names"] = zone_names
                         out_mesh = extract_cht_twin_faces(native_mesh)

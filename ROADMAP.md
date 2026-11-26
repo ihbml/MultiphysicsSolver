@@ -1,6 +1,7 @@
-# CFDSolver Platform — Master Roadmap
-> **Strategische Ausrichtung:** Aufbau eines **eigenständigen, In-Memory Multiphysics- und Optimierungs-Solvers** (C++ / Modern Fortran / Rust), bei dem OpenFOAM als mathematische Orientierung & Validierungs-Referenz dient.  
-> **Architektur-Vorgabe:** Siehe **[ARCHITECTURE.md](ARCHITECTURE.md)** & **[literature_survey_2026.md](resources/papers/literature_survey_2026.md)**.
+# CFDSolver / MultiphysicsSolver Platform — Master Roadmap
+
+> **Strategische Ausrichtung:** Aufbau eines **eigenständigen, hochskalierenden In-Memory Multiphysics-, Vernetzungs- und Optimierungs-Stacks** (**C++20 / CUDA** für Mesher, gekoppelte FVM- & SPH-FVM-Kerne, **Rust** für `.mphys`-Zero-Copy-I/O, SPMC-Streaming & `wgpu + egui`-Cockpit, **Python** für Orchestrierung, CAD-Pipeline & Plugin-Specs), bei dem OpenFOAM als mathematische Orientierung & Drop-in-Validierungsreferenz dient.  
+> **Normative Dokumente:** **[`AGENTS.md`](AGENTS.md)** · **[`INVARIANTS.md`](INVARIANTS.md)** · **[`CONTRACTS.md`](CONTRACTS.md)** · **[`ARCHITECTURE.md`](ARCHITECTURE.md)** · **[`SUGGESTIONS_BACKEND.md`](SUGGESTIONS_BACKEND.md)** · **[`literature_survey_2026.md`](resources/papers/literature_survey_2026.md)** · **[`docs/BLUEPRINT_AND_AUDIT_SUMMARY.md`](docs/BLUEPRINT_AND_AUDIT_SUMMARY.md)**
 
 ---
 
@@ -8,97 +9,119 @@
 
 ```mermaid
 flowchart LR
-    P1["Phase 1: Fundament & CAD Engine<br/>(Wochen 1–3)"] --> P2["Phase 2: Graph-FVM & SPH-FVM HPC-Kern<br/>(C++ / Fortran / Rust, Wochen 4–6)"]
-    P2 --> P3["Phase 3: Die 12 Physik-Module & Cockpit<br/>(Wochen 7–9)"]
-    P3 --> P4["Phase 4: Optimierung (SIMP, FOSM, Adjoint, PSO)<br/>& ASME V&V (Wochen 10–12)"]
-    P4 --> P5["Phase 5 (Future Horizon): Quantum-Ready CFD<br/>(Willow / Majorana / Nighthawk)"]
+    P1["Phase 1: Fundament, CAD &<br/>Prototyp-Kern (Erledigt)"] --> P20["Phase 2.0: Architektur-Härtung,<br/>Pass-Pipeline & High-Scale Mesher<br/>(Sprints 1–3, AKTUELL)"]
+    P20 --> P25["Phase 2.5: Dual-Mode Coupled/PISO<br/>C++20/CUDA Solver & .mphys Streaming"]
+    P25 --> P3["Phase 3: Die 13 Physik-Module &<br/>Natives Rust wgpu/egui Cockpit"]
+    P3 --> P4["Phase 4: Hybrider Enzyme/NURBS-Adjoint,<br/>SIMP/FOSM TopOpt & ASME V&V 20"]
+    P4 --> P5["Phase 5 (Future Horizon): MPI-Cluster<br/>(100M+ Zellen) & Quantum-Ready CFD"]
 ```
 
 ---
 
-## Phase 1: Fundament, CAD-Ingestion & Architektur-Leitplanken (Wochen 1–3)
+## Phase 1: Fundament, CAD-Ingestion & Literatur-/Spickzettel-Synthese (Abgeschlossen)
 
 * [x] **WSL2 & OpenFOAM-Referenzbasis (`OpenFOAM_base/openfoam`):**
-  * Sauberes Klonen der OpenFOAM-Quellen als mathematisches Nachschlagewerk („Spickzettel“) und Benchmark-Referenz.
+  * Lokale Referenzquellen für FVM-Operatoren, Randbedingungen und `checkMesh`-Kreuzvalidierung.
 * [x] **CAD & Geometry Ingestion Engine (`backend/geometry/`):**
-  * Unterstützung für ISO STEP (AP203/214/242), Binary/ASCII STL, Wavefront OBJ und native Siemens NX `.prt`-Dateien.
-  * Vollständiger Topologie- und Qualitäts-Auditor (2-Manifold, Euler $\chi=2$, Normalen, 10/10 `surfaceCheck`-Kriterien; 272/272 CAD-Geometrie- & Topologie-Unit-Tests bestanden).
-* [x] **Architektur-, Sprach- & Literatur-Vertrag (`ARCHITECTURE.md` & `resources/papers/`):**
-  * Festlegung auf **Google C++ Style Guide** (Graph-FVM & SoA-Datenstrukturen), **Modern Fortran** (`iso_c_binding` Rechenkerne) und **Rust** (In-Memory-Pool, I/O & Network).
-  * Integration der 7 Schlüsselpublikationen zu Graph-FVM (*DiFVM*), Eulerian/Adaptive SPH-FVM (*Wang et al.*, *Zhang et al.*), Thermo-Fluid SIMP (*Chimisso*), Robust FOSM Optimization (*Kranz et al.*), Level-Set (*James & Martins*) und MIGA/Simplex (*Tan et al.*).
-* [ ] **Frontend Grundgerüst (`frontend/cockpit/`):**
-  * Trame + PyVista 3D-Viewport (WebGL 60 FPS) mit CAD-Import, Gitter-Vorschau und Fluent-Style „Models Panel“.
+  * Unterstützung für ISO-10303 STEP (AP203/214/242 via Gmsh/OCCT & B-Rep-Parser), Binary/ASCII STL, Wavefront OBJ und Siemens NX `.prt`.
+  * Vollständiger Oberflächen- & Topologie-Auditor (Wasserdichtheit, 2-Manifold, Euler-Charakteristik, Normalenorientierung) sowie Ganzdatei-Einheitenerkennung (`mm`, `cm`, `m`, `in`) mit `OCCTargetUnit`-Kopplung und Dreiecksbudget-Guard (`AUD-005`).
+* [x] **Wissenschaftliches & Algorithmisches Fundament ([`literature_survey_2026.md`](resources/papers/literature_survey_2026.md) & [`INDEX.md`](resources/reference_spickzettel/INDEX.md)):**
+  * Vollständige mathematische Auswertung von 23 Spezialkapiteln + struktur-erhaltenden Operatoren (*DiFVM*, *VoroCrust*, *Mosaic/PUMA*, *fTetWild*, *WSRD*, *Stromberg 23 Super-Elements*, *Mangani/Darwish $4\times 4$ MRF-Coupled*, *El Ouafa Two-Phase PCD*, *Klaij-Vuik Krylov/AL-SIMPLE*, *CPR*, *Yu/Müller STEP-NURBS-Adjoint*, *OPMIS SPH-FVM*, *Mimetischer Hodge-Stern* & *Port-Hamiltonsche Kopplung*) inkl. 30 kuratierter C++20/CUDA/Rust Gold-Snippets.
+* [x] **Erster nativer C++20/OpenMP Octree-Hexcore & DiFVM-Prototyp (`backend/meshing/native/`):**
+  * Grundlegende SoA-Topologie, Gauss-Schluss auf Maschinenpräzision ($\le 10^{-15}$), LDU-Ordnung, `MeshErrorMap`-Felder und `constant/polyMesh`-Export.
 
 ---
 
-## Phase 2: Eigenständiger In-Memory Graph-FVM, Next-Gen Mesher & SPH-FVM HPC-Kern (Wochen 4–6)
+## Phase 2.0: Architektur-Härtung, Pass-Pipeline & High-Scale Mesher Blueprint (Sprints 1–3 — Fokus Jetzt)
 
-* [ ] **Produktionsreifer In-Memory Mesher, Poly-Hexcore & `polyMesh`-Cross-Validation (`backend/meshing/`):**
-  * Vollständige Sanierung der Audit-Befunde (`K1`–`K8`, `Bug A`–`Bug F`, `H1`–`H11` gemäß [`SUGGESTIONS_BACKEND.md`](SUGGESTIONS_BACKEND.md)): explizite `faces`-Konnektivität + `constant/polyMesh`-Exporter für `checkMesh`-Kreuzvalidierung, echte 3D-Fluidgebiets-Extraktion (`external_fluid` Farfield-Box & `internal_fluid` Floodfill), B-Rep Patch-Vererbung, Generalized Winding Numbers / Pseudonormalen-SDF (`libigl`/`fTetWild`), kollisionsfreie Medial-Axis-Grenzschichtextrusion mit Kernnetz-Stitching sowie Hilbert/Morton Space-Filling-Curve-Ordering.
-  * Ausbau zu **Mosaic-artigem Poly-Hexcore / VoroCrust** (Octree-Hexaeder-Kern + Poly-Prismen-Wand + konvexe Polyeder-Übergangsschicht / Small-Cut-Cell Merging & WSRD), **polykonvexer Neo-Hooke-ALE** und gekoppeltem **2D-`faMesh`-Submesh** für Wandfilme.
-* [ ] **C++ Unstructured Graph-FVM Backbone & `MeshErrorMap` (`backend/native_cpp/`):**
-  * Statische *Structure of Arrays (SoA)* Graph-Repräsentation nach *DiFVM* ([`Meshing_FVM_DiFVM_2603.15920v1.pdf`](resources/papers/Meshing_FVM_DiFVM_2603.15920v1.pdf)): `owner`, `neighbour`, Flächenvektoren $\mathbf{S}_f$, orthogonale Zerlegung $\boldsymbol{\Delta}_f$, nicht-orthogonale Korrektur $\mathbf{k}_f$, Volumina $V_i$ und Zell-Designfeld $\gamma_i \in [0, 1]$.
-  * **Vorberechnete Geometrische Fehlerkompensations- & Stabilisierungs-Map (`MeshErrorMap` nach dem CMS-Prinzip):** Einmalig im Mesher erzeugte Qualitäts- & Kompensationsfelder (Skewness-Versatzvektor $\mathbf{m}_f^{\text{skew}}$, gedeckeltes $\mathbf{k}_f^{\text{comp}}$, verzweigungsfreies Upwind-Blending $\beta_f \in [0, 1]$ und zellweise Diagonal-Stabilisierung $\omega_i \in (0, 1]$ für Multiphysics/Adjoint).
-  * Zweischrittige, 100 % vektorisierte **Gather-Compute-Scatter**-Operatoren für Konvektion (*Deferred Correction* SOU/QUICK), Diffusion (*Over-Relaxed Correction*), Rhie-Chow-Interpolation und 3-Layer PISO-Projektion.
-* [ ] **Adaptive SPH-FVM Hybrid-Kopplung (`backend/native_cpp/sph_fvm/`):**
-  * Konsistenter Eulerian-SPH Randalgorithmus (Nullte-Ordnung-Konsistenz $\mathbf{A}_{iS}^{ESPH} = -\sum_P V_P \nabla W_{iP}$ nach *Wang et al.* [`MeshingFVM_SPH_2312.03542v1.pdf`](resources/papers/MeshingFVM_SPH_2312.03542v1.pdf)).
-  * Mitwandernde SPH-Partikelzone ($P_{com}, P_{trn}, P_{imt}$) mit **OPMIS-Interpolation** (Renormierungsmatrix $\mathbf{B}_i$ nach *Zhang et al.* [`MeshingPaperBubble1-s2.0-S030193222500134X-main.pdf`](resources/papers/MeshingPaperBubble1-s2.0-S030193222500134X-main.pdf)) für heftige Mehrphasen-Grenzflächen.
-* [ ] **Modern Fortran Numerik- & Gleichungskerne (`backend/native_fortran/`):**
-  * Implementierung der vektorisierten FVM- & HLLC-Riemann-Flüsse (inkl. Limiter $\beta_{HLLC}$), Gauss-Green-Gradienten und linearen Gleichungslöser (PCG, BiCGStab, GMRES mit ILU/AMG) via `iso_c_binding` in striktem `FP64` (Standard-CPU-Baseline).
-  * Vektorisierte Kinetik-, Thermophysik- und analytische Jacobi-Matrix-Kerne (`!$omp simd` / `do concurrent`).
-* [ ] **Optionales Precision-Tier Add-on, Auto-Tuner & Dynamic Redistributing:**
-  * **System-Check & Auto-Tuner (`hardware_profile.json`):** Automatische Erkennung von Befehlssatz (x86 AVX2/AVX-512, ARM64 NEON/SVE, RISC-V RVV), L1/L2/L3-Cachegrößen, P-/E-Core-Topologie, Hersteller-Mathe-Backends (Intel oneMKL, AMD AOCL/ROCm, NVIDIA AmgX) und Präzisionsklassen (`FP64`-Basis + optionaler `FP16`/`BF16`-Initialisierer).
-  * **Automatisches Redistributing (`DynamicRedistributor`):** Echtzeit-Messung des Imbalance-Faktors ($I = \max(t_p)/\overline{t}_p$) mit sofortigem Lock-Free Work-Stealing (für steife Chemie/SPH/DPM) und **Zero-Copy Partitionsgrenzen-Verschiebung** entlang der Space-Filling Curve ohne RAM-Umkopieren.
-* [ ] **Rust High-Speed I/O, Drop-In OpenFOAM Interface & Streaming (`backend/native_rust/`):**
-  * Memory-Mapped Mesh- & Feld-Loader (`memmap2` + `rayon`) inkl. **Drop-in OpenFOAM Case Reader** (`constant/polyMesh/`, `0/`) und VTK-Schnittstelle.
-  * Live-Binär-Streaming der Felder und Residuen aus dem RAM direkt an das Trame-Cockpit.
-* [ ] **Dreikampf-Benchmark (C++ vs. Fortran vs. OpenFOAM):**
-  * Messung der Durchsatzrate (Millionen Zellen/Sekunde) und Nachweis des Zero-Copy FFI-Vorteils.
+*(Gemäß [`SUGGESTIONS_BACKEND.md` §16](SUGGESTIONS_BACKEND.md) und [`docs/BLUEPRINT_AND_AUDIT_SUMMARY.md`](docs/BLUEPRINT_AND_AUDIT_SUMMARY.md))*
 
----
+### Sprint 1 — C-ABI-Vertrag, Agent-DX Guardrails & Kritische P0-Blocker
+* [x] **Normatives Agent- & Verifikations-Kit:** [`AGENTS.md`](AGENTS.md), [`INVARIANTS.md`](INVARIANTS.md), [`CONTRACTS.md`](CONTRACTS.md), Suchfilter [`.ignore`](.ignore), Zeilenenden-/Binärregeln [`.gitattributes`](.gitattributes), unabhängiges FVM-Invarianten-Orakel + `mesh_fingerprint` ([`backend/meshing/invariants.py`](backend/meshing/invariants.py)) und Build/Verify-CLI ([`tools/dev.py`](tools/dev.py)).
+* [x] **Single-Source C-ABI Schema & Laufzeit-Layout-Handshake (`Blueprint §3.1`, `AUD-037`):** [`abi/cfd_abi.toml`](abi/cfd_abi.toml) + [`tools/abi_gen.py`](tools/abi_gen.py) + `cfd_abi_layout_json()` / `cfd_mesher_last_error()` prüfen `abi_version`, `sizeof` und alle Feld-Offsets beim Laden der DLL.
+* [x] **Kritische P0-Sofortfixes (`7/7` L0-Regressionstests grün in [`tests/test_sprint1_audit_and_invariants.py`](tests/test_sprint1_audit_and_invariants.py)):**
+  * `AUD-001` & `AUD-032`: Use-after-move der Rand-Patchnamen behoben (`inlet`, `outlet`, `sides`, `top`, `bottom`, `wall` vollständig erhalten).
+  * `AUD-003`: Eindeutiges `farfield_bbox`-Layout `[xmin, ymin, zmin, xmax, ymax, zmax]` ohne Rate-Heuristik.
+  * `AUD-004`, `AUD-014` & `AUD-025`: CHT-Zonenverschachtelung und Zell-Regionszuordnung über **Generalized Winding Number** statt `cKDTree`; `coupledWall_solid` / `coupledWall_fluid` korrekt zugeordnet.
+  * `AUD-005`, `AUD-007`, `AUD-008`, `AUD-015`, `AUD-039`: STEP-Einheiten > 64 kB + Gmsh-Dreiecksbudget, C-ABI Bounds-/NaN-Validierung gegen SEGV/OOB, expliziter `domain_mode`-Vorrang und OpenFOAM-kompatibles Binärformat (`arch` + `<N>\n(`).
+* [x] **Test-Hygiene & Asset-Entkopplung (`AUD-026`, `Blueprint §3.2`):** Entfernen sämtlicher manueller `mesh.boundaries`-Überschreibungen in E2E-Tests, sauberes `pytest.skip` bei fehlenden externen Groß-Assets (`CFD_EXTERNAL_ASSETS`), CAD-Tessellierungs-Plattencache (`.cache/cad/*.npz`) und harte Zeit-/RAM-Budgets je Testebene (`L0`–`L4`).
 
-## Phase 3: Ausbau der 12 Multiphysik-Module & 3D-Cockpit (Wochen 7–9)
+### Sprint 2 — Pass-Zerlegung, $\mathcal{O}(h^2)$ Cut-Cell/Snapping & `< 600 B/Zelle` Skalierung (`scale_5m`)
+* [ ] **Bit-identische Monolith-Zerlegung in `HexcoreState`- / `MeshPass`-Module (`Blueprint §2.1`):**
+  * Aufteilen von `octree_hexcore.cpp` (2.458 Z.), `difvm_topology.py` (2.932 Z.), `geometry_sdf.py` (2.439 Z.) und `mesh_engine.py` (1.833 Z.) in fokussierte Pass-Module (< 600 Zeilen), abgesichert über `mesh_fingerprint` und `1 Thread == 16 Threads`-Determinismus (`I-10`).
+* [ ] **Wand-Snapping-Sanierung & QEF Dual-Contouring Cut-Cells (`AUD-002`, `Blueprint §1.2.3`):**
+  * Beseitigung der $\varphi \ge -0{,}15\,\text{diag}$-Überaktivierung und des 8-Ecken-Domino-Rollbacks durch simultanes Snapping mit lokaler Einzelknoten-Relaxation auf `wall_incident_cells` ($\mathcal{O}(n_{\text{wall}})$) sowie Ebenen-Clipping + QEF-Vertexplatzierung an scharfen Kanten ($\mathcal{O}(h^2)$ Konvergenz von Wandfläche und Volumen).
+* [ ] **Speicher- & Parallelisierungs-Umbau (`AUD-006`, `AUD-017`–`019`, `Blueprint §1.4.3`):**
+  * Ersatz von `RawQuad`/`MosaicFace` (mit `std::string`/Heap-Vektoren) durch flache SoA-Arrays, ganzzahlige Lattice-Vertex-Besitzregel ohne Hash-Map, OpenMP-Exception-Safety, CSR-basiertes `UnstructuredMesh` + `MeshHandle` ohne Python-Listen und kalibrierter RAM-Guard (Ziel: **$\le 600\text{ B/Zelle}$**, Speedup $\ge 5\times$ bei 8 Threads auf 5M Zellen).
+* [ ] **Skalen- & Translationsinvarianz + OpenFOAM-Laufzeit-Gate (`AUD-009`, `AUD-010`, `AUD-016`, `AUD-022`, `AUD-029`, `AUD-031`):**
+  * Relative `h_min`/`h_max`-Skalierung, Rechnung relativ zum lokalen Domain-Ursprung ($\pm 10^6\text{ m}$-Invarianz), Kanten-basiertes Aspect Ratio, `strict_native=True` als Standard und geprüfte, direkt in OpenFOAM (`checkMesh` + 2 Solver-Iterationen) startfähige Case-Templates inkl. `split_regions` für `chtMultiRegionFoam`.
 
-*(Mathematische Gleichungen adaptiert aus `OpenFOAM_base` und [`literature_survey_2026.md`](resources/papers/literature_survey_2026.md), implementiert als saubere C++/Fortran-Module)*
-
-* [ ] **Cluster A — Thermal, Flow & Reactions:**
-  * **Energy & CHT:** Sensible/totale Enthalpie, gekoppelte Fluid-Festkörper-Wärmeleitung.
-  * **Viscous & Turbulence:** Laminar, RANS ($k-\omega$ SST, Spalart-Allmaras), LES (WALE).
-  * **Species & Chemistry:** Allgemeine Mehrspezies-Reaktionskinetik (Arrhenius / Cantera-kompatibel) & heterogene Wandkatalyse.
-  * **Radiation & Porous Media:** Diskrete Ordinaten (`fvDOM`), P1, Darcy-Forchheimer.
-* [ ] **Cluster B — Multiphase, Particles & Films:**
-  * **Multiphase:** Volume of Fluid (VOF), Euler-Euler Zweiphasenströmung, Kavitation & **Adaptive SPH-FVM Blasen-/Strahldynamik (OPMIS)**.
-  * **Discrete Phase (DPM):** Lagrange-Partikeltracking, Spray-Breakup, Bai-Gosman Wandkollision.
-  * **Eulerian Wall Film (EWF):** 2D-Wandfilmdynamik, Verdampfung & Kondensation.
-* [ ] **Cluster C — Advanced Multi-Physics:**
-  * **Acoustics:** Ffowcs Williams-Hawkings (FWH) & Curle Schallquellen.
-  * **Ablation & TPS:** Reaktive Wandabtragung & Pyrolyse.
-  * **Battery Thermal:** Elektrochemisch-thermisches 2-RC Equivalent Circuit Model & Thermal Runaway.
-  * **Magnetohydrodynamics (MHD):** Lorentz-Kraft ($\mathbf{J} \times \mathbf{B}$) & induzierte Felder.
+### Sprint 3 — Konforme Strategie-C Grenzschicht, `FeatureGraph`, Linearer Morton-Octree & Plugin-System
+* [ ] **Skalenbewusster `FeatureGraph` & Weingarten-Krümmung (`Blueprint §1.2.1–1.2.2`, `AUD-033`):**
+  * Gefensterter Normalensprung $\Theta_w(e)$ ($w = 2h_{\min}$), analytische B-Rep-Krümmung (STEP) bzw. Cazals/Pouget Weingarten-Jet-Fit innerhalb glatter `smooth_patch`-Gebiete sowie echtes Krümmungs- und Medial-Axis-Proximity-Größenfeld.
+* [ ] **Konforme 3D-Grenzschicht nach Strategie C (`Blueprint §1.1`, `AUD-011`–`013`):**
+  * `BLPrep` ($t_{\text{reach}}$, Lipschitz-geglättetes $\delta$), Offset-Schnitt auf $\psi = \varphi - \delta$, Cap-Schleifen-Vervollständigung, wandwärts extrudierte `StrandSet`-Stapel mit `bl_scale`-Feld, **stetiger quadratischer Prismen-Jacobi-Schranke** $\min_{t\in[0,1]}(At^2+Bt+C)$ (`Snippet 25`) und Hinterkanten-Keilregel; dazu gekoppeltes **2D-`faMesh`** mit exakten Dreiecks-Abwicklungs-Geodäten.
+* [ ] **Topologisches `ZoneDetect` mit Strahl-Blockierung & Baffles (`Blueprint §1.3`):**
+  * BVH-Segmenttest $\mathbf{c}_i \to \mathbf{c}_j$ sperrt Leckpfade durch dünne Wände ($< h_0$); wahlweise automatische Spaltverfeinerung oder thermisches Baffle ($R_{\text{th}} = \tau/\lambda$).
+* [ ] **16-Byte Linearer Morton-Octree, `regular_faces`/`general_faces`-Split & Deklarative `ModuleSpec`-Plugins (`Blueprint §1.4.1–1.4.2`, `§2.2`, `AUD-036`, `AUD-038`):**
+  * Direktes `mmap`-Schreiben von 65.536er `.mphys`-Chunks, Unterprozess-Isolation im IPC-Service (echtes Cancel + RAM-Limit) und generische `Registry[T]` (`cfdsolver.physics_modules`, `boundary_conditions`, `material_laws`).
 
 ---
 
-## Phase 4: Optimierungs-Engine (SIMP, Level-Set, FOSM, Adjoint, PSO) & ASME V&V 20 (Wochen 10–12)
+## Phase 2.5: Dual-Mode Matrix-Free / Block-Coupled C++20/CUDA Solver & `.mphys` Streaming
 
-* [ ] **SIMP / RAMP & Level-Set Thermo-Fluid Topologieoptimierung (`backend/optimization/simp/`):**
-  * Kontinuierliches Designfeld $\gamma_i \in [0, 1]$ mit Helmholtz-Filterung ($\tilde{\gamma}_i$), Heaviside-Projektion ($\bar{\gamma}_i$), Brinkman-Bestrafung $-\alpha(\bar{\gamma}_i)\mathbf{u}$ und RAMP-Interpolation $\lambda(\bar{\gamma}_i)$ (nach *Chimisso* & *Kranz et al.*).
-  * **Level-Set-Konturschärfung** via Jacobi-transformierter Hamilton-Jacobi-Gleichung ($\frac{\partial_T \psi}{\partial t} + V_T |\nabla_T \psi| = 0$) und Fast-Sweeping Eikonal-Reinitialisierung (nach *James & Martins*).
-  * **Kreisselmeier-Steinhauser (KS) Aggregation** ($q^{KS}$) für glatt differenzierbare Maximal-Temperatur- und Maximal-Spannungs-Ziele.
-* [ ] **Impliziter Adjoint, Binomial Checkpointing & FOSM Robust Optimization (`backend/optimization/gradient/`):**
-  * Exakter Druck-Poisson-Adjoint über das **Implicit Function Theorem** ($\left(\frac{\partial \mathcal{F}}{\partial p^*}\right)^T \boldsymbol{\lambda}_p = \left(\frac{\partial \mathcal{L}}{\partial p^*}\right)^T$) und **Binomial Gradient Checkpointing** ($\mathcal{O}(\sqrt{n_{\text{steps}}})$ RAM) für Gradient Descent, L-BFGS und MMA.
-  * **Generalisierte FOSM-Methode (First-Order Second-Moment)** für robuste Topologieoptimierung unter Unsicherheiten ($\Phi_g = \mu_g + \kappa \sigma_g$) mit maximal 2–3 zusätzlichen Adjoint-Lösungen statt tausender Monte-Carlo-Samples.
-* [ ] **Zweistufige Globale + Lokale Suche mit Warm-Start (`backend/optimization/swarm/`):**
-  * Globale Exploration via **PSO (Particle Swarm)** und **MIGA (Multi-Island Genetic Algorithm)**, gekoppelt mit schneller lokaler Verfeinerung via **Downhill Simplex (Nelder-Mead)** / **L-BFGS** und In-Memory Warm-Start.
-* [ ] **ASME V&V 20 Kreuzvalidierung gegen OpenFOAM:**
-  * 3-Gitter-Richardson-Extrapolation ($GCI$) und direkter Genauigkeits- & Geschwindigkeitsvergleich gegen `OpenFOAM_base` (mittels Drop-in Case-Kompatibilität).
+*(Gemäß [`literature_survey_2026.md` §9.18–9.23, Kap. 10](resources/papers/literature_survey_2026.md) und [`SUGGESTIONS_BACKEND.md` §13–15](SUGGESTIONS_BACKEND.md))*
+
+* [ ] **Primärer Standard — Matrix-Free / Block-Coupled Newton-Krylov Solver (`backend/solver/native/`):**
+  * **Enzyme Forward-AD JFNK (`FGMRES` / `BiCGStab(2)`):** Matrixfreies $\mathcal{J}\mathbf{v} = \frac{\partial\mathbf{R}}{\partial\mathbf{U}}\mathbf{v}$ in $\mathcal{O}(N)$ VRAM (50–65 % weniger Speicher als voll assembliertes `Block-CSR`) mit unterrelaxations- und zeitschritt-konsistentem Rhie-Chow (*Moukalled, Mangani & Darwish*, `Snippet 30`).
+  * **Modulare Rechts-Vorkonditionierer $\mathcal{P}^{-1}$:**
+    1. *Krylov-SIMPLE & Augmented-Lagrangian (`AL-SIMPLE`, Klaij & Vuik):* Beseitigt Gitter- und $1000:1$-Grenzschicht-Stagnation.
+    2. *$4\times 4$ MRF/AMI Block-Coupled & Two-Phase `PCD` (*Mangani/Darwish* & *El Ouafa*, `Snippets 21–22`):* Für Turbomaschinen und Dichte-/Viskositätssprünge bis $10^6$.
+    3. *$5\times 5$ Pressure-Based All-Mach Block $(u,v,w,p,T)$:* Nahtlos von $\text{Ma} = 10^{-4}$ bis Überschall & Kavitation.
+    4. *Zweistufiger `CPR` (Constrained Pressure Residual, `Snippet 30`):* 1 skalarer Druck-AMG-V-Zyklus + 1 zelllokaler GPU-Block-Jacobi/BILU(0)-Sweep für steife Mehrspezies-Chemie ($M = 10\text{–}50$ DOFs/Zelle).
+* [ ] **Leichtgewichts-Modus — Transientes Segregiertes PISO / Fractional-Step ($\text{CFL} \le 1$):**
+  * Mit Multi-Pass Rhie-Chow Re-Evaluation (`Snippet 15`), Kinetische-Energie-erhaltender (KEP) Konvektion und `GCRO-DR` Krylov-Subraum-Deflation für WALE-LES, FWH-Akustik und OPMIS SPH-FVM.
+* [ ] **Mixed-Precision AMG (`FP32` innen / `FP64` außen) + Spektrale Graph-Sparsifikation & `AA(m)`:**
+  * Normierte Defekt-Skalierung gegen `FP32`-Underflow, Operator-Complexity $\sigma_{\text{op}} \le 1{,}35$ auf Polyedergittern und Anderson Acceleration `AA(5)` (`Snippet 24`).
+* [ ] **Rust High-Speed I/O (`foam_fast_io` mit `catch_unwind` & `i64`-Parität, `AUD-034`) + `CFDFLD03` In-Situ SPMC-Ring (`SUGGESTIONS_BACKEND.md` §13.3):**
+  * Lock-freier Shared-Memory Triple-Buffer (Seqlock + Refcount) und 5 native In-Situ-Extraktoren (Polyeder-Slicer, Cardano-$\lambda_2$/$Q$, $\mathcal{O}(1)$ Face-Exit-Streamlines, 3-Ring-WSS, Echtzeit-Randintegrale) für 60–120 FPS ohne Disk-I/O.
 
 ---
 
-## Phase 5 (Future Horizon): Quantum-Ready CFD & QPU Co-Processing (Willow / Majorana / Nighthawk)
+## Phase 3: Die 13 Multiphysik-Module & Natives Rust `wgpu + egui` CAE-Cockpit
 
-* [ ] **Quantum-Ready Linear Solver Bridge (`LinearSolverBackend::QuantumVQLS_HHL`):**
-  * Block-Encoding-Export des symmetrischen FVM-Graph-Laplacians ($\mathbf{A}\mathbf{p} = \mathbf{b}$) für **Variational Quantum Linear Solvers (VQLS)** und **HHL** auf fehlertoleranten Surface-Code-QPUs (*Google Willow & Nachfolger*).
-* [ ] **QUBO / QAOA Binary Topology & VQE Kinetics (`TopologyOptimizer::QuantumQUBO_QAOA`):**
-  * Formulierung diskreter $0/1$-Topologieoptimierungen als **QUBO** ($\min_{\boldsymbol{\gamma} \in \{0,1\}^N} \boldsymbol{\gamma}^T \mathbf{Q} \boldsymbol{\gamma}$) für **QAOA** sowie **VQE**-Anbindung für quantenchemische Aktivierungsbarrieren ($E_a$) auf hybriden Supraleiter-QPUs (*IBM Nighthawk / Heron*).
-* [ ] **Madelung-Fluss & Quantum Lattice Boltzmann (`backend/physics_modules/quantum_fluid/`):**
-  * Experimentelles Forschungsmodul für die **Madelung-Transformation / Hydrodynamic Schrödinger Equation** ($\psi = \sqrt{\rho}\,e^{iS/\hbar}$) und **Quantum Lattice Boltzmann (QLBM)** / Carleman-Linearisierung im Hinblick auf skalierbare topologische QPUs (*Microsoft Majorana 1*).
+*(Deklarativ spezifiziert über `ModuleSpec` + Port-Hamiltonsche Dirac-Leistungs-Ports $(e_\alpha, f_\alpha)$ mit $\dim(e\cdot f) = [\text{W}]$, `Snippet 23`)*
+
+* [ ] **Cluster A — Thermal, Turbulence, Porous, Radiation & Reacting Flows (`Snippets 16, 24, 29`):**
+  * **Turbulence & All-$y^+$ Walls:** $k\text{-}\omega$ SST (Patankar-positiv), `SA-noft2`, WALE-LES ($\operatorname{tr}(\mathbf{g}^2)$), Spalding-Newton-$u_\tau$ & Jayatilleke-$P(Pr,Pr_t)$ inkl. Krümmungskorrektur (CCBC).
+  * **Multi-Region CHT:** Monolithische harmonische Grenzflächenkopplung + 3-Schritt Aitken-$\Delta^2$ Robin-Robin-Kopplung.
+  * **Species & Stiff Chemistry:** AoT Sparse-Chemie-Codegen (`generate_mechanism.py` mit strikter Massenerhaltung $\sum_i W_i\nu_{ir}=0$), Modified Patankar (MPRK) & 32-Zellen GPU-Shared-Memory Work-Stealing.
+  * **Porous Media & Radiation:** Anisotropes Darcy-Forchheimer mit exakter analytischer Rang-1-Tangentenmatrix + P1-Marshak & $S_8/S_{16}$ Gauss-Legendre `fvDOM` mit Spiegel-Reflexion.
+* [ ] **Cluster B — Compressible Real-Gas, Cavitation, OPMIS SPH-FVM & Wall-Film (`Snippet 27`):**
+  * **All-Mach & Real-Gas:** Newton-freie quadratische Peng-Robinson-EOS in $w = \sqrt{T}$, All-Mach HLLC / AUSM+-up & Schnerr-Sauer-Kavitation.
+  * **Hybrid SPH-FVM (`OPMIS`) & Thin Film (`faMesh`):** Wendland-$C^2$ MLS-Renormierung mit gekrümmter Geisterwand-Vervollständigung, Lagrange-Spray & 2D-Wandfilm mit Bai-Gosman 4-Regime-Tropfenaufprall (`Stick/Rebound/Spread/Splash`).
+* [ ] **Cluster C — Battery Runaway, FWH Aeroacoustics, MHD, TPS Ablation & Monolithic FSI (`Snippets 23, 28`):**
+  * **Battery Abuse:** 2-RC-Thevenin-ECM + 4-Stufen Hatchard-Spotnitz Thermal Runaway mit SEI-Tunnelbarriere $\exp(-t_{\text{SEI}}/t_{\text{SEI},0})$ und $5\times 5$ `expm_phi1`/`Ros2`-Integrator.
+  * **Aeroacoustics, MHD & TPS:** Farassat 1A mit bewegten/permeablen Flächen ($\tau^*$-Bisektion), Ni et al. stromerhaltende 4-Schritt-MHD ($Ha = 1\dots 100+$), poröse PICA-Pyrolyse/Ablation sowie exakte **3D Swept-Volume Simpson-BDF2-DGCL-ALE** (`triangle_sweep` + `enforce_dgcl`, `AUD-024`).
+* [ ] **Natives Rust Desktop-Cockpit (`frontend/`, `wgpu + egui`, [`SUGGESTIONS_FRONTEND.md`](SUGGESTIONS_FRONTEND.md)):**
+  * Zero-Sync Optimistic State Store, 7-Exponenten-SI-Einheitenprüfung im UI, topologie-unabhängige räumliche BC-Selektor-DSL, GPU-Clipping/Isoflächen/LIC-Shader und Git-freundliche Trennung von Projekt-Intent (`project.toml`) und Binär-Cache (`cache/*.mphys`).
+
+---
+
+## Phase 4: Hybride Adjoint-Optimierung (CAD/NURBS + SIMP/FOSM) & ASME V&V 20
+
+* [ ] **ASME V&V 20 Verifikations-Engine (`Snippets 26`, `Blueprint §3.4 Waffe 3`):**
+  * Automatisches 3-Gitter-MMS-Orakel ($p_{\text{obs}} \ge 1{,}95$ auf verzerrten 3D-Polyedergittern durch implizite WLS-Gradienten-Einbettung $\mathbf{L}_{c,j}$ in $\mathbf{A}$) sowie Complex-Step- ($h_{\text{cs}} = 10^{-30}$) und Taylor-Restglied-Gate ($\mathcal{O}(\epsilon^2)$) für jeden Adjoint-Pfad.
+* [ ] **Hybride Reverse-FVM / Forward-CAD & STEP-NURBS Formoptimierung (`Snippet 22`, `literature_survey_2026.md` §9.17 & §9.21):**
+  * Diskreter IFT-Adjoint $\mathcal{J}^T\boldsymbol{\psi} = -\nabla_{\mathbf{U}} L$ (inkl. Rhie-Chow-Mobilitätsableitung $\partial D_f/\partial\gamma$, `Snippet 17`) + Revolve-Checkpointing, direkt gekoppelt mit parametrischem `differentiable_cad.py`-DAG *und* direkter lokaler STEP-NURBS-Kontrollpunkt-Kontraktion ($\partial\mathbf{X}_s/\partial\mathbf{P}_{i,j} = R_{i,j}(u,v)\mathbf{I}_3$ unter Farin-$G^1/C^2$-Kollinearität).
+* [ ] **Thermo-Fluid SIMP/RAMP, Level-Set & Robuste FOSM-Optimierung (`Snippet 4–5`):**
+  * Brinkman/RAMP-Interpolation, Kreisselmeier-Steinhauser-/Tropische Log-Sum-Exp-Aggregation, Svanberg-MMA, Hamilton-Jacobi-Level-Set und FOSM-Unsicherheitsquantifizierung ($\Phi_g = \mu_g + \kappa\sigma_g$), kombiniert mit globalem PSO/MIGA + lokalem L-BFGS Warm-Start.
+
+---
+
+## Phase 5 (Future Horizon): Verteilter MPI-Cluster (100M+ Zellen), In-Situ AI & Quantum-Ready CFD
+
+* [ ] **MPI-Stufe 2 & Remote-Chunk-Streaming (`Blueprint §1.4.6`):**
+  * Verteilter Morton-SFC-Octree (`find_leaf` mit Halo-Austausch & `MPI_Exscan`), progressives `.mphys`-Chunk-Streaming über WebSocket/QUIC mit XOR-Delta + LZ4/ZFP und SPMD Zero-Copy C++-ML-Kopplung (`ONNX Runtime` / `LibTorch` nach dem RWTH `AIxeleratorService`-Prinzip, $2\,\text{ms}$ Overhead).
+* [ ] **Quantum-Ready CFD Research Bridge:**
+  * Block-Encoding-Export symmetrischer FVM-Operatoren für VQLS/HHL, QUBO/QAOA für diskrete Topologieoptimierung und Madelung-/QLBM-Forschungsmodule.

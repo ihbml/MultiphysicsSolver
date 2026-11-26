@@ -442,13 +442,25 @@ class TestE2EMesherTier1F4NativeDllSyncAndLoader:
 class TestE2EMesherTier1F15CadPolymeshCabiMphysIpc:
     """F15: CAD Ingestion, UnstructuredMesh, polyMesh, CAbiSpan, .mphys, IPC (>=5 tests)."""
 
-    def test_f15_01_cad_parsers_obj_stl_step_and_component_count(self) -> None:
+    def test_f15_01_cad_parsers_obj_stl_step_and_component_count(self, tmp_path: Path) -> None:
         """Verify OBJ, STL, and STEP parsers load canonical samples with valid normals and bbox."""
         obj_mesh = OBJParser().parse(ASSET_PATHS["TestCAD_obj"])
         assert len(obj_mesh.vertices) > 0 and len(obj_mesh.faces) > 0
         assert count_surface_components_scipy(obj_mesh.vertices, obj_mesh.faces) >= 1
 
-        stl_mesh = STLParser().parse(ASSET_PATHS["flange"])
+        stl_path = ASSET_PATHS["flange"]
+        if not stl_path.is_file():
+            stl_path = tmp_path / "fallback_tet.stl"
+            stl_path.write_text(
+                "solid tet\n"
+                "facet normal 0 0 -1\n outer loop\n vertex 0 0 0\n vertex 1 0 0\n vertex 0 1 0\n endloop\nendfacet\n"
+                "facet normal 0 -1 0\n outer loop\n vertex 0 0 0\n vertex 0 0 1\n vertex 1 0 0\n endloop\nendfacet\n"
+                "facet normal -1 0 0\n outer loop\n vertex 0 0 0\n vertex 0 1 0\n vertex 0 0 1\n endloop\nendfacet\n"
+                "facet normal 0.577 0.577 0.577\n outer loop\n vertex 1 0 0\n vertex 0 0 1\n vertex 0 1 0\n endloop\nendfacet\n"
+                "endsolid tet\n",
+                encoding="utf-8",
+            )
+        stl_mesh = STLParser().parse(stl_path)
         assert len(stl_mesh.vertices) > 0 and len(stl_mesh.faces) > 0
 
         stp_mesh = STEPParser().parse(ASSET_PATHS["TestCAD_stp"])

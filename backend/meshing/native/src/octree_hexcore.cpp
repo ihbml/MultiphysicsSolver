@@ -537,43 +537,13 @@ int32_t OctreeHexcore::generate(
     }
   }
 
-  // Determine Domain Bounding Box (disambiguating standard vs interleaved farfield_bbox)
+  // Determine Domain Bounding Box: strictly [xmin, ymin, zmin, xmax, ymax, zmax] (CONTRACTS.md, AUD-003)
   Vec3 dom_min, dom_max;
   if (farfield_bbox) {
-    bool std_valid = (farfield_bbox[3] > farfield_bbox[0] &&
-                      farfield_bbox[4] > farfield_bbox[1] &&
-                      farfield_bbox[5] > farfield_bbox[2]);
-    bool int_valid = (farfield_bbox[1] > farfield_bbox[0] &&
-                      farfield_bbox[3] > farfield_bbox[2] &&
-                      farfield_bbox[5] > farfield_bbox[4]);
-    Vec3 std_min(farfield_bbox[0], farfield_bbox[1], farfield_bbox[2]);
-    Vec3 std_max(farfield_bbox[3], farfield_bbox[4], farfield_bbox[5]);
-    Vec3 int_min(farfield_bbox[0], farfield_bbox[2], farfield_bbox[4]);
-    Vec3 int_max(farfield_bbox[1], farfield_bbox[3], farfield_bbox[5]);
-    auto encloses_surf = [&](const Vec3& bmin, const Vec3& bmax) -> bool {
-      return bmin.x <= s_min.x + 1e-9 && bmax.x >= s_max.x - 1e-9 &&
-             bmin.y <= s_min.y + 1e-9 && bmax.y >= s_max.y - 1e-9 &&
-             bmin.z <= s_min.z + 1e-9 && bmax.z >= s_max.z - 1e-9;
-    };
-    if (std_valid && int_valid) {
-      bool std_enc = encloses_surf(std_min, std_max);
-      bool int_enc = encloses_surf(int_min, int_max);
-      if (int_enc && !std_enc) {
-        dom_min = int_min;
-        dom_max = int_max;
-      } else {
-        dom_min = std_min;
-        dom_max = std_max;
-      }
-    } else if (std_valid) {
-      dom_min = std_min;
-      dom_max = std_max;
-    } else if (int_valid) {
-      dom_min = int_min;
-      dom_max = int_max;
-    } else {
-      dom_min = std_min;
-      dom_max = std_max;
+    dom_min = Vec3(farfield_bbox[0], farfield_bbox[1], farfield_bbox[2]);
+    dom_max = Vec3(farfield_bbox[3], farfield_bbox[4], farfield_bbox[5]);
+    if (dom_min.x >= dom_max.x || dom_min.y >= dom_max.y || dom_min.z >= dom_max.z) {
+      return -1;
     }
   } else if (options.domain_mode == 0) {
     // external_fluid default: 5L upstream, 10L downstream, 5L lateral
@@ -1171,7 +1141,7 @@ int32_t OctreeHexcore::generate(
           q2 = Vec3(cell_a.bmin.x, cell_a.bmax.y, cell_a.bmax.z);
           q3 = Vec3(cell_a.bmin.x, cell_a.bmax.y, cell_a.bmin.z);
           plane_val = cell_a.bmin.x;
-          if (std::abs(plane_val - dom_min.x) < dom_tol) {
+          if (options.domain_mode == 0 && std::abs(plane_val - dom_min.x) < dom_tol) {
             is_farfield = true;
             farfield_patch = "inlet";
           }
@@ -1182,7 +1152,7 @@ int32_t OctreeHexcore::generate(
           q2 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmax.z);
           q3 = Vec3(cell_a.bmax.x, cell_a.bmin.y, cell_a.bmax.z);
           plane_val = cell_a.bmax.x;
-          if (std::abs(plane_val - dom_max.x) < dom_tol) {
+          if (options.domain_mode == 0 && std::abs(plane_val - dom_max.x) < dom_tol) {
             is_farfield = true;
             farfield_patch = "outlet";
           }
@@ -1193,7 +1163,7 @@ int32_t OctreeHexcore::generate(
           q2 = Vec3(cell_a.bmax.x, cell_a.bmin.y, cell_a.bmax.z);
           q3 = Vec3(cell_a.bmin.x, cell_a.bmin.y, cell_a.bmax.z);
           plane_val = cell_a.bmin.y;
-          if (std::abs(plane_val - dom_min.y) < dom_tol) {
+          if (options.domain_mode == 0 && std::abs(plane_val - dom_min.y) < dom_tol) {
             is_farfield = true;
             farfield_patch = "sides";
           }
@@ -1204,7 +1174,7 @@ int32_t OctreeHexcore::generate(
           q2 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmax.z);
           q3 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmin.z);
           plane_val = cell_a.bmax.y;
-          if (std::abs(plane_val - dom_max.y) < dom_tol) {
+          if (options.domain_mode == 0 && std::abs(plane_val - dom_max.y) < dom_tol) {
             is_farfield = true;
             farfield_patch = "sides";
           }
@@ -1215,7 +1185,7 @@ int32_t OctreeHexcore::generate(
           q2 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmin.z);
           q3 = Vec3(cell_a.bmax.x, cell_a.bmin.y, cell_a.bmin.z);
           plane_val = cell_a.bmin.z;
-          if (std::abs(plane_val - dom_min.z) < dom_tol) {
+          if (options.domain_mode == 0 && std::abs(plane_val - dom_min.z) < dom_tol) {
             is_farfield = true;
             farfield_patch = "bottom";
           }
@@ -1226,7 +1196,7 @@ int32_t OctreeHexcore::generate(
           q2 = Vec3(cell_a.bmax.x, cell_a.bmax.y, cell_a.bmax.z);
           q3 = Vec3(cell_a.bmin.x, cell_a.bmax.y, cell_a.bmax.z);
           plane_val = cell_a.bmax.z;
-          if (std::abs(plane_val - dom_max.z) < dom_tol) {
+          if (options.domain_mode == 0 && std::abs(plane_val - dom_max.z) < dom_tol) {
             is_farfield = true;
             farfield_patch = "top";
           }
@@ -2416,17 +2386,21 @@ int32_t OctreeHexcore::generate(
     mesh.wsrd_alpha[static_cast<size_t>(new_c)] = alpha;
   }
 
-  // 15. Contiguous Boundary Patch Assignment
-  if (final_boundary_faces.size() > 0) {
-    std::string current_patch = final_boundary_faces[0].patch_name;
+  // 15. Contiguous Boundary Patch Assignment (read from all_faces[n_internal + i], NOT moved-from final_boundary_faces! AUD-001)
+  const size_t n_bnd_total = static_cast<size_t>(total_faces - n_internal);
+  if (n_bnd_total > 0) {
+    std::string current_patch = all_faces[static_cast<size_t>(n_internal)].patch_name;
+    if (current_patch.empty()) current_patch = "wall";
     int64_t start_f = n_internal;
     int64_t count = 0;
 
-    for (size_t i = 0; i < final_boundary_faces.size(); ++i) {
-      if (final_boundary_faces[i].patch_name == current_patch) {
+    for (size_t i = 0; i < n_bnd_total; ++i) {
+      std::string p_name = all_faces[static_cast<size_t>(n_internal) + i].patch_name;
+      if (p_name.empty()) p_name = "wall";
+      if (p_name == current_patch) {
         count++;
       } else {
-        BoundaryPatchC bp;
+        BoundaryPatchC bp{};
         snprintf(bp.name, sizeof(bp.name), "%s", current_patch.c_str());
         snprintf(bp.patch_type, sizeof(bp.patch_type), "%s", current_patch.c_str());
         bp.start_face = start_f;
@@ -2434,14 +2408,14 @@ int32_t OctreeHexcore::generate(
         bp.region_id = 0;
         mesh.patches.push_back(bp);
 
-        current_patch = final_boundary_faces[i].patch_name;
+        current_patch = p_name;
         start_f = n_internal + static_cast<int64_t>(i);
         count = 1;
       }
     }
 
     if (count > 0) {
-      BoundaryPatchC bp;
+      BoundaryPatchC bp{};
       snprintf(bp.name, sizeof(bp.name), "%s", current_patch.c_str());
       snprintf(bp.patch_type, sizeof(bp.patch_type), "%s", current_patch.c_str());
       bp.start_face = start_f;

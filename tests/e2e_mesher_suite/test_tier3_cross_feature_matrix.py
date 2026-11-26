@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from backend.core.case_generator import CaseGenerator
+from backend.meshing.invariants import assert_fvm_invariants
 from backend.core.materials import MaterialDatabase
 from backend.geometry.models import SurfaceMesh
 from backend.geometry.pipeline import CADGeometryEngine
@@ -206,8 +207,7 @@ class TestE2EMesherTier3CrossFeatureMatrix:
             domain_mode="solid_only",
         )
         assert_unstructured_mesh_valid(mesh)
-        if "" in mesh.boundaries:
-            mesh.boundaries = {"wall": mesh.boundaries[""]}
+        assert_fvm_invariants(mesh, expect_patches=("wall",))
         assert_polymesh_roundtrip(mesh, case_dir)
 
     def test_t3_07_f14_turbulence_komegasst_plus_f13_polymesh_plus_f15_foam_field_io(
@@ -359,6 +359,7 @@ class TestE2EMesherTier3CrossFeatureMatrix:
                 "IPCService.endpoint_mesh_generate emitted all-zero dummy non_orthogonality in CFDMSH02"
             )
 
+    @pytest.mark.slow
     def test_t3_12_f7_gci_3grid_hierarchy_plus_f6_linear_exactness_on_all_levels(self) -> None:
         """F7 + F6: All 3 grids in MeshEngine.generate_gci_hierarchy satisfy linear-field exactness."""
         v, f = create_unit_cube_arrays()
@@ -412,6 +413,7 @@ class TestE2EMesherTier3CrossFeatureMatrix:
         pairs = extract_cyclic_pairs(mesh, sector_angle_rad=float(np.pi / 2.0), tolerance=1e-3)
         assert len(pairs) >= 1
 
+    @pytest.mark.slow
     def test_t3_15_f6_openmp_thread_invariance_on_cut_cell_polyhedra_plus_f1_j_ens(
         self,
         restore_native_env: None,
@@ -558,6 +560,7 @@ class TestE2EMesherTier3CrossFeatureMatrix:
         assert payload["type"] == "iter"
         assert np.isclose(payload["courant_max"], 0.15)
 
+    @pytest.mark.slow
     def test_t3_20_f1_f3_f6_f13_end_to_end_step_cad_to_validated_polymesh(
         self,
         tmp_path: Path,
@@ -575,6 +578,5 @@ class TestE2EMesherTier3CrossFeatureMatrix:
         assert_unstructured_mesh_valid(mesh)
         assert_j_ens_geometric_not_dummy(mesh)
         assert_linear_field_exact(mesh)
-        if "" in mesh.boundaries:
-            mesh.boundaries = {"wall": mesh.boundaries[""]}
+        assert_fvm_invariants(mesh, expect_patches=("wall",))
         assert_polymesh_roundtrip(mesh, tmp_path / "t3_20_step_case")

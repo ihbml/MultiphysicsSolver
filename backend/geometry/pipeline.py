@@ -143,7 +143,18 @@ class CADGeometryEngine:
         if self.current_mesh is None:
             raise RuntimeError("No geometry mesh loaded. Call .load(path) first.")
 
-        factor = scale_factor if scale_factor is not None else self.default_scale_factor
+        if scale_factor is not None:
+            factor = scale_factor
+        else:
+            unit_to_si = {
+                "m": 1.0,
+                "cm": 0.01,
+                "mm": 0.001,
+                "in": 0.0254,
+                "ft": 0.3048,
+            }
+            detected_unit = str(self.current_mesh.metadata.get("units", "")).lower()
+            factor = unit_to_si.get(detected_unit, self.default_scale_factor)
         self.current_mesh = self.scaler.scale(
             mesh=self.current_mesh,
             scale_factor=factor,

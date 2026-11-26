@@ -286,18 +286,25 @@ class FoamReader:
     def parse_points(data: bytes) -> np.ndarray:
         is_binary = FoamReader._check_format_binary(data)
         if is_binary:
-            # Find points count followed by '(' or raw binary block
+            # Standard OpenFOAM binary layout: <count>\n( followed immediately by raw bytes (or legacy (\n)
             header_match = re.search(rb"\n\s*(\d+)\s*\n\s*\(", data)
             if not header_match:
-                header_match = re.search(rb"\n\s*(\d+)\s*\n", data[200:])
-            if not header_match:
-                raise ValueError("Could not find binary points count in header")
+                raise ValueError("Could not find binary points count and '(' delimiter in header")
             n_points = int(header_match.group(1))
             data_start = header_match.end()
-            # If starting byte is '(' or newline, step over
-            while data_start < len(data) and data[data_start:data_start+1] in (b'(', b'\n', b'\r', b' '):
+            # Legacy compatibility: only skip a single '\n' if the file ends with ')\n' shifted by 1 byte
+            expected_bytes = n_points * 3 * 8
+            if (
+                data_start < len(data)
+                and data[data_start : data_start + 1] == b"\n"
+                and data_start + 1 + expected_bytes <= len(data)
+                and data[data_start + expected_bytes : data_start + expected_bytes + 1] != b")"
+                and data[data_start + 1 + expected_bytes : data_start + 1 + expected_bytes + 2] == b"\n)"
+            ):
                 data_start += 1
-            pts_bytes = data[data_start : data_start + n_points * 3 * 8]
+            pts_bytes = data[data_start : data_start + expected_bytes]
+            if len(pts_bytes) < expected_bytes:
+                raise ValueError("Truncated binary points payload")
             points = np.frombuffer(pts_bytes, dtype=np.float64, count=n_points * 3).reshape(n_points, 3)
             return np.array(points, dtype=np.float64, copy=True)
 
@@ -369,20 +376,33 @@ class FoamReader:
         if is_binary:
             header_match = re.search(rb"\n\s*(\d+)\s*\n\s*\(", data)
             if not header_match:
-                header_match = re.search(rb"\n\s*(\d+)\s*\n", data[200:])
-            if not header_match:
-                raise ValueError("Could not find binary labelList count in header")
+                raise ValueError("Could not find binary labelList count and '(' delimiter in header")
             n_labels = int(header_match.group(1))
             data_start = header_match.end()
-            while data_start < len(data) and data[data_start:data_start+1] in (b'(', b'\n', b'\r', b' '):
-                data_start += 1
-            
-            # Check 32-bit vs 64-bit int
-            rem = len(data) - data_start
-            if rem >= n_labels * 8:
-                labels = np.frombuffer(data[data_start : data_start + n_labels * 8], dtype=np.int64, count=n_labels)
+            # Determine label byte-width from FoamFile arch ("label=32" vs "label=64") if present
+            header_prefix = data[:data_start]
+            if b"label=32" in header_prefix:
+                elem_bytes = 4
+            elif b"label=64" in header_prefix:
+                elem_bytes = 8
             else:
-                labels = np.frombuffer(data[data_start : data_start + n_labels * 4], dtype=np.int32, count=n_labels)
+                elem_bytes = 8 if (len(data) - data_start) >= n_labels * 8 else 4
+
+            expected_bytes = n_labels * elem_bytes
+            if (
+                data_start < len(data)
+                and data[data_start : data_start + 1] == b"\n"
+                and data_start + 1 + expected_bytes <= len(data)
+                and data[data_start + expected_bytes : data_start + expected_bytes + 1] != b")"
+                and data[data_start + 1 + expected_bytes : data_start + 1 + expected_bytes + 2] == b"\n)"
+            ):
+                data_start += 1
+
+            raw = data[data_start : data_start + expected_bytes]
+            if len(raw) < expected_bytes:
+                raise ValueError("Truncated binary labelList payload")
+            dt = np.int64 if elem_bytes == 8 else np.int32
+            labels = np.frombuffer(raw, dtype=dt, count=n_labels)
             return np.array(labels, dtype=np.int64, copy=True)
 
         text = FoamReader._strip_comments(data.decode("utf-8", errors="ignore"))

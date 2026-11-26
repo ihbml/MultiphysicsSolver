@@ -61,6 +61,11 @@ def assert_unstructured_mesh_valid(
         f"Non-positive cell volume detected: min={float(np.min(mesh.cell_volumes)):.6e}"
     )
 
+    if mesh.boundaries:
+        assert "" not in mesh.boundaries, (
+            "Empty-string boundary patch key detected in mesh.boundaries"
+        )
+
     is_valid_flag = mesh.validate()
     assert is_valid_flag is True, "mesh.validate() did not return True"
 

@@ -53,7 +53,11 @@ typedef struct {
     int32_t region_id;
 } BoundaryPatchC;
 
-// Core Lifecycle Functions
+// Core Lifecycle & ABI Introspection Functions
+CFD_EXPORT int32_t cfd_mesher_abi_version(void);
+CFD_EXPORT const char* cfd_abi_layout_json(void);
+CFD_EXPORT int32_t cfd_mesher_last_error(const CfdNativeMesh* mesh, char* buf, size_t cap);
+
 CFD_EXPORT CfdNativeMesh* cfd_mesher_create(void);
 CFD_EXPORT void cfd_mesher_free(CfdNativeMesh* mesh);
 CFD_EXPORT void cfd_mesher_free_mesh(CfdNativeMesh* mesh);
