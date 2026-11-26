@@ -19,10 +19,17 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from enum import IntEnum
+import keyword
 import math
 import re
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import numpy as np
+
+
+MAX_EXPR_LENGTH = 16_384
+MAX_STATEMENTS = 256
+MAX_BYTECODE_OPS = 8_192
+MAX_AST_DEPTH = 64
 
 
 class OpCode(IntEnum):
@@ -45,6 +52,7 @@ class OpCode(IntEnum):
     BOOL_AND = 17
     BOOL_OR = 18
     BOOL_NOT = 19
+    STORE_VAR = 20
     RETURN = 10
 
 
@@ -95,53 +103,54 @@ class ExpressionEngine:
 
     def compile_expression(self, expression_str: str) -> None:
         """Preprocess and compile an expression string into bytecode."""
+        if not isinstance(expression_str, str):
+            raise TypeError(f"Expression must be a string, got {type(expression_str).__name__}")
+        if len(expression_str) > MAX_EXPR_LENGTH:
+            raise ValueError(
+                f"Expression length {len(expression_str)} exceeds maximum allowed {MAX_EXPR_LENGTH}"
+            )
         self.raw_expression = expression_str
-        self.cleaned_expression = self._preprocess_rhai_syntax(expression_str)
-        if not self.cleaned_expression:
-            raise SyntaxError("Empty expression syntax.")
         self.bytecode = []
         self.variables = set()
         self._compile()
 
     @staticmethod
-    def _preprocess_rhai_syntax(expr: str) -> str:
-        """Handle Rhai/C-style syntax: strips 'let' statements, boolean ops, and semicolons."""
-        cleaned = expr.strip()
-        # Remove trailing semicolons
-        cleaned = cleaned.rstrip(";")
-        # If expression has multiple statements e.g. "let u = ...; u"
-        lines = [line.strip() for line in cleaned.split(";") if line.strip()]
-        if len(lines) > 1:
-            return_expr = lines[-1]
-            for line in reversed(lines[:-1]):
-                m = re.match(r"(?:let\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*=(?!=)\s*(.+)", line)
-                if m:
-                    var_name, val_expr = m.group(1), m.group(2)
-                    return_expr = re.sub(rf"\b{var_name}\b", f"({val_expr})", return_expr)
-                elif line.startswith("let "):
-                    raise SyntaxError(f"Invalid assignment syntax in '{line}'")
-            cleaned = return_expr
-        elif len(lines) == 1:
-            m = re.match(r"(?:let\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*=(?!=)\s*(.+)", lines[0])
-            if m:
-                cleaned = m.group(2)
-            else:
-                cleaned = lines[0]
+    def _normalize_statement(stmt: str) -> str:
+        """Normalize Rhai operators (^, &&, ||) to Python AST operators."""
+        s = stmt.replace("^", "**")
+        s = s.replace("&&", " and ").replace("||", " or ")
+        return s.strip()
 
-        # Replace '^' with '**' and C-style boolean operators
-        cleaned = cleaned.replace("^", "**")
-        cleaned = cleaned.replace("&&", " and ").replace("||", " or ")
-        return cleaned
+    @staticmethod
+    def _preprocess_rhai_syntax(expr: str) -> str:
+        """Normalize single/multi-statement Rhai syntax for diagnostics without exponential expansion."""
+        cleaned = expr.strip().rstrip(";")
+        if not cleaned:
+            return ""
+        lines = [line.strip() for line in cleaned.split(";") if line.strip()]
+        if not lines:
+            return ""
+        return ExpressionEngine._normalize_statement("; ".join(lines))
 
     def _compile(self) -> None:
-        """Compile expression string into bytecode instructions via AST."""
-        try:
-            tree = ast.parse(self.cleaned_expression, mode="eval")
-        except SyntaxError as e:
-            raise SyntaxError(f"Invalid expression syntax in '{self.raw_expression}': {e}") from e
+        """Compile expression string (including chained 'let' assignments) into linear-size bytecode."""
+        raw_stripped = self.raw_expression.strip()
+        if not raw_stripped:
+            raise SyntaxError("Empty expression syntax.")
+
+        statements = [s.strip() for s in raw_stripped.split(";") if s.strip()]
+        if not statements:
+            raise SyntaxError("Empty expression syntax.")
+        if len(statements) > MAX_STATEMENTS:
+            raise ValueError(
+                f"Statement count {len(statements)} exceeds maximum allowed {MAX_STATEMENTS}"
+            )
+
+        self.cleaned_expression = self._normalize_statement("; ".join(statements))
 
         instructions: List[Instruction] = []
-        variables: Set[str] = set()
+        external_vars: Set[str] = set()
+        bound_locals: Set[str] = set()
 
         _CMP_OP_MAP = {
             ast.Lt: OpCode.CMP_LT,
@@ -152,47 +161,66 @@ class ExpressionEngine:
             ast.NotEq: OpCode.CMP_NE,
         }
 
-        def visit(node: ast.AST) -> None:
+        _ASSIGN_RE = re.compile(r"^(?:let\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*=(?!=)\s*(.+)$", re.DOTALL)
+
+        def _emit(instr: Instruction) -> None:
+            if len(instructions) >= MAX_BYTECODE_OPS:
+                raise ValueError(
+                    f"Compiled bytecode size exceeds maximum allowed {MAX_BYTECODE_OPS} instructions"
+                )
+            instructions.append(instr)
+
+        def visit(node: ast.AST, depth: int = 0) -> None:
+            if depth > MAX_AST_DEPTH:
+                raise ValueError(
+                    f"Expression AST depth {depth} exceeds maximum allowed {MAX_AST_DEPTH}"
+                )
+
             if isinstance(node, ast.Expression):
-                visit(node.body)
-                instructions.append(Instruction(OpCode.RETURN))
+                visit(node.body, depth + 1)
 
             elif isinstance(node, ast.Constant):
-                val = bool(node.value) if isinstance(node.value, bool) else float(node.value)
-                instructions.append(Instruction(OpCode.LOAD_CONST, val))
+                if isinstance(node.value, bool):
+                    val: Any = bool(node.value)
+                elif isinstance(node.value, (int, float)):
+                    val = float(node.value)
+                else:
+                    raise ValueError(f"Unsupported constant type: {type(node.value).__name__}")
+                _emit(Instruction(OpCode.LOAD_CONST, val))
 
             elif isinstance(node, ast.Name):
                 name = node.id
                 if name in MATH_CONSTANTS:
-                    instructions.append(Instruction(OpCode.LOAD_CONST, MATH_CONSTANTS[name]))
+                    _emit(Instruction(OpCode.LOAD_CONST, MATH_CONSTANTS[name]))
                 else:
-                    variables.add(name)
-                    instructions.append(Instruction(OpCode.LOAD_VAR, name))
+                    if name not in bound_locals:
+                        external_vars.add(name)
+                    _emit(Instruction(OpCode.LOAD_VAR, name))
 
             elif isinstance(node, ast.UnaryOp):
-                visit(node.operand)
+                visit(node.operand, depth + 1)
                 if isinstance(node.op, ast.USub):
-                    instructions.append(Instruction(OpCode.NEG))
+                    _emit(Instruction(OpCode.NEG))
                 elif isinstance(node.op, ast.Not):
-                    instructions.append(Instruction(OpCode.BOOL_NOT))
+                    _emit(Instruction(OpCode.BOOL_NOT))
                 elif isinstance(node.op, ast.UAdd):
                     pass
                 else:
                     raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
 
             elif isinstance(node, ast.BinOp):
-                visit(node.left)
-                visit(node.right)
+                visit(node.left, depth + 1)
+                visit(node.right, depth + 1)
                 if isinstance(node.op, ast.Add):
-                    instructions.append(Instruction(OpCode.ADD))
+                    _emit(Instruction(OpCode.ADD))
                 elif isinstance(node.op, ast.Sub):
-                    instructions.append(Instruction(OpCode.SUB))
+                    _emit(Instruction(OpCode.SUB))
                 elif isinstance(node.op, ast.Mult):
-                    instructions.append(Instruction(OpCode.MUL))
+                    _emit(Instruction(OpCode.MUL))
                 elif isinstance(node.op, ast.Div):
-                    instructions.append(Instruction(OpCode.DIV))
+                    _emit(Instruction(OpCode.DIV))
                 elif isinstance(node.op, ast.Pow):
-                    instructions.append(Instruction(OpCode.POW))
+                    _emit(Instruction(OpCode.POW))
                 else:
                     raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
 
@@ -204,11 +232,11 @@ class ExpressionEngine:
                     op_code = _CMP_OP_MAP.get(type(op_obj))
                     if op_code is None:
                         raise ValueError(f"Unsupported comparison operator: {type(op_obj).__name__}")
-                    visit(left_node)
-                    visit(comp_node)
-                    instructions.append(Instruction(op_code))
+                    visit(left_node, depth + 1)
+                    visit(comp_node, depth + 1)
+                    _emit(Instruction(op_code))
                     if op_idx > 0:
-                        instructions.append(Instruction(OpCode.BOOL_AND))
+                        _emit(Instruction(OpCode.BOOL_AND))
                     left_node = comp_node
 
             elif isinstance(node, ast.BoolOp):
@@ -218,25 +246,61 @@ class ExpressionEngine:
                     bool_code = OpCode.BOOL_OR
                 else:
                     raise ValueError(f"Unsupported boolean operator: {type(node.op).__name__}")
-                visit(node.values[0])
+                visit(node.values[0], depth + 1)
                 for val_node in node.values[1:]:
-                    visit(val_node)
-                    instructions.append(Instruction(bool_code))
+                    visit(val_node, depth + 1)
+                    _emit(Instruction(bool_code))
 
             elif isinstance(node, ast.Call):
                 func_name = getattr(node.func, "id", None)
                 if not func_name or func_name not in MATH_FUNCTIONS:
                     raise ValueError(f"Unsupported math function: '{func_name}'")
+                if node.keywords:
+                    raise ValueError("Keyword arguments are not supported in expression function calls.")
                 for arg in node.args:
-                    visit(arg)
-                instructions.append(Instruction(OpCode.CALL_FUNC, (func_name, len(node.args))))
+                    visit(arg, depth + 1)
+                _emit(Instruction(OpCode.CALL_FUNC, (func_name, len(node.args))))
 
             else:
                 raise ValueError(f"Unsupported AST node: {type(node).__name__}")
 
-        visit(tree)
+        n_stmts = len(statements)
+        for idx, stmt in enumerate(statements):
+            is_last = idx == n_stmts - 1
+            m = _ASSIGN_RE.match(stmt)
+            if not is_last:
+                if not m:
+                    raise SyntaxError(f"Invalid assignment syntax in '{stmt}'")
+                var_name, rhs_raw = m.group(1), m.group(2)
+                if keyword.iskeyword(var_name):
+                    raise SyntaxError(f"Invalid variable name '{var_name}' in '{stmt}'")
+                rhs_norm = self._normalize_statement(rhs_raw)
+                try:
+                    tree = ast.parse(rhs_norm, mode="eval")
+                except SyntaxError as e:
+                    raise SyntaxError(f"Invalid expression syntax in '{self.raw_expression}': {e}") from e
+                visit(tree, 0)
+                _emit(Instruction(OpCode.STORE_VAR, var_name))
+                bound_locals.add(var_name)
+            else:
+                if m:
+                    var_name, rhs_raw = m.group(1), m.group(2)
+                    if keyword.iskeyword(var_name):
+                        raise SyntaxError(f"Invalid variable name '{var_name}' in '{stmt}'")
+                    expr_norm = self._normalize_statement(rhs_raw)
+                elif stmt.startswith("let ") or re.match(r"^let\b", stmt):
+                    raise SyntaxError(f"Invalid assignment syntax in '{stmt}'")
+                else:
+                    expr_norm = self._normalize_statement(stmt)
+                try:
+                    tree = ast.parse(expr_norm, mode="eval")
+                except SyntaxError as e:
+                    raise SyntaxError(f"Invalid expression syntax in '{self.raw_expression}': {e}") from e
+                visit(tree, 0)
+                _emit(Instruction(OpCode.RETURN))
+
         self.bytecode = instructions
-        self.variables = variables
+        self.variables = external_vars
 
     def evaluate(self, env: Dict[str, Any]) -> Union[float, bool, np.ndarray]:
         """Execute bytecode using vectorized array operands in `env`."""
@@ -246,6 +310,7 @@ class ExpressionEngine:
             if var not in env:
                 raise ValueError(f"Expression requires variable '{var}', but it was not provided.")
 
+        local_env: Dict[str, Any] = dict(env)
         stack: List[Any] = []
 
         for instr in self.bytecode:
@@ -255,8 +320,13 @@ class ExpressionEngine:
                 stack.append(instr.arg)
 
             elif op == OpCode.LOAD_VAR:
-                val = env[instr.arg]
-                stack.append(val)
+                var_name = instr.arg
+                if var_name not in local_env:
+                    raise ValueError(f"Expression requires variable '{var_name}', but it was not provided.")
+                stack.append(local_env[var_name])
+
+            elif op == OpCode.STORE_VAR:
+                local_env[instr.arg] = stack.pop()
 
             elif op == OpCode.ADD:
                 b = stack.pop()
@@ -276,6 +346,10 @@ class ExpressionEngine:
             elif op == OpCode.DIV:
                 b = stack.pop()
                 a = stack.pop()
+                a_is_vec = isinstance(a, np.ndarray) and a.ndim > 0
+                b_is_vec = isinstance(b, np.ndarray) and b.ndim > 0
+                if not a_is_vec and not b_is_vec and float(b) == 0.0:
+                    raise ZeroDivisionError("division by zero")
                 stack.append(a / b)
 
             elif op == OpCode.POW:

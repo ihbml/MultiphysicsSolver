@@ -11,6 +11,29 @@
 
 namespace cfd {
 
+enum class PatchId : uint8_t {
+  INTERNAL = 0,
+  WALL = 1,
+  INLET = 2,
+  OUTLET = 3,
+  SIDES = 4,
+  BOTTOM = 5,
+  TOP = 6
+};
+
+inline const char* patchIdToName(PatchId id) noexcept {
+  switch (id) {
+    case PatchId::INTERNAL: return "internal";
+    case PatchId::WALL:     return "wall";
+    case PatchId::INLET:    return "inlet";
+    case PatchId::OUTLET:   return "outlet";
+    case PatchId::SIDES:    return "sides";
+    case PatchId::BOTTOM:   return "bottom";
+    case PatchId::TOP:      return "top";
+  }
+  return "wall";
+}
+
 struct MosaicFace {
   std::vector<int64_t> nodes;
   int64_t owner{-1};

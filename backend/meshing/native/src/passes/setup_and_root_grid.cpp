@@ -59,11 +59,11 @@ size_t getMaxOctreeNodes() {
     const uint64_t commit_budget = (static_cast<uint64_t>(ms.ullAvailPageFile) * 60ULL) / 100ULL;
     const uint64_t phys_budget = (static_cast<uint64_t>(ms.ullTotalPhys) * 125ULL) / 100ULL;
     const uint64_t avail_budget_bytes = (commit_budget < phys_budget) ? commit_budget : phys_budget;
-    const uint64_t est_nodes = avail_budget_bytes / 320ULL;
-    constexpr uint64_t kMinFloorNodes = 24000000ULL;
+    const uint64_t est_nodes = avail_budget_bytes / 1200ULL;
+    constexpr uint64_t kMinFloorNodes = 500000ULL;
     return static_cast<size_t>((est_nodes > kMinFloorNodes) ? est_nodes : kMinFloorNodes);
   }
-  return 24000000ULL;
+  return 500000ULL;
 #else
   return 64000000ULL;
 #endif

@@ -3,14 +3,16 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "octree_hexcore.hpp"
 #include "polygon_geometry.hpp"
 
 namespace cfd::hexcore {
+
+inline constexpr uint8_t kFlagFarfield = 1;
+inline constexpr uint8_t kFlagCutFace  = 2;
+inline constexpr uint8_t kFlagFolded   = 4;
 
 struct OctreeNode {
   Vec3 bmin;
@@ -40,6 +42,12 @@ class ChunkedNodePool {
   size_t size() const noexcept { return size_; }
   bool empty() const noexcept { return size_ == 0; }
 
+  void clear() {
+    chunks_.clear();
+    chunks_.shrink_to_fit();
+    size_ = 0;
+  }
+
   void resize(size_t new_size) {
     const size_t needed_chunks = (new_size == 0) ? 0 : (((new_size - 1) >> kChunkShift) + 1);
     while (chunks_.size() < needed_chunks) {
@@ -65,9 +73,79 @@ struct RawQuad {
   std::array<Vec3, 4> pts;
   int64_t owner = -1;
   int64_t neighbour = -1;
-  std::string patch_name;
+  PatchId patch_id = PatchId::INTERNAL;
   bool is_farfield = false;
   bool is_cut_face = false;
+};
+
+struct FaceStore {
+  std::vector<int64_t> node_offsets{0};
+  std::vector<int64_t> node_ids;
+  std::vector<int64_t> owner;
+  std::vector<int64_t> neighbour;
+  std::vector<Vec3> normal_owner;
+  std::vector<Vec3> centre;
+  std::vector<PatchId> patch_id;
+  std::vector<uint8_t> flags;
+
+  int64_t size() const noexcept { return static_cast<int64_t>(owner.size()); }
+  bool empty() const noexcept { return owner.empty(); }
+
+  void reserve(size_t n_faces, size_t n_face_nodes = 0) {
+    node_offsets.reserve(n_faces + 1);
+    if (n_face_nodes > 0) node_ids.reserve(n_face_nodes);
+    owner.reserve(n_faces);
+    neighbour.reserve(n_faces);
+    normal_owner.reserve(n_faces);
+    centre.reserve(n_faces);
+    patch_id.reserve(n_faces);
+    flags.reserve(n_faces);
+  }
+
+  void clear_and_shrink() {
+    std::vector<int64_t>{0}.swap(node_offsets);
+    std::vector<int64_t>().swap(node_ids);
+    std::vector<int64_t>().swap(owner);
+    std::vector<int64_t>().swap(neighbour);
+    std::vector<Vec3>().swap(normal_owner);
+    std::vector<Vec3>().swap(centre);
+    std::vector<PatchId>().swap(patch_id);
+    std::vector<uint8_t>().swap(flags);
+  }
+
+  int64_t append_face(
+      const int64_t* nodes,
+      size_t nv,
+      int64_t o,
+      int64_t nb,
+      PatchId pid,
+      uint8_t fl,
+      const Vec3& norm = Vec3(0, 0, 0),
+      const Vec3& cent = Vec3(0, 0, 0)
+  ) {
+    const int64_t f_idx = static_cast<int64_t>(owner.size());
+    node_ids.insert(node_ids.end(), nodes, nodes + nv);
+    node_offsets.push_back(static_cast<int64_t>(node_ids.size()));
+    owner.push_back(o);
+    neighbour.push_back(nb);
+    normal_owner.push_back(norm);
+    centre.push_back(cent);
+    patch_id.push_back(pid);
+    flags.push_back(fl);
+    return f_idx;
+  }
+
+  const int64_t* face_nodes(size_t f) const noexcept {
+    return node_ids.data() + node_offsets[f];
+  }
+
+  int64_t* face_nodes_mut(size_t f) noexcept {
+    return node_ids.data() + node_offsets[f];
+  }
+
+  size_t face_nv(size_t f) const noexcept {
+    return static_cast<size_t>(node_offsets[f + 1] - node_offsets[f]);
+  }
 };
 
 struct HexcoreState {
@@ -104,24 +182,23 @@ struct HexcoreState {
   std::vector<Vec3> active_grad_c;
   int64_t n_active_cells = 0;
   std::vector<CellType> cell_types;
+  std::vector<double> cell_v_bg;
+  std::vector<double> cell_h_min;
+  std::vector<int16_t> cell_region;
 
-  std::unordered_map<QuantizedKey, int64_t, QuantizedKeyHash> vmap;
   std::vector<Vec3> node_coords;
   std::vector<std::array<int64_t, 8>> hex_corners;
-  std::vector<MosaicFace> mosaic_faces;
-  std::vector<std::vector<int64_t>> cell_to_faces;
+  FaceStore faces;
+  std::vector<int64_t> cell_face_offsets;
+  std::vector<int64_t> cell_face_ids;
 
   std::vector<Vec3> cell_approx_center;
   std::vector<double> cell_vols;
   std::vector<Vec3> cell_cents;
-  std::vector<std::vector<int64_t>> cell_verts;
   std::vector<int64_t> old_to_new_cell;
   std::vector<int64_t> new_to_old_active;
   int64_t final_n_cells = 0;
 
-  std::vector<MosaicFace> final_internal_faces;
-  std::vector<MosaicFace> final_boundary_faces;
-  std::vector<MosaicFace> all_faces;
   int64_t n_internal = 0;
   int64_t total_faces = 0;
 
@@ -130,6 +207,8 @@ struct HexcoreState {
 };
 
 size_t getMaxOctreeNodes();
+
+void rebuildCellToFacesCSR(HexcoreState& st);
 
 std::vector<double> buildGradedAxisCoords(
     double d_min,
@@ -141,7 +220,12 @@ std::vector<double> buildGradedAxisCoords(
     double max_stretch
 );
 
-std::vector<int64_t> computeFastRCM(int64_t n_cells, const std::vector<MosaicFace>& internal_faces);
+std::vector<int64_t> computeFastRCM(
+    int64_t n_cells,
+    const std::vector<int64_t>& internal_face_indices,
+    const std::vector<int64_t>& face_owners,
+    const std::vector<int64_t>& face_neighbours
+);
 
 int32_t passSetupAndRootGrid(
     HexcoreState& st,

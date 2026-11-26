@@ -249,6 +249,9 @@ CFD_EXPORT int32_t cfd_mesher_generate_hexcore(
           options.max_depth = (raw_depth < 1) ? 1 : ((raw_depth > 4) ? 4 : raw_depth);
         }
       }
+    } else {
+      options.h_min = h0 * 0.25;
+      options.h_max = h0 * 4.0;
     }
 
     cfd::OctreeHexcore hexcore;
@@ -261,6 +264,15 @@ CFD_EXPORT int32_t cfd_mesher_generate_hexcore(
         farfield_bbox,
         options
     );
+    if (res == -12) {
+      set_err(mesh, "pass=octree_hexcore code=BUDGET_OR_OMP_ERROR detail=octree_node_budget_exceeded_or_omp_failure");
+    } else if (res == -13) {
+      set_err(mesh, "pass=refine_and_balance code=CONVERGENCE_ERROR detail=octree_2to1_balance_did_not_converge_within_32_iterations");
+    } else if (res == -14) {
+      set_err(mesh, "pass=faces_and_vertices code=CONVERGENCE_ERROR detail=conformal_midpoint_insertion_did_not_converge_within_8_passes");
+    } else if (res < 0 && mesh->last_error.empty()) {
+      set_err(mesh, "pass=octree_hexcore code=GENERATION_ERROR detail=hexcore_generation_failed");
+    }
     return res;
   } catch (const std::exception&) {
     return -2;

@@ -80,6 +80,7 @@ int32_t passRefineAndBalance(HexcoreState& st) {
   st.max_threads = max_threads;
 
   int balance_iterations = 0;
+  bool converged = false;
   while (balance_iterations < 32) {
     ++balance_iterations;
     std::vector<std::vector<int64_t>> thread_splits(static_cast<size_t>(max_threads));
@@ -161,7 +162,10 @@ int32_t passRefineAndBalance(HexcoreState& st) {
     for (const auto& ts : thread_splits) {
       to_split.insert(to_split.end(), ts.begin(), ts.end());
     }
-    if (to_split.empty()) break;
+    if (to_split.empty()) {
+      converged = true;
+      break;
+    }
 
     std::sort(to_split.begin(), to_split.end());
     to_split.erase(std::unique(to_split.begin(), to_split.end()), to_split.end());
@@ -185,6 +189,9 @@ int32_t passRefineAndBalance(HexcoreState& st) {
     }
     next_leaves.insert(next_leaves.end(), new_children.begin(), new_children.end());
     leaves.swap(next_leaves);
+  }
+  if (!converged) {
+    return -13;
   }
 
   return 0;

@@ -61,16 +61,16 @@ inline double computeTetAMIPS(const Vec3& v0, const Vec3& v1, const Vec3& v2, co
 }
 
 inline std::pair<Vec3, Vec3> computePolygonNormalAndCentroid(
-    const std::vector<int64_t>& face_nodes,
+    const int64_t* face_nodes,
+    size_t n,
     const std::vector<Vec3>& points
 ) {
-  size_t n = face_nodes.size();
-  if (n < 3) {
+  if (!face_nodes || n < 3) {
     return {Vec3(0, 0, 0), Vec3(0, 0, 0)};
   }
 
   Vec3 c_face(0, 0, 0);
-  for (int64_t idx : face_nodes) c_face += points[static_cast<size_t>(idx)];
+  for (size_t i = 0; i < n; ++i) c_face += points[static_cast<size_t>(face_nodes[i])];
   c_face /= static_cast<double>(n);
 
   Vec3 normal_sum(0, 0, 0);
@@ -90,6 +90,13 @@ inline std::pair<Vec3, Vec3> computePolygonNormalAndCentroid(
 
   Vec3 centroid = (total_area > 1e-15) ? (centroid_sum / total_area) : c_face;
   return {normal_sum, centroid};
+}
+
+inline std::pair<Vec3, Vec3> computePolygonNormalAndCentroid(
+    const std::vector<int64_t>& face_nodes,
+    const std::vector<Vec3>& points
+) {
+  return computePolygonNormalAndCentroid(face_nodes.data(), face_nodes.size(), points);
 }
 
 inline std::pair<Vec3, Vec3> computePolygonNormalAndCentroidReplaced(
@@ -132,17 +139,17 @@ inline std::pair<Vec3, Vec3> computePolygonNormalAndCentroidReplaced(
 }
 
 inline bool isFaceFolded(
-    const std::vector<int64_t>& face_nodes,
+    const int64_t* face_nodes,
+    size_t n,
     const std::vector<Vec3>& points,
     const Vec3& normal_sum
 ) {
-  size_t n = face_nodes.size();
-  if (n < 3) return false;
+  if (!face_nodes || n < 3) return false;
   double norm_mag = normal_sum.norm();
   if (norm_mag <= 1e-15) return false;
 
   Vec3 c_face(0, 0, 0);
-  for (int64_t idx : face_nodes) c_face += points[static_cast<size_t>(idx)];
+  for (size_t i = 0; i < n; ++i) c_face += points[static_cast<size_t>(face_nodes[i])];
   c_face /= static_cast<double>(n);
 
   for (size_t i = 0; i < n; ++i) {
@@ -154,6 +161,14 @@ inline bool isFaceFolded(
     }
   }
   return false;
+}
+
+inline bool isFaceFolded(
+    const std::vector<int64_t>& face_nodes,
+    const std::vector<Vec3>& points,
+    const Vec3& normal_sum
+) {
+  return isFaceFolded(face_nodes.data(), face_nodes.size(), points, normal_sum);
 }
 
 }  // namespace cfd::hexcore

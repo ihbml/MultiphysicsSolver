@@ -2,6 +2,48 @@
 
 namespace cfd {
 
+namespace hexcore {
+
+void rebuildCellToFacesCSR(HexcoreState& st) {
+  const int64_t n_cells = st.n_active_cells;
+  const int64_t n_faces = st.faces.size();
+  st.cell_face_offsets.assign(static_cast<size_t>(n_cells) + 1, 0);
+
+  for (int64_t f = 0; f < n_faces; ++f) {
+    const int64_t o = st.faces.owner[static_cast<size_t>(f)];
+    const int64_t nb = st.faces.neighbour[static_cast<size_t>(f)];
+    if (o >= 0 && o < n_cells) {
+      ++st.cell_face_offsets[static_cast<size_t>(o) + 1];
+    }
+    if (nb >= 0 && nb < n_cells) {
+      ++st.cell_face_offsets[static_cast<size_t>(nb) + 1];
+    }
+  }
+
+  for (int64_t c = 0; c < n_cells; ++c) {
+    st.cell_face_offsets[static_cast<size_t>(c + 1)] += st.cell_face_offsets[static_cast<size_t>(c)];
+  }
+
+  st.cell_face_ids.resize(static_cast<size_t>(st.cell_face_offsets[static_cast<size_t>(n_cells)]));
+  std::vector<int64_t> cursor(
+      st.cell_face_offsets.begin(),
+      st.cell_face_offsets.begin() + static_cast<size_t>(n_cells)
+  );
+
+  for (int64_t f = 0; f < n_faces; ++f) {
+    const int64_t o = st.faces.owner[static_cast<size_t>(f)];
+    const int64_t nb = st.faces.neighbour[static_cast<size_t>(f)];
+    if (o >= 0 && o < n_cells) {
+      st.cell_face_ids[static_cast<size_t>(cursor[static_cast<size_t>(o)]++)] = f;
+    }
+    if (nb >= 0 && nb < n_cells) {
+      st.cell_face_ids[static_cast<size_t>(cursor[static_cast<size_t>(nb)]++)] = f;
+    }
+  }
+}
+
+}  // namespace hexcore
+
 int32_t OctreeHexcore::generate(
     NativeMeshData& mesh,
     const double* surf_points,

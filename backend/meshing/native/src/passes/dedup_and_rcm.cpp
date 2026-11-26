@@ -2,26 +2,34 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <queue>
-#include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace cfd::hexcore {
 
-std::vector<int64_t> computeFastRCM(int64_t n_cells, const std::vector<MosaicFace>& internal_faces) {
+std::vector<int64_t> computeFastRCM(
+    int64_t n_cells,
+    const std::vector<int64_t>& internal_face_indices,
+    const std::vector<int64_t>& face_owners,
+    const std::vector<int64_t>& face_neighbours
+) {
   std::vector<int64_t> perm(static_cast<size_t>(n_cells));
   for (int64_t i = 0; i < n_cells; ++i) perm[static_cast<size_t>(i)] = i;
-  if (n_cells <= 1 || internal_faces.empty()) return perm;
+  if (n_cells <= 1 || internal_face_indices.empty()) return perm;
 
   std::vector<int64_t> deg(static_cast<size_t>(n_cells), 0);
-  for (const auto& mf : internal_faces) {
-    if (mf.owner >= 0 && mf.neighbour >= 0 && mf.owner != mf.neighbour) {
-      ++deg[static_cast<size_t>(mf.owner)];
-      ++deg[static_cast<size_t>(mf.neighbour)];
+  for (int64_t f : internal_face_indices) {
+    const int64_t o = face_owners[static_cast<size_t>(f)];
+    const int64_t nb = face_neighbours[static_cast<size_t>(f)];
+    if (o >= 0 && nb >= 0 && o != nb) {
+      ++deg[static_cast<size_t>(o)];
+      ++deg[static_cast<size_t>(nb)];
     }
   }
 
@@ -31,9 +39,9 @@ std::vector<int64_t> computeFastRCM(int64_t n_cells, const std::vector<MosaicFac
   }
   std::vector<int64_t> adj(static_cast<size_t>(offsets[static_cast<size_t>(n_cells)]));
   std::vector<int64_t> cursor = offsets;
-  for (const auto& mf : internal_faces) {
-    int64_t o = mf.owner;
-    int64_t nb = mf.neighbour;
+  for (int64_t f : internal_face_indices) {
+    const int64_t o = face_owners[static_cast<size_t>(f)];
+    const int64_t nb = face_neighbours[static_cast<size_t>(f)];
     if (o >= 0 && nb >= 0 && o != nb) {
       adj[static_cast<size_t>(cursor[static_cast<size_t>(o)]++)] = nb;
       adj[static_cast<size_t>(cursor[static_cast<size_t>(nb)]++)] = o;
@@ -100,84 +108,104 @@ std::vector<int64_t> computeFastRCM(int64_t n_cells, const std::vector<MosaicFac
 }
 
 int32_t passDeduplicateAndRcm(HexcoreState& st) {
-  std::vector<MosaicFace> raw_internal_faces;
-  raw_internal_faces.reserve(st.mosaic_faces.size());
-  st.final_boundary_faces.clear();
-  st.final_boundary_faces.reserve(st.mosaic_faces.size() / 4 + 64);
+  const int64_t n_src_faces = st.faces.size();
+  std::vector<int64_t> raw_int_idx;
+  std::vector<int64_t> bnd_idx;
+  raw_int_idx.reserve(static_cast<size_t>(n_src_faces));
+  bnd_idx.reserve(static_cast<size_t>(n_src_faces) / 4 + 64);
 
-  for (auto& mf : st.mosaic_faces) {
-    if (mf.owner < 0 && mf.neighbour < 0) continue;
+  for (int64_t f = 0; f < n_src_faces; ++f) {
+    const size_t fs = static_cast<size_t>(f);
+    const int64_t old_o = st.faces.owner[fs];
+    const int64_t old_nb = st.faces.neighbour[fs];
+    if (old_o < 0 && old_nb < 0) continue;
 
-    int64_t new_o = (mf.owner >= 0) ? st.old_to_new_cell[static_cast<size_t>(mf.owner)] : -1;
-    int64_t new_nb = (mf.neighbour >= 0) ? st.old_to_new_cell[static_cast<size_t>(mf.neighbour)] : -1;
+    int64_t new_o = (old_o >= 0) ? st.old_to_new_cell[static_cast<size_t>(old_o)] : -1;
+    int64_t new_nb = (old_nb >= 0) ? st.old_to_new_cell[static_cast<size_t>(old_nb)] : -1;
 
     if (new_o >= 0 && new_nb >= 0) {
       if (new_o == new_nb) {
+        st.faces.owner[fs] = -1;
+        st.faces.neighbour[fs] = -1;
         continue;
       }
       if (new_o > new_nb) {
         std::swap(new_o, new_nb);
-        mf.normal_owner = -mf.normal_owner;
-        std::reverse(mf.nodes.begin(), mf.nodes.end());
+        st.faces.normal_owner[fs] = -st.faces.normal_owner[fs];
+        int64_t* fn = st.faces.face_nodes_mut(fs);
+        std::reverse(fn, fn + st.faces.face_nv(fs));
       }
-      mf.owner = new_o;
-      mf.neighbour = new_nb;
-      raw_internal_faces.push_back(std::move(mf));
+      st.faces.owner[fs] = new_o;
+      st.faces.neighbour[fs] = new_nb;
+      raw_int_idx.push_back(f);
     } else if (new_o >= 0 && new_nb < 0) {
-      mf.owner = new_o;
-      mf.neighbour = -1;
-      st.final_boundary_faces.push_back(std::move(mf));
+      st.faces.owner[fs] = new_o;
+      st.faces.neighbour[fs] = -1;
+      bnd_idx.push_back(f);
     } else if (new_nb >= 0 && new_o < 0) {
-      mf.owner = new_nb;
-      mf.neighbour = -1;
-      mf.normal_owner = -mf.normal_owner;
-      std::reverse(mf.nodes.begin(), mf.nodes.end());
-      st.final_boundary_faces.push_back(std::move(mf));
+      st.faces.owner[fs] = new_nb;
+      st.faces.neighbour[fs] = -1;
+      st.faces.normal_owner[fs] = -st.faces.normal_owner[fs];
+      int64_t* fn = st.faces.face_nodes_mut(fs);
+      std::reverse(fn, fn + st.faces.face_nv(fs));
+      bnd_idx.push_back(f);
+    } else {
+      st.faces.owner[fs] = -1;
+      st.faces.neighbour[fs] = -1;
     }
   }
+  std::vector<int64_t>().swap(st.old_to_new_cell);
 
-  size_t n_raw_int = raw_internal_faces.size();
-  std::vector<size_t> raw_order(n_raw_int);
-  for (size_t i = 0; i < n_raw_int; ++i) raw_order[i] = i;
-  std::sort(raw_order.begin(), raw_order.end(),
-            [&](size_t a, size_t b) {
-              if (raw_internal_faces[a].owner != raw_internal_faces[b].owner) {
-                return raw_internal_faces[a].owner < raw_internal_faces[b].owner;
-              }
-              return raw_internal_faces[a].neighbour < raw_internal_faces[b].neighbour;
+  const size_t n_raw_int = raw_int_idx.size();
+  std::sort(raw_int_idx.begin(), raw_int_idx.end(),
+            [&](int64_t a, int64_t b) {
+              const int64_t oa = st.faces.owner[static_cast<size_t>(a)];
+              const int64_t ob = st.faces.owner[static_cast<size_t>(b)];
+              if (oa != ob) return oa < ob;
+              const int64_t nba = st.faces.neighbour[static_cast<size_t>(a)];
+              const int64_t nbb = st.faces.neighbour[static_cast<size_t>(b)];
+              if (nba != nbb) return nba < nbb;
+              return a < b;
             });
 
-  st.final_internal_faces.clear();
-  st.final_internal_faces.reserve(n_raw_int);
+  std::vector<int64_t> final_int_idx;
+  final_int_idx.reserve(n_raw_int);
+
   for (size_t idx = 0; idx < n_raw_int;) {
-    size_t first_i = raw_order[idx];
+    const size_t first_f = static_cast<size_t>(raw_int_idx[idx]);
+    const int64_t run_o = st.faces.owner[first_f];
+    const int64_t run_nb = st.faces.neighbour[first_f];
     size_t run_end = idx + 1;
-    while (run_end < n_raw_int &&
-           raw_internal_faces[raw_order[run_end]].owner == raw_internal_faces[first_i].owner &&
-           raw_internal_faces[raw_order[run_end]].neighbour == raw_internal_faces[first_i].neighbour) {
+    while (run_end < n_raw_int) {
+      const size_t rf = static_cast<size_t>(raw_int_idx[run_end]);
+      if (st.faces.owner[rf] != run_o || st.faces.neighbour[rf] != run_nb) break;
       ++run_end;
     }
+
     if (run_end - idx == 1) {
-      st.final_internal_faces.push_back(raw_internal_faces[first_i]);
+      final_int_idx.push_back(static_cast<int64_t>(first_f));
     } else {
       bool all_coplanar = true;
-      Vec3 n0 = raw_internal_faces[first_i].normal_owner;
-      Vec3 c0 = raw_internal_faces[first_i].centre;
-      double a0 = n0.norm();
+      const Vec3 n0 = st.faces.normal_owner[first_f];
+      const Vec3 c0 = st.faces.centre[first_f];
+      const double a0 = n0.norm();
       if (a0 <= 1e-24) {
         all_coplanar = false;
       } else {
-        Vec3 u0 = n0 / a0;
-        double plane_tol = 1e-11 * std::sqrt(a0 * static_cast<double>(run_end - idx));
+        const Vec3 u0 = n0 / a0;
+        const double plane_tol = 1e-11 * std::sqrt(a0 * static_cast<double>(run_end - idx));
         for (size_t g = idx; g < run_end && all_coplanar; ++g) {
-          const auto& fk = raw_internal_faces[raw_order[g]];
-          double ak = fk.normal_owner.norm();
-          if (ak <= 1e-24 || dot(fk.normal_owner / ak, u0) < 1.0 - 1e-10) {
+          const size_t gf = static_cast<size_t>(raw_int_idx[g]);
+          const Vec3 nk = st.faces.normal_owner[gf];
+          const double ak = nk.norm();
+          if (ak <= 1e-24 || dot(nk / ak, u0) < 1.0 - 1e-10) {
             all_coplanar = false;
             break;
           }
-          for (int64_t vid : fk.nodes) {
-            if (std::abs(dot(st.node_coords[static_cast<size_t>(vid)] - c0, u0)) > plane_tol) {
+          const int64_t* fn = st.faces.face_nodes(gf);
+          const size_t nv = st.faces.face_nv(gf);
+          for (size_t k = 0; k < nv; ++k) {
+            if (std::abs(dot(st.node_coords[static_cast<size_t>(fn[k])] - c0, u0)) > plane_tol) {
               all_coplanar = false;
               break;
             }
@@ -185,53 +213,36 @@ int32_t passDeduplicateAndRcm(HexcoreState& st) {
         }
       }
 
-      if (!all_coplanar) {
-        for (size_t g = idx; g < run_end; ++g) {
-          st.final_internal_faces.push_back(raw_internal_faces[raw_order[g]]);
-        }
-      } else {
-        MosaicFace merged;
-        merged.owner = raw_internal_faces[first_i].owner;
-        merged.neighbour = raw_internal_faces[first_i].neighbour;
-        merged.patch_name = "internal";
-        merged.is_farfield = false;
-        merged.is_cut_face = false;
-        merged.is_folded = false;
-
+      bool merged_ok = false;
+      if (all_coplanar) {
         Vec3 sum_normal(0, 0, 0);
         Vec3 sum_centre(0, 0, 0);
         double sum_area = 0.0;
+        bool any_folded = false;
 
         std::map<std::pair<int64_t, int64_t>, int> edge_counts;
         for (size_t g = idx; g < run_end; ++g) {
-          const auto& f = raw_internal_faces[raw_order[g]];
-          sum_normal += f.normal_owner;
-          double a = f.normal_owner.norm();
-          sum_centre += f.centre * a;
+          const size_t gf = static_cast<size_t>(raw_int_idx[g]);
+          const Vec3 fn_vec = st.faces.normal_owner[gf];
+          const double a = fn_vec.norm();
+          sum_normal += fn_vec;
+          sum_centre += st.faces.centre[gf] * a;
           sum_area += a;
-          if (f.is_folded) merged.is_folded = true;
+          if ((st.faces.flags[gf] & kFlagFolded) != 0) any_folded = true;
 
-          size_t nv = f.nodes.size();
+          const int64_t* fnodes = st.faces.face_nodes(gf);
+          const size_t nv = st.faces.face_nv(gf);
           for (size_t i = 0; i < nv; ++i) {
-            int64_t u = f.nodes[i];
-            int64_t v = f.nodes[(i + 1) % nv];
-            edge_counts[{u, v}]++;
+            edge_counts[{fnodes[i], fnodes[(i + 1) % nv]}]++;
           }
-        }
-
-        merged.normal_owner = sum_normal;
-        if (sum_area > 1e-15) {
-          merged.centre = sum_centre / sum_area;
-        } else {
-          merged.centre = raw_internal_faces[first_i].centre;
         }
 
         std::vector<std::pair<int64_t, int64_t>> perimeter_edges;
         for (const auto& [edge, count] : edge_counts) {
-          int64_t u = edge.first;
-          int64_t v = edge.second;
+          const int64_t u = edge.first;
+          const int64_t v = edge.second;
           auto it_rev = edge_counts.find({v, u});
-          int rev_count = (it_rev != edge_counts.end()) ? it_rev->second : 0;
+          const int rev_count = (it_rev != edge_counts.end()) ? it_rev->second : 0;
           if (count > rev_count) {
             for (int k = 0; k < count - rev_count; ++k) {
               perimeter_edges.push_back({u, v});
@@ -239,42 +250,93 @@ int32_t passDeduplicateAndRcm(HexcoreState& st) {
           }
         }
 
+        // Strict single-cycle perimeter validation (AUD-028)
+        bool valid_cycle = (perimeter_edges.size() >= 3);
         std::vector<int64_t> cycle;
-        if (!perimeter_edges.empty()) {
+        if (valid_cycle) {
+          std::unordered_map<int64_t, int> out_deg;
+          std::unordered_map<int64_t, int> in_deg;
           std::unordered_map<int64_t, int64_t> next_node;
+          out_deg.reserve(perimeter_edges.size());
+          in_deg.reserve(perimeter_edges.size());
+          next_node.reserve(perimeter_edges.size());
+
           for (const auto& e : perimeter_edges) {
+            if (++out_deg[e.first] > 1 || ++in_deg[e.second] > 1) {
+              valid_cycle = false;
+              break;
+            }
             next_node[e.first] = e.second;
           }
-          int64_t start = perimeter_edges[0].first;
-          int64_t curr = start;
-          std::unordered_set<int64_t> visited;
-          while (visited.insert(curr).second) {
-            cycle.push_back(curr);
-            auto it = next_node.find(curr);
-            if (it == next_node.end()) break;
-            curr = it->second;
-            if (curr == start) break;
+
+          if (valid_cycle) {
+            for (const auto& [v, od] : out_deg) {
+              auto it_in = in_deg.find(v);
+              if (od != 1 || it_in == in_deg.end() || it_in->second != 1) {
+                valid_cycle = false;
+                break;
+              }
+            }
+            for (const auto& [v, id] : in_deg) {
+              auto it_out = out_deg.find(v);
+              if (id != 1 || it_out == out_deg.end() || it_out->second != 1) {
+                valid_cycle = false;
+                break;
+              }
+            }
+          }
+
+          if (valid_cycle) {
+            const int64_t start = perimeter_edges[0].first;
+            int64_t curr = start;
+            std::unordered_set<int64_t> visited;
+            visited.reserve(perimeter_edges.size());
+            cycle.reserve(perimeter_edges.size());
+            while (visited.insert(curr).second) {
+              cycle.push_back(curr);
+              auto it = next_node.find(curr);
+              if (it == next_node.end()) break;
+              curr = it->second;
+              if (curr == start) break;
+            }
+            if (cycle.size() != perimeter_edges.size() || cycle.size() < 3 || curr != start) {
+              valid_cycle = false;
+            }
           }
         }
 
-        if (cycle.size() >= 3) {
-          merged.nodes = std::move(cycle);
-        } else {
-          std::set<int64_t> all_n;
-          for (size_t g = idx; g < run_end; ++g) {
-            for (int64_t v : raw_internal_faces[raw_order[g]].nodes) all_n.insert(v);
-          }
-          merged.nodes.assign(all_n.begin(), all_n.end());
+        if (valid_cycle) {
+          const Vec3 merged_centre = (sum_area > 1e-15) ? (sum_centre / sum_area) : c0;
+          const uint8_t merged_fl = any_folded ? kFlagFolded : 0;
+          const int64_t new_f = st.faces.append_face(
+              cycle.data(),
+              cycle.size(),
+              run_o,
+              run_nb,
+              PatchId::INTERNAL,
+              merged_fl,
+              sum_normal,
+              merged_centre
+          );
+          final_int_idx.push_back(new_f);
+          merged_ok = true;
         }
+      }
 
-        st.final_internal_faces.push_back(std::move(merged));
+      if (!merged_ok) {
+        for (size_t g = idx; g < run_end; ++g) {
+          final_int_idx.push_back(raw_int_idx[g]);
+        }
       }
     }
     idx = run_end;
   }
+  std::vector<int64_t>().swap(raw_int_idx);
 
   if (st.options.enable_rcm && st.final_n_cells > 1) {
-    std::vector<int64_t> perm = computeFastRCM(st.final_n_cells, st.final_internal_faces);
+    std::vector<int64_t> perm = computeFastRCM(
+        st.final_n_cells, final_int_idx, st.faces.owner, st.faces.neighbour
+    );
     std::vector<int64_t> inv_perm(static_cast<size_t>(st.final_n_cells));
     std::vector<int64_t> rcm_to_old_active(static_cast<size_t>(st.final_n_cells));
     for (int64_t new_c = 0; new_c < st.final_n_cells; ++new_c) {
@@ -284,69 +346,92 @@ int32_t passDeduplicateAndRcm(HexcoreState& st) {
     }
     st.new_to_old_active.swap(rcm_to_old_active);
 
-    size_t n_int_f = st.final_internal_faces.size();
-    std::vector<size_t> f_order(n_int_f);
-    for (size_t f = 0; f < n_int_f; ++f) {
-      MosaicFace& mf = st.final_internal_faces[f];
-      int64_t o = inv_perm[static_cast<size_t>(mf.owner)];
-      int64_t nb = inv_perm[static_cast<size_t>(mf.neighbour)];
+    for (int64_t f : final_int_idx) {
+      const size_t fs = static_cast<size_t>(f);
+      int64_t o = inv_perm[static_cast<size_t>(st.faces.owner[fs])];
+      int64_t nb = inv_perm[static_cast<size_t>(st.faces.neighbour[fs])];
       if (o > nb) {
         std::swap(o, nb);
-        mf.normal_owner = -mf.normal_owner;
-        std::reverse(mf.nodes.begin(), mf.nodes.end());
+        st.faces.normal_owner[fs] = -st.faces.normal_owner[fs];
+        int64_t* fn = st.faces.face_nodes_mut(fs);
+        std::reverse(fn, fn + st.faces.face_nv(fs));
       }
-      mf.owner = o;
-      mf.neighbour = nb;
-      f_order[f] = f;
+      st.faces.owner[fs] = o;
+      st.faces.neighbour[fs] = nb;
     }
 
-    std::sort(f_order.begin(), f_order.end(),
-              [&](size_t a, size_t b) {
-                if (st.final_internal_faces[a].owner != st.final_internal_faces[b].owner) {
-                  return st.final_internal_faces[a].owner < st.final_internal_faces[b].owner;
-                }
-                return st.final_internal_faces[a].neighbour < st.final_internal_faces[b].neighbour;
+    std::sort(final_int_idx.begin(), final_int_idx.end(),
+              [&](int64_t a, int64_t b) {
+                const int64_t oa = st.faces.owner[static_cast<size_t>(a)];
+                const int64_t ob = st.faces.owner[static_cast<size_t>(b)];
+                if (oa != ob) return oa < ob;
+                const int64_t nba = st.faces.neighbour[static_cast<size_t>(a)];
+                const int64_t nbb = st.faces.neighbour[static_cast<size_t>(b)];
+                if (nba != nbb) return nba < nbb;
+                return a < b;
               });
 
-    std::vector<MosaicFace> sorted_int_faces;
-    sorted_int_faces.reserve(n_int_f);
-    for (size_t idx_f : f_order) {
-      sorted_int_faces.push_back(st.final_internal_faces[idx_f]);
-    }
-    st.final_internal_faces.swap(sorted_int_faces);
-
-    for (size_t f = 0; f < st.final_boundary_faces.size(); ++f) {
-      MosaicFace& mf = st.final_boundary_faces[f];
-      mf.owner = inv_perm[static_cast<size_t>(mf.owner)];
+    for (int64_t f : bnd_idx) {
+      const size_t fs = static_cast<size_t>(f);
+      st.faces.owner[fs] = inv_perm[static_cast<size_t>(st.faces.owner[fs])];
     }
   }
 
-  size_t n_bnd_f = st.final_boundary_faces.size();
-  std::vector<size_t> bnd_order(n_bnd_f);
-  for (size_t f = 0; f < n_bnd_f; ++f) {
-    if (st.final_boundary_faces[f].patch_name.empty()) {
-      st.final_boundary_faces[f].patch_name = "wall";
+  for (int64_t f : bnd_idx) {
+    const size_t fs = static_cast<size_t>(f);
+    if (st.faces.patch_id[fs] == PatchId::INTERNAL) {
+      st.faces.patch_id[fs] = PatchId::WALL;
     }
-    bnd_order[f] = f;
   }
-  std::stable_sort(bnd_order.begin(), bnd_order.end(),
-                   [&](size_t a, size_t b) {
-                     return st.final_boundary_faces[a].patch_name < st.final_boundary_faces[b].patch_name;
+  std::stable_sort(bnd_idx.begin(), bnd_idx.end(),
+                   [&](int64_t a, int64_t b) {
+                     return std::strcmp(
+                         patchIdToName(st.faces.patch_id[static_cast<size_t>(a)]),
+                         patchIdToName(st.faces.patch_id[static_cast<size_t>(b)])
+                     ) < 0;
                    });
-  std::vector<MosaicFace> sorted_bnd_faces;
-  sorted_bnd_faces.reserve(n_bnd_f);
-  for (size_t idx_f : bnd_order) {
-    sorted_bnd_faces.push_back(st.final_boundary_faces[idx_f]);
+
+  const size_t n_final_total = final_int_idx.size() + bnd_idx.size();
+  size_t total_node_ids = 0;
+  for (int64_t f : final_int_idx) total_node_ids += st.faces.face_nv(static_cast<size_t>(f));
+  for (int64_t f : bnd_idx) total_node_ids += st.faces.face_nv(static_cast<size_t>(f));
+
+  FaceStore final_faces;
+  final_faces.reserve(n_final_total, total_node_ids);
+  for (int64_t f : final_int_idx) {
+    const size_t fs = static_cast<size_t>(f);
+    final_faces.append_face(
+        st.faces.face_nodes(fs),
+        st.faces.face_nv(fs),
+        st.faces.owner[fs],
+        st.faces.neighbour[fs],
+        st.faces.patch_id[fs],
+        st.faces.flags[fs],
+        st.faces.normal_owner[fs],
+        st.faces.centre[fs]
+    );
   }
-  st.final_boundary_faces.swap(sorted_bnd_faces);
+  for (int64_t f : bnd_idx) {
+    const size_t fs = static_cast<size_t>(f);
+    final_faces.append_face(
+        st.faces.face_nodes(fs),
+        st.faces.face_nv(fs),
+        st.faces.owner[fs],
+        st.faces.neighbour[fs],
+        st.faces.patch_id[fs],
+        st.faces.flags[fs],
+        st.faces.normal_owner[fs],
+        st.faces.centre[fs]
+    );
+  }
 
-  st.all_faces.clear();
-  st.all_faces.reserve(st.final_internal_faces.size() + st.final_boundary_faces.size());
-  for (auto& f : st.final_internal_faces) st.all_faces.push_back(std::move(f));
-  for (auto& f : st.final_boundary_faces) st.all_faces.push_back(std::move(f));
+  st.n_internal = static_cast<int64_t>(final_int_idx.size());
+  st.total_faces = static_cast<int64_t>(n_final_total);
 
-  st.total_faces = static_cast<int64_t>(st.all_faces.size());
-  st.n_internal = static_cast<int64_t>(st.final_internal_faces.size());
+  std::vector<int64_t>().swap(final_int_idx);
+  std::vector<int64_t>().swap(bnd_idx);
+  st.faces.clear_and_shrink();
+  st.faces = std::move(final_faces);
 
   return 0;
 }

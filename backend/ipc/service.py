@@ -385,6 +385,11 @@ class IPCService:
         domain_mode = str(params.get("domain_mode", "internal_fluid"))
         is_async = bool(params.get("async", False))
 
+        if geo_id is not None and str(geo_id).strip() != "":
+            geo_id = str(geo_id)
+            if geo_id not in self._geometry_cache:
+                raise KeyError(f"Geometry ID '{geo_id}' not found in active session")
+
         def _do_meshing(job_rec: Optional[JobRecord] = None) -> Dict[str, Any]:
             mesh_engine = MeshEngine()
 
@@ -660,6 +665,7 @@ class IPCService:
         write_interval = float(params.get("write_interval", 0.05))
         mpi_ranks = int(params.get("mpi_ranks", 16))
         patches = params.get("patches", {"inlet": "velocity_inlet", "outlet": "pressure_outlet", "wall": "wall"})
+        regions = params.get("regions")
 
         gen = CaseGenerator(self.module_registry)
         case_path = gen.create_case(
@@ -671,6 +677,7 @@ class IPCService:
             write_interval=write_interval,
             mpi_ranks=mpi_ranks,
             patches=patches,
+            regions=regions,
         )
 
         gen_files = [str(f.relative_to(case_path)) for f in case_path.rglob("*") if f.is_file()]

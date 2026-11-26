@@ -1,299 +1,66 @@
 """Unified High-Level In-Memory Mesh Engine Facade & Pure-Python Fallback.
 
-Implements the MeshEngine facade orchestrating:
-- Transparent native acceleration via cfd_mesher_native.dll (<= 0.1% overhead)
-- Pure-Python/NumPy fallback engine
-- Body-fitted unstructured and structured mesh generation for CAD geometries:
-  * Rotated 200 mm cube (TestCAD) with exact volume (0.008 m^3) and bounding box
-  * Complex 3D aerodynamic turbine blade (BladeFullRev1CFD / BladeRev1CFD.obj)
-  * Robust CAD feature and sketch-line filtering (GEOMETRIC_CURVE_SET, DRAUGHTING_MODEL)
-- Full DiFVM SoA graph-topology generation, boundary patches, and error-map
+Orchestrates native C++20 acceleration via cfd_mesher_native and focused submodules:
+- _engine_zones.py: closed-shell orientation normalization, CHT shell zones, farfield bounds, Lp metrics
+- _engine_python_fallback.py: pure-Python/NumPy fallback mesh generators
 """
 
 from __future__ import annotations
 
 import copy
 import ctypes
-import gzip
 import logging
 import os
 from pathlib import Path
-import tempfile
 from typing import Any, Dict, List, Optional, Tuple, Union
-import warnings
-
-logger = logging.getLogger(__name__)
-
-
 import numpy as np
 
 from backend.geometry.models import SurfaceMesh
-from backend.geometry.parsers.stl_parser import STLParser
 from backend.geometry.pipeline import CADGeometryEngine
+from backend.meshing._engine_python_fallback import (
+    detect_oriented_box_axes,
+    mesh_2d_polygon_python,
+    mesh_cht_coupled_python,
+    mesh_complex_surface_python,
+    mesh_external_fluid_python,
+    mesh_from_points_cells_python,
+    mesh_multi_region_python,
+    mesh_oriented_box_python,
+)
+from backend.meshing._engine_zones import (
+    _connected_face_components,
+    _decompose_cht_shell_zones,
+    _generalized_winding_number,
+    _signed_shell_volume,
+    compute_farfield_bounding_box,
+    compute_farfield_bounds_from_config,
+    compute_lp_metric_tensor,
+    default_config_for_h0,
+    normalize_closed_shell_orientations,
+    reconstruct_p2_edge_midpoints,
+)
 from backend.meshing.difvm_topology import (
     MeshingConfigC,
-    compute_difvm_topology,
     extract_cht_twin_faces,
     generate_hexcore_native,
     get_native_dll,
     get_native_load_error,
 )
 from backend.meshing.distmesh_core import (
-    _orient2d_py,
     canonicalize_polygon_ccw,
-    distmesh_2d,
     ear_clipping_triangulate,
-    polygon_signed_distance,
     rcm_reorder,
-    subdivide_polygon_edges,
 )
 from backend.meshing.gci import GCIHierarchy, generate_3grid_gci_hierarchy
-from backend.meshing.geometry_sdf import BaseSDF, CADMeshSDF
 from backend.meshing.inflation import BoundaryLayerGenerator
 from backend.meshing.models import (
-    CurvatureSizingConfig,
-    FarfieldPadding,
     InflationConfig,
     MeshingConfig,
-    QualityConfig,
     UnstructuredMesh,
 )
+from backend.meshing.native_loader import _env_strict_native, raise_native_status_error
 
-
-def _connected_face_components(
-    faces: np.ndarray,
-    subset_indices: Optional[np.ndarray] = None,
-) -> List[np.ndarray]:
-    """Find connected surface face components via shared vertex indices."""
-    if subset_indices is None:
-        subset_indices = np.arange(len(faces), dtype=np.int64)
-    n_sub = len(subset_indices)
-    if n_sub == 0:
-        return []
-    vert_to_local: Dict[int, List[int]] = {}
-    for l_idx, g_idx in enumerate(subset_indices):
-        for v in faces[g_idx]:
-            vert_to_local.setdefault(int(v), []).append(l_idx)
-    visited = np.zeros(n_sub, dtype=bool)
-    comps: List[np.ndarray] = []
-    for seed in range(n_sub):
-        if visited[seed]:
-            continue
-        visited[seed] = True
-        queue = [seed]
-        q_head = 0
-        while q_head < len(queue):
-            cur = queue[q_head]
-            q_head += 1
-            for v in faces[subset_indices[cur]]:
-                for nbr in vert_to_local.get(int(v), ()):
-                    if not visited[nbr]:
-                        visited[nbr] = True
-                        queue.append(nbr)
-        comps.append(subset_indices[np.asarray(queue, dtype=np.int64)])
-    return comps
-
-
-def _signed_shell_volume(verts: np.ndarray, tri_faces: np.ndarray) -> float:
-    """Compute signed volume of a triangulated shell relative to its centroid."""
-    if len(tri_faces) == 0:
-        return 0.0
-    v0 = verts[tri_faces[:, 0]]
-    v1 = verts[tri_faces[:, 1]]
-    v2 = verts[tri_faces[:, 2]]
-    ref = v0.mean(axis=0)
-    return float(np.sum(np.einsum("ij,ij->i", v0 - ref, np.cross(v1 - ref, v2 - ref))) / 6.0)
-
-
-def _generalized_winding_number(
-    verts: np.ndarray, tri_faces: np.ndarray, query_pts: np.ndarray
-) -> np.ndarray:
-    """Evaluate exact solid-angle generalized winding number w(x) in R^3 (Jacobson et al.).
-
-    Uses native C++ Barnes-Hut `cfd_sdf_winding_number` when available, with an
-    exact vectorized Van Oosterom-Strackee numpy fallback.
-    """
-    pts = np.ascontiguousarray(query_pts, dtype=np.float64)
-    if len(pts) == 0 or len(tri_faces) == 0:
-        return np.zeros(len(pts), dtype=np.float64)
-
-    # Ensure outward orientation (positive signed volume) for closed shells
-    f_oriented = np.ascontiguousarray(tri_faces, dtype=np.int32)
-    if _signed_shell_volume(verts, f_oriented) < 0.0:
-        f_oriented = np.ascontiguousarray(f_oriented[:, [0, 2, 1]], dtype=np.int32)
-
-    dll = get_native_dll(strict_native=False)
-    if dll is not None and hasattr(dll, "cfd_sdf_create") and hasattr(dll, "cfd_sdf_winding_number"):
-        import ctypes
-
-        dll.cfd_sdf_create.restype = ctypes.c_void_p
-        dll.cfd_sdf_create.argtypes = [
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.c_int64,
-            ctypes.POINTER(ctypes.c_int32),
-            ctypes.c_int64,
-        ]
-        dll.cfd_sdf_free.restype = None
-        dll.cfd_sdf_free.argtypes = [ctypes.c_void_p]
-        dll.cfd_sdf_winding_number.restype = ctypes.c_int32
-        dll.cfd_sdf_winding_number.argtypes = [
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.c_int64,
-            ctypes.POINTER(ctypes.c_double),
-        ]
-        v_c = np.ascontiguousarray(verts, dtype=np.float64)
-        eng = dll.cfd_sdf_create(
-            v_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-            len(v_c),
-            f_oriented.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)),
-            len(f_oriented),
-        )
-        if eng:
-            try:
-                out_wn = np.zeros(len(pts), dtype=np.float64)
-                rc = dll.cfd_sdf_winding_number(
-                    eng,
-                    pts.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                    len(pts),
-                    out_wn.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                )
-                if rc == 0:
-                    return out_wn
-            finally:
-                dll.cfd_sdf_free(eng)
-
-    # Vectorized Van Oosterom-Strackee solid angle fallback
-    v0 = verts[f_oriented[:, 0]]
-    v1 = verts[f_oriented[:, 1]]
-    v2 = verts[f_oriented[:, 2]]
-    wn = np.zeros(len(pts), dtype=np.float64)
-    batch = max(1, 200_000 // max(len(f_oriented), 1))
-    for i0 in range(0, len(pts), batch):
-        q = pts[i0 : i0 + batch, None, :]
-        a = v0[None, :, :] - q
-        b = v1[None, :, :] - q
-        c = v2[None, :, :] - q
-        la = np.linalg.norm(a, axis=-1)
-        lb = np.linalg.norm(b, axis=-1)
-        lc = np.linalg.norm(c, axis=-1)
-        num = np.einsum("pmi,pmi->pm", a, np.cross(b, c))
-        den = (
-            la * lb * lc
-            + np.einsum("pmi,pmi->pm", a, b) * lc
-            + np.einsum("pmi,pmi->pm", b, c) * la
-            + np.einsum("pmi,pmi->pm", c, a) * lb
-        )
-        wn[i0 : i0 + batch] = np.sum(2.0 * np.arctan2(num, den), axis=1) / (4.0 * np.pi)
-    return wn
-
-
-def _decompose_cht_shell_zones(surface: SurfaceMesh) -> List[Tuple[str, np.ndarray]]:
-    """Decompose a CHT shell assembly into outer solid and nested cavities/inserts via Winding Number (Blueprint §1.3, AUD-025)."""
-    verts = np.asarray(surface.vertices, dtype=np.float64)
-    faces = np.asarray(surface.faces, dtype=np.int64)
-    if len(faces) == 0 or len(verts) == 0:
-        return []
-    comps = _connected_face_components(faces)
-    if len(comps) < 2:
-        return [("solid_0", np.arange(len(faces), dtype=np.int64))]
-
-    # Build nesting tree via generalized winding number (never pick solid by max triangle count, AUD-025!)
-    n_c = len(comps)
-    sample_pts = np.array([verts[faces[c[0]]].mean(axis=0) for c in comps], dtype=np.float64)
-    abs_vols = [abs(_signed_shell_volume(verts, faces[c])) for c in comps]
-
-    # parent_count[j] = number of other larger shells i that enclose sample_pts[j]
-    depth = np.zeros(n_c, dtype=np.int32)
-    for i in range(n_c):
-        if len(comps[i]) < 4:
-            continue
-        w = np.abs(_generalized_winding_number(verts, faces[comps[i]], sample_pts))
-        for j in range(n_c):
-            if i != j and abs_vols[i] > abs_vols[j] and w[j] > 0.5:
-                depth[j] += 1
-
-    # Outermost largest shell (depth == 0, largest enclosed volume) is primary solid body
-    root_candidates = [i for i in range(n_c) if depth[i] == 0]
-    solid_idx = max(root_candidates, key=lambda idx: abs_vols[idx]) if root_candidates else 0
-    solid_faces = comps[solid_idx]
-    solid_verts = verts[np.unique(faces[solid_faces].ravel())]
-    bmin = solid_verts.min(axis=0)
-    bmax = solid_verts.max(axis=0)
-    bspan = np.maximum(bmax - bmin, 1e-12)
-
-    zones: List[Tuple[str, np.ndarray]] = [(f"solid_{solid_idx}", solid_faces)]
-    chamber_count = 0
-    duct_count = 0
-    nested_solid_count = 1
-
-    # Order remaining shells by nesting depth (shallowest to deepest) so deeper overrides shallower
-    other_indices = [i for i in range(n_c) if i != solid_idx]
-    other_indices.sort(key=lambda idx: (int(depth[idx]), -abs_vols[idx]))
-
-    for c_idx in other_indices:
-        comp_f_idx = comps[c_idx]
-        if len(comp_f_idx) < 4:
-            continue
-        # Even nesting depth >= 2 inside primary solid: nested solid insert inside fluid cavity!
-        if depth[c_idx] >= 2 and (depth[c_idx] % 2 == 0):
-            zones.append((f"solid_insert_{nested_solid_count}", comp_f_idx))
-            nested_solid_count += 1
-            continue
-
-        comp_tris = faces[comp_f_idx]
-        fc = verts[comp_tris].mean(axis=1)
-        tol_vec = 1e-3 * bspan
-        out_bbox_mask = np.any((fc < (bmin - tol_vec)) | (fc > (bmax + tol_vec)), axis=1)
-        if not np.any(out_bbox_mask):
-            zones.append((f"chamber_{chamber_count}", comp_f_idx))
-            chamber_count += 1
-        else:
-            zones.append((f"duct_{duct_count}", comp_f_idx))
-            duct_count += 1
-
-    return zones
-
-
-def compute_farfield_bounding_box(
-    body_bbox: Union[Any, Tuple[Tuple[float, float, float], Tuple[float, float, float]]],
-    upstream: float = 5.0,
-    downstream: float = 10.0,
-    lateral_y: float = 5.0,
-    lateral_z: float = 5.0,
-    ground_plane: bool = False,
-) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
-    """Compute standard aerodynamic farfield domain extents from body bounding box."""
-    if hasattr(body_bbox, "min_pt") and hasattr(body_bbox, "max_pt"):
-        b_min = np.asarray(body_bbox.min_pt, dtype=np.float64)
-        b_max = np.asarray(body_bbox.max_pt, dtype=np.float64)
-    else:
-        b_min = np.asarray(body_bbox[0], dtype=np.float64)
-        b_max = np.asarray(body_bbox[1], dtype=np.float64)
-    span = b_max - b_min
-    if np.any(span < 0):
-        raise ValueError(f"Inverted body bounding box: min={b_min}, max={b_max}")
-    if span[2] < 1e-12:
-        raise ValueError("Planar geometry provided to 3D farfield mesher; use 2D mesher instead.")
-
-    l_ref = float(span[0]) if span[0] > 1e-6 else float(np.max(span))
-
-    ff_min = np.array([
-        b_min[0] - upstream * l_ref,
-        b_min[1] - lateral_y * l_ref,
-        b_min[2] if ground_plane else b_min[2] - lateral_z * l_ref,
-    ], dtype=np.float64)
-
-    ff_max = np.array([
-        b_max[0] + downstream * l_ref,
-        b_max[1] + lateral_y * l_ref,
-        b_max[2] + lateral_z * l_ref,
-    ], dtype=np.float64)
-
-    return (
-        (float(ff_min[0]), float(ff_min[1]), float(ff_min[2])),
-        (float(ff_max[0]), float(ff_max[1]), float(ff_max[2])),
-    )
+logger = logging.getLogger(__name__)
 
 
 class MeshEngine:
@@ -303,11 +70,18 @@ class MeshEngine:
         self,
         use_native: bool = True,
         config: Optional[MeshingConfig] = None,
-        strict_native: bool = False,
+        strict_native: Optional[bool] = None,
+        allow_python_fallback: bool = False,
     ) -> None:
         self.use_native = use_native
         self.config = config
-        self.strict_native = strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
+        self.allow_python_fallback = allow_python_fallback
+        env_strict = _env_strict_native()
+        if strict_native is None:
+            self.strict_native = env_strict or (use_native and not allow_python_fallback)
+        else:
+            self.strict_native = env_strict or bool(strict_native)
+
         if self.strict_native and not use_native:
             raise RuntimeError("strict_native=True requires use_native=True.")
         self._native_dll = get_native_dll(strict_native=self.strict_native) if use_native else None
@@ -323,44 +97,37 @@ class MeshEngine:
     def mesh_cad_file(
         self,
         cad_path: Union[str, Path],
-        h0: float = 0.05,
+        h0: Optional[float] = None,
         scale: float = 1.0,
         config: Optional[MeshingConfig] = None,
         domain_mode: Optional[str] = None,
     ) -> UnstructuredMesh:
-        """Ingest, filter, and mesh a CAD geometry file (.stp, .stl, .obj, .prt).
-
-        Parameters
-        ----------
-        cad_path : Union[str, Path]
-            Path to the CAD file.
-        h0 : float
-            Target nominal element size.
-        scale : float
-            Coordinate scaling factor (e.g. 0.001 to convert mm to m).
-        config : Optional[MeshingConfig]
-            Meshing configuration overrides.
-        domain_mode : Optional[str]
-            Optional domain mode override ('external_fluid', 'solid_only', etc.).
-
-        Returns
-        -------
-        mesh : UnstructuredMesh
-            Generated body-fitted unstructured mesh satisfying all physical invariants.
-        """
+        """Ingest, filter, and mesh a CAD geometry file (.stp, .stl, .obj, .prt)."""
         path = Path(cad_path).resolve()
         if not path.exists():
             raise FileNotFoundError(f"CAD file not found: {path}")
 
-        active_cfg = config if config is not None else (self.config if self.config is not None else MeshingConfig())
+        base_cfg = config if config is not None else self.config
+        if h0 is None:
+            if base_cfg is not None and base_cfg.sizing is not None and base_cfg.sizing.h0 > 0.0:
+                eff_h0 = float(base_cfg.sizing.h0)
+                active_cfg = base_cfg
+            elif base_cfg is not None:
+                eff_h0 = 0.05
+                active_cfg = base_cfg
+            else:
+                eff_h0 = 0.05
+                active_cfg = default_config_for_h0(eff_h0)
+        else:
+            eff_h0 = float(h0)
+            active_cfg = base_cfg if base_cfg is not None else default_config_for_h0(eff_h0)
+
         if domain_mode is not None:
             active_cfg = MeshingConfig.from_dict({**active_cfg.to_dict(), "domain_mode": domain_mode})
 
-        # If path is a directory (such as snappyMultiRegionHeater), process as multi-region CHT mesh
         if path.is_dir():
-            return self.mesh_multi_region(path, h0=h0, scale=scale, config=active_cfg)
+            return self.mesh_multi_region(path, h0=eff_h0, scale=scale, config=active_cfg)
 
-        # 1. Ingest via CADGeometryEngine (filters sketch lines and wireframes automatically)
         cad_engine = CADGeometryEngine()
         cad_engine.load(path)
         sm: SurfaceMesh = cad_engine.current_mesh
@@ -368,39 +135,28 @@ class MeshEngine:
             raise ValueError(f"Failed to extract 2-manifold surface mesh from CAD file: {path}")
 
         verts = sm.vertices * scale
-        faces = sm.faces
-
-        # Domain mode evaluation: honor declarative config domain_mode directly
+        norm_faces, shell_stats = normalize_closed_shell_orientations(verts, sm.faces)
         is_solid_only = (active_cfg.domain_mode == "solid_only")
 
-        if not is_solid_only:
-            clean_mesh = SurfaceMesh(
-                vertices=verts,
-                faces=faces.copy(),
-                normals=sm.normals.copy() if sm.normals is not None else None,
-                patches=dict(sm.patches) if sm.patches else {},
-            )
-            effective_h0 = float(h0)
-            return self.mesh_hexcore(clean_mesh, scale=1.0, h0=effective_h0, config=active_cfg)
-
-        # 2. Case A: Oriented cuboid pure-Python fast-path (only when native octree+cut-cell core is disabled)
-        if not (self.use_native and self.has_native_core):
-            R = self._detect_oriented_box_axes(verts, faces)
+        if is_solid_only and not (self.use_native and self.has_native_core):
+            R = self._detect_oriented_box_axes(verts, norm_faces)
             if R is not None:
-                return self._mesh_oriented_box(verts, R, h0=h0, active_cfg=active_cfg)
+                mesh = self._mesh_oriented_box(verts, R, h0=eff_h0, active_cfg=active_cfg)
+                mesh.metadata["shell_orientation"] = shell_stats
+                mesh.metadata["surface_open_edges"] = int(shell_stats["surface_open_edges"])
+                return mesh
 
-        # 3. Case B: Route solid_only through Octree + Cut-Cells for clean thin-wall & rotated resolution
         clean_mesh = SurfaceMesh(
             vertices=verts,
-            faces=faces.copy(),
+            faces=norm_faces,
             normals=sm.normals.copy() if sm.normals is not None else None,
             patches=dict(sm.patches) if sm.patches else {},
         )
         return self.mesh_hexcore(
             clean_mesh,
             scale=1.0,
-            h0=float(h0),
-            domain_mode="solid_only",
+            h0=eff_h0,
+            domain_mode=active_cfg.domain_mode,
             config=active_cfg,
         )
 
@@ -413,29 +169,12 @@ class MeshEngine:
         config: Optional[MeshingConfig] = None,
         **kwargs: Any,
     ) -> GCIHierarchy:
-        """Generate a deterministic 3-grid GCI hierarchy (fine, medium, coarse) per ASME V&V 20-2009.
-
-        Parameters
-        ----------
-        cad_path : Union[str, Path, SurfaceMesh]
-            Target CAD file, directory, or SurfaceMesh geometry.
-        base_h0 : float
-            Nominal element size on the fine grid (h1).
-        r : float
-            Grid refinement ratio in [1.3, 1.5] (nominally sqrt(2) ~ 1.414).
-        scale : float
-            Coordinate scaling factor.
-        config : Optional[MeshingConfig]
-            Declarative meshing configuration.
-        **kwargs : Any
-            Additional options forwarded to the mesher.
-
-        Returns
-        -------
-        hierarchy : GCIHierarchy
-            Container holding verified fine, medium, and coarse meshes.
-        """
-        active_cfg = config if config is not None else (self.config if self.config is not None else MeshingConfig())
+        """Generate a deterministic 3-grid GCI hierarchy (fine, medium, coarse) per ASME V&V 20-2009."""
+        active_cfg = (
+            config
+            if config is not None
+            else (self.config if self.config is not None else default_config_for_h0(base_h0))
+        )
 
         def _generator(h: float) -> UnstructuredMesh:
             if isinstance(cad_path, SurfaceMesh):
@@ -467,19 +206,20 @@ class MeshEngine:
             else (
                 self.config
                 if self.config is not None
-                else MeshingConfig(domain_mode=domain_mode or "external_fluid")
+                else default_config_for_h0(h0, domain_mode=domain_mode or "external_fluid")
             )
         )
-        # Explicit domain_mode argument ALWAYS wins over config default (AUD-008)
         effective_domain_mode = domain_mode if domain_mode is not None else active_cfg.domain_mode
         if effective_domain_mode not in valid_modes:
             raise ValueError(
                 f"Unsupported config.domain_mode {effective_domain_mode!r}; expected one of {sorted(valid_modes)}"
             )
 
+        scaled_verts = surface.vertices * scale
+        norm_faces, shell_stats = normalize_closed_shell_orientations(scaled_verts, surface.faces)
         scaled_surf = SurfaceMesh(
-            vertices=surface.vertices * scale,
-            faces=surface.faces.copy(),
+            vertices=scaled_verts,
+            faces=norm_faces,
             normals=surface.normals.copy() if surface.normals is not None else None,
             patches=dict(surface.patches) if surface.patches else {},
         )
@@ -487,7 +227,6 @@ class MeshEngine:
             bmin = np.min(scaled_surf.vertices, axis=0)
             bmax = np.max(scaled_surf.vertices, axis=0)
             ff_min, ff_max = self._compute_farfield_bounds(bmin, bmax, active_cfg)
-            # Canonical C-ABI layout: (xmin, ymin, zmin, xmax, ymax, zmax) (AUD-003)
             farfield_bbox = (
                 float(ff_min[0]),
                 float(ff_min[1]),
@@ -496,7 +235,8 @@ class MeshEngine:
                 float(ff_max[1]),
                 float(ff_max[2]),
             )
-        is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
+
+        is_strict = self.strict_native or _env_strict_native()
         if self.use_native and self.has_native_core and len(scaled_surf.faces) > 0:
             try:
                 if effective_domain_mode == "cht_coupled":
@@ -504,7 +244,6 @@ class MeshEngine:
                     if len(cht_zones) >= 2:
                         solid_cfg = copy.copy(active_cfg)
                         solid_cfg.rcm_reorder = False
-                        # Mesh union of outer solid + protruding ducts so all CHT zones exist in volume
                         outer_faces = np.concatenate(
                             [
                                 z_f
@@ -525,7 +264,6 @@ class MeshEngine:
                         verts_arr = np.asarray(scaled_surf.vertices, dtype=np.float64)
                         faces_arr = np.asarray(scaled_surf.faces, dtype=np.int32)
                         if native_mesh.num_cells > 0:
-                            # Assign regions via generalized winding number per nested shell (AUD-004, Blueprint §1.3)
                             regions = np.zeros(native_mesh.num_cells, dtype=np.int32)
                             for reg_id in range(1, len(cht_zones)):
                                 _z_name, z_f_idx = cht_zones[reg_id]
@@ -540,8 +278,12 @@ class MeshEngine:
                             native_mesh.cell_regions = regions
                         zone_names = [z_name for z_name, _ in cht_zones]
                         native_mesh.metadata["cht_zone_names"] = zone_names
+                        native_mesh.metadata["shell_orientation"] = shell_stats
+                        native_mesh.metadata["surface_open_edges"] = int(shell_stats["surface_open_edges"])
                         out_mesh = extract_cht_twin_faces(native_mesh)
                         out_mesh.metadata.setdefault("cht_zone_names", zone_names)
+                        out_mesh.metadata.setdefault("shell_orientation", shell_stats)
+                        out_mesh.metadata.setdefault("surface_open_edges", int(shell_stats["surface_open_edges"]))
                         return out_mesh
 
                 native_mesh = generate_hexcore_native(
@@ -554,6 +296,8 @@ class MeshEngine:
                 )
                 if active_cfg.rcm_reorder and not native_mesh.metadata.get("rcm_reordered", False):
                     native_mesh, _ = rcm_reorder(native_mesh)
+                native_mesh.metadata["shell_orientation"] = shell_stats
+                native_mesh.metadata["surface_open_edges"] = int(shell_stats["surface_open_edges"])
                 return native_mesh
             except MemoryError:
                 raise
@@ -568,97 +312,18 @@ class MeshEngine:
             )
 
         if effective_domain_mode == "cht_coupled":
-            return self._mesh_cht_coupled(surface, scale=scale, h0=h0, active_cfg=active_cfg)
+            mesh = self._mesh_cht_coupled(scaled_surf, scale=1.0, h0=h0, active_cfg=active_cfg)
         elif effective_domain_mode == "solid_only":
-            return self._mesh_complex_surface(surface, scale=scale, h0=h0, active_cfg=active_cfg)
-        return self._mesh_external_fluid(surface, scale=scale, h0=h0, active_cfg=active_cfg)
+            mesh = self._mesh_complex_surface(scaled_surf, scale=1.0, h0=h0, active_cfg=active_cfg)
+        else:
+            mesh = self._mesh_external_fluid(scaled_surf, scale=1.0, h0=h0, active_cfg=active_cfg)
+        mesh.metadata["shell_orientation"] = shell_stats
+        mesh.metadata["surface_open_edges"] = int(shell_stats["surface_open_edges"])
+        return mesh
 
     @staticmethod
-    def _detect_oriented_box_axes(
-        verts: np.ndarray, faces: np.ndarray
-    ) -> Optional[np.ndarray]:
-        """Detect if closed surface mesh represents a general rectangular cuboid / box.
-
-        Unlike heuristic vertex-count checks (e.g. len(verts) == 8), this rigorously audits
-        the geometric surface normals of all faces. A general rectangular cuboid has faces
-        whose normals cluster into exactly three mutually orthogonal axis directions.
-
-        Returns:
-            Orthonormal 3x3 rotation matrix R = [u0, u1, u2] if box, else None.
-        """
-        if len(faces) < 6 or len(verts) < 4:
-            return None
-        v0 = verts[faces[:, 0]]
-        v1 = verts[faces[:, 1]]
-        v2 = verts[faces[:, 2]]
-        cross_prod = np.cross(v1 - v0, v2 - v0)
-        areas = 0.5 * np.linalg.norm(cross_prod, axis=1)
-        valid = areas > 1e-15
-        if np.sum(valid) < 6:
-            return None
-        normals = cross_prod[valid] / (2.0 * areas[valid, None])
-
-        # Cluster face normals into unique axis directions (up to sign flip)
-        axes: List[np.ndarray] = []
-        for n in normals:
-            matched = False
-            for a in axes:
-                if abs(float(np.dot(n, a))) > 0.999:
-                    matched = True
-                    break
-            if not matched:
-                axes.append(n)
-                if len(axes) > 3:
-                    return None
-
-        if len(axes) != 3:
-            return None
-
-        # Verify mutual orthogonality
-        u0, u1, u2 = axes
-        if (
-            abs(float(np.dot(u0, u1))) > 1e-3
-            or abs(float(np.dot(u0, u2))) > 1e-3
-            or abs(float(np.dot(u1, u2))) > 1e-3
-        ):
-            return None
-
-        R = np.column_stack([u0, u1, u2])
-        if np.linalg.det(R) < 0:
-            u2 = -u2
-            R = np.column_stack([u0, u1, u2])
-
-        # Check volume consistency: surface divergence volume must match oriented bounding box volume
-        P = verts @ R
-        p_min = np.min(P, axis=0)
-        p_max = np.max(P, axis=0)
-        L = p_max - p_min
-        bbox_vol = float(L[0] * L[1] * L[2])
-        if bbox_vol <= 1e-15:
-            return None
-
-        # Closed surface volume via divergence theorem
-        v0 = verts[faces[:, 0]]
-        v1 = verts[faces[:, 1]]
-        v2 = verts[faces[:, 2]]
-        c_f = (v0 + v1 + v2) / 3.0
-        s_f = 0.5 * np.cross(v1 - v0, v2 - v0)
-        surf_vol = abs(float(np.sum(np.sum(c_f * s_f, axis=1))) / 3.0)
-
-        # Non-box geometries (e.g. L-profile: vol 3.0 vs bbox 4.0) deviate by > 0.1%
-        if abs(surf_vol - bbox_vol) / bbox_vol > 1e-3:
-            return None
-
-        # Verify face count and directional clusters: a rectangular box has exactly 6 planar faces
-        # (each axis must have both positive and negative normal faces, giving 6 distinct directions)
-        dir_clusters = 0
-        for axis in [u0, -u0, u1, -u1, u2, -u2]:
-            if np.any(np.dot(normals, axis) > 0.99):
-                dir_clusters += 1
-        if dir_clusters != 6:
-            return None
-
-        return R
+    def _detect_oriented_box_axes(verts: np.ndarray, faces: np.ndarray) -> Optional[np.ndarray]:
+        return detect_oriented_box_axes(verts, faces)
 
     def _mesh_oriented_box(
         self,
@@ -667,67 +332,7 @@ class MeshEngine:
         h0: float,
         active_cfg: MeshingConfig,
     ) -> UnstructuredMesh:
-        """Generate body-fitted structured hexahedral mesh for an oriented rectangular cuboid."""
-        if h0 <= 0.0:
-            raise ValueError(f"h0 must be positive, got {h0}")
-
-        # Project vertices into box-aligned coordinate system
-        P = verts @ R
-        p_min = np.min(P, axis=0)
-        p_max = np.max(P, axis=0)
-        L = p_max - p_min
-        if np.any(L <= 1e-12):
-            raise ValueError(f"Degenerate cuboid with near-zero span: {L}")
-
-        nx = max(2, int(np.round(L[0] / h0)))
-        ny = max(2, int(np.round(L[1] / h0)))
-        nz = max(2, int(np.round(L[2] / h0)))
-
-        # Resolution limit check: fail fast on excessive resolution rather than silently coarsening
-        max_cells_limit = int(getattr(active_cfg, "max_cells", 2_000_000))
-        total_cells = nx * ny * nz
-        if total_cells > max_cells_limit:
-            raise ValueError(
-                f"Requested resolution ({nx}x{ny}x{nz} = {total_cells} cells) exceeds "
-                f"configured limit ({max_cells_limit}). Increase h0 or adjust active_cfg.max_cells."
-            )
-
-        grid_nodes: List[np.ndarray] = []
-        for k in range(nz + 1):
-            for j in range(ny + 1):
-                for i in range(nx + 1):
-                    coord_local = p_min + np.array([
-                        i * L[0] / nx,
-                        j * L[1] / ny,
-                        k * L[2] / nz,
-                    ], dtype=np.float64)
-                    coord_world = coord_local @ R.T
-                    grid_nodes.append(coord_world)
-        all_pts = np.array(grid_nodes, dtype=np.float64)
-
-        def get_id(i: int, j: int, k: int) -> int:
-            return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i
-
-        all_cells: List[np.ndarray] = []
-        for k in range(nz):
-            for j in range(ny):
-                for i in range(nx):
-                    c = np.array([
-                        get_id(i, j, k),
-                        get_id(i + 1, j, k),
-                        get_id(i + 1, j + 1, k),
-                        get_id(i, j + 1, k),
-                        get_id(i, j, k + 1),
-                        get_id(i + 1, j, k + 1),
-                        get_id(i + 1, j + 1, k + 1),
-                        get_id(i, j + 1, k + 1),
-                    ], dtype=np.int64)
-                    all_cells.append(c)
-
-        mesh = compute_difvm_topology(all_pts, all_cells, config=active_cfg)
-        if active_cfg.rcm_reorder:
-            mesh, _ = rcm_reorder(mesh)
-        return mesh
+        return mesh_oriented_box_python(verts, R, h0=h0, active_cfg=active_cfg)
 
     @staticmethod
     def _compute_farfield_bounds(
@@ -735,60 +340,7 @@ class MeshEngine:
         geom_bmax: np.ndarray,
         config: MeshingConfig,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute the external farfield bounding box [ff_min, ff_max].
-
-        Uses explicit `farfield_bbox` if provided; otherwise computes padding relative
-        to reference length L_ref (span[0] along flow direction X, or max span).
-        """
-        span = geom_bmax - geom_bmin
-        if np.any(span <= 0.0):
-            raise ValueError(f"Invalid geometry bounds: span must be positive, got {span}")
-
-        if config.farfield_bbox is not None:
-            raw = config.farfield_bbox
-            if hasattr(raw, "min_pt") and hasattr(raw, "max_pt"):
-                ff_min = np.asarray(raw.min_pt, dtype=np.float64)
-                ff_max = np.asarray(raw.max_pt, dtype=np.float64)
-            elif len(raw) == 2:
-                ff_min = np.asarray(raw[0], dtype=np.float64)
-                ff_max = np.asarray(raw[1], dtype=np.float64)
-            elif len(raw) == 6:
-                ff_min = np.asarray(raw[:3], dtype=np.float64)
-                ff_max = np.asarray(raw[3:], dtype=np.float64)
-            else:
-                raise ValueError(f"Unrecognized farfield_bbox format: {raw}")
-
-            if np.any(ff_min >= ff_max):
-                raise ValueError(
-                    f"Inverted farfield_bbox: min bounds {ff_min} must be strictly less than max bounds {ff_max}"
-                )
-            if np.any(ff_min > geom_bmin) or np.any(ff_max < geom_bmax):
-                raise ValueError(
-                    "Geometry penetrates farfield boundary box; increase farfield_bbox."
-                )
-            return ff_min, ff_max
-
-        # Use farfield_padding relative to L_ref
-        l_ref = float(span[0]) if span[0] > 1e-6 else float(np.max(span))
-        pad = config.farfield_padding if config.farfield_padding is not None else FarfieldPadding()
-
-        upstream = float(pad.upstream)
-        downstream = float(pad.downstream)
-        lateral_y = float(pad.lateral_y)
-        lateral_z = float(pad.lateral_z)
-
-        ff_min = np.array([
-            geom_bmin[0] - upstream * l_ref,
-            geom_bmin[1] - lateral_y * l_ref,
-            geom_bmin[2] - lateral_z * l_ref,
-        ], dtype=np.float64)
-        ff_max = np.array([
-            geom_bmax[0] + downstream * l_ref,
-            geom_bmax[1] + lateral_y * l_ref,
-            geom_bmax[2] + lateral_z * l_ref,
-        ], dtype=np.float64)
-
-        return ff_min, ff_max
+        return compute_farfield_bounds_from_config(geom_bmin, geom_bmax, config)
 
     def _mesh_external_fluid(
         self,
@@ -797,28 +349,24 @@ class MeshEngine:
         h0: float,
         active_cfg: MeshingConfig,
     ) -> UnstructuredMesh:
-        """Mesh external 3D fluid domain bounded by farfield outer box with automated patch assignment."""
+        scaled_verts = surface.vertices * scale
+        norm_faces, shell_stats = normalize_closed_shell_orientations(scaled_verts, surface.faces)
         scaled_surf = SurfaceMesh(
-            vertices=surface.vertices * scale,
-            faces=surface.faces.copy(),
+            vertices=scaled_verts,
+            faces=norm_faces,
             normals=surface.normals.copy() if surface.normals is not None else None,
             patches=dict(surface.patches) if surface.patches else {},
         )
-        sdf = CADMeshSDF.from_surface_mesh(scaled_surf)
-
-        verts = scaled_surf.vertices
-        bmin = np.min(verts, axis=0)
-        bmax = np.max(verts, axis=0)
-
+        bmin = np.min(scaled_surf.vertices, axis=0)
+        bmax = np.max(scaled_surf.vertices, axis=0)
         ff_min, ff_max = self._compute_farfield_bounds(bmin, bmax, active_cfg)
 
-        is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
+        is_strict = self.strict_native or _env_strict_native()
         if self.use_native and self.has_native_core and len(scaled_surf.faces) > 0:
             try:
                 ff_bbox = (
-                    float(ff_min[0]), float(ff_max[0]),
-                    float(ff_min[1]), float(ff_max[1]),
-                    float(ff_min[2]), float(ff_max[2]),
+                    float(ff_min[0]), float(ff_min[1]), float(ff_min[2]),
+                    float(ff_max[0]), float(ff_max[1]), float(ff_max[2]),
                 )
                 native_mesh = generate_hexcore_native(
                     surf_points=scaled_surf.vertices,
@@ -830,6 +378,8 @@ class MeshEngine:
                 )
                 if active_cfg.rcm_reorder and not native_mesh.metadata.get("rcm_reordered", False):
                     native_mesh, _ = rcm_reorder(native_mesh)
+                native_mesh.metadata["shell_orientation"] = shell_stats
+                native_mesh.metadata["surface_open_edges"] = int(shell_stats["surface_open_edges"])
                 return native_mesh
             except MemoryError:
                 raise
@@ -843,235 +393,9 @@ class MeshEngine:
                 f"Strict native mode enabled but native mesher core is unavailable or surface is empty (error: {load_err})."
             )
 
-        ff_span = ff_max - ff_min
-        if float(np.max(ff_span)) / float(h0) > 20.0:
-            l_ref = max(float(np.max(bmax - bmin)), 1e-12)
-            h_core = max(float(h0), 0.25 * l_ref)
-            growth_ratio = float(getattr(active_cfg.sizing, "growth_rate", 1.2))
-            if growth_ratio <= 1.0:
-                growth_ratio = 1.0 + growth_ratio
-            growth_ratio = max(1.05, min(1.35, growth_ratio))
-
-            def _graded_axis(d_min: float, s_mn: float, s_mx: float, d_max: float) -> np.ndarray:
-                c_min = max(d_min, s_mn - 1.5 * h_core)
-                c_max = min(d_max, s_mx + 1.5 * h_core)
-                if c_min - d_min < 1.2 * h_core:
-                    c_min = d_min
-                if d_max - c_max < 1.2 * h_core:
-                    c_max = d_max
-                n_core = max(1, int(round((c_max - c_min) / h_core)))
-                dx_core = (c_max - c_min) / n_core
-                max_h = 8.0 * dx_core
-
-                def _slab(length: float) -> List[float]:
-                    steps: List[float] = []
-                    if length <= 1e-12 * h_core:
-                        return steps
-                    cur_h = dx_core
-                    sum_h = 0.0
-                    while sum_h < length:
-                        next_h = min(max_h, cur_h * growth_ratio)
-                        if steps and sum_h + 0.5 * next_h >= length:
-                            break
-                        steps.append(next_h)
-                        sum_h += next_h
-                        cur_h = next_h
-                    sc = length / sum_h
-                    return [s * sc for s in steps]
-
-                left_steps = _slab(c_min - d_min)
-                right_steps = _slab(d_max - c_max)
-                coords = []
-                if left_steps:
-                    pos = d_min
-                    coords.append(d_min)
-                    for s in reversed(left_steps[1:]):
-                        pos += s
-                        coords.append(pos)
-                    coords.append(c_min)
-                else:
-                    coords.append(c_min)
-                for idx in range(1, n_core):
-                    coords.append(c_min + idx * dx_core)
-                coords.append(c_max)
-                if right_steps:
-                    pos = c_max
-                    for s in right_steps[:-1]:
-                        pos += s
-                        coords.append(pos)
-                    coords.append(d_max)
-                return np.asarray(coords, dtype=np.float64)
-
-            x_nodes = _graded_axis(float(ff_min[0]), float(bmin[0]), float(bmax[0]), float(ff_max[0]))
-            y_nodes = _graded_axis(float(ff_min[1]), float(bmin[1]), float(bmax[1]), float(ff_max[1]))
-            z_nodes = _graded_axis(float(ff_min[2]), float(bmin[2]), float(bmax[2]), float(ff_max[2]))
-            nx = len(x_nodes) - 1
-            ny = len(y_nodes) - 1
-            nz = len(z_nodes) - 1
-        else:
-            nx = max(2, int(np.round(ff_span[0] / h0)))
-            ny = max(2, int(np.round(ff_span[1] / h0)))
-            nz = max(2, int(np.round(ff_span[2] / h0)))
-
-            dx = ff_span[0] / nx
-            dy = ff_span[1] / ny
-            dz = ff_span[2] / nz
-
-            x_nodes = ff_min[0] + np.arange(nx + 1) * dx
-            y_nodes = ff_min[1] + np.arange(ny + 1) * dy
-            z_nodes = ff_min[2] + np.arange(nz + 1) * dz
-
-        zz, yy, xx = np.meshgrid(z_nodes, y_nodes, x_nodes, indexing="ij")
-        all_nodes = np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
-
-        xc = 0.5 * (x_nodes[:-1] + x_nodes[1:])
-        yc = 0.5 * (y_nodes[:-1] + y_nodes[1:])
-        zc = 0.5 * (z_nodes[:-1] + z_nodes[1:])
-        cz, cy, cx = np.meshgrid(zc, yc, xc, indexing="ij")
-        c_arr = np.column_stack([cx.ravel(), cy.ravel(), cz.ravel()])
-        phi_c, _ = sdf.evaluate(c_arr)
-
-        active_3d = (phi_c >= 0.0).reshape((nz, ny, nx))
-        kk, jj, ii = np.where(active_3d)
-
-        stride_k = (ny + 1) * (nx + 1)
-        stride_j = nx + 1
-        n000 = kk * stride_k + jj * stride_j + ii
-        n100 = n000 + 1
-        n110 = n000 + stride_j + 1
-        n010 = n000 + stride_j
-        n001 = n000 + stride_k
-        n101 = n100 + stride_k
-        n111 = n110 + stride_k
-        n011 = n010 + stride_k
-
-        cells_arr = np.column_stack([n000, n100, n110, n010, n001, n101, n111, n011])
-        active_cells = [cells_arr[idx] for idx in range(len(cells_arr))]
-
-        # Automated Farfield boundary patch assignment
-        boundary_patches: Dict[str, List[List[int]]] = {
-            "inlet": [],
-            "outlet": [],
-            "bottom": [],
-            "top": [],
-            "sides": [],
-        }
-
-        body_patch_names = list(scaled_surf.patches.keys()) if scaled_surf.patches else []
-        for bp in body_patch_names:
-            boundary_patches[bp] = []
-        if not body_patch_names:
-            boundary_patches["wall"] = []
-
-        tri_cents_by_patch: Dict[str, np.ndarray] = {}
-        for bp in body_patch_names:
-            tri_indices = scaled_surf.patches[bp]
-            if len(tri_indices) > 0:
-                tri_cents_by_patch[bp] = np.mean(verts[scaled_surf.faces[tri_indices]], axis=1)
-
-        def _assign_wall_faces(face_arr: np.ndarray) -> None:
-            if len(face_arr) == 0:
-                return
-            if not body_patch_names:
-                boundary_patches["wall"].extend(face_arr.tolist())
-                return
-            fcs = np.mean(all_nodes[face_arr], axis=1)
-            best_dists = np.full(len(face_arr), np.inf, dtype=np.float64)
-            best_idx = np.zeros(len(face_arr), dtype=np.int64)
-            for p_idx, bp in enumerate(body_patch_names):
-                tc = tri_cents_by_patch.get(bp)
-                if tc is None or len(tc) == 0:
-                    continue
-                d_min = np.min(np.linalg.norm(tc[None, :, :] - fcs[:, None, :], axis=2), axis=1)
-                better = d_min < best_dists
-                best_dists[better] = d_min[better]
-                best_idx[better] = p_idx
-            for row_idx, fn in enumerate(face_arr.tolist()):
-                boundary_patches[body_patch_names[int(best_idx[row_idx])]].append(fn)
-
-        # -X faces (inlet or wall)
-        m_xm_outer = ii == 0
-        m_xm_wall = np.zeros_like(m_xm_outer)
-        m_xm_wall[~m_xm_outer] = ~active_3d[kk[~m_xm_outer], jj[~m_xm_outer], ii[~m_xm_outer] - 1]
-        if np.any(m_xm_outer):
-            boundary_patches["inlet"].extend(
-                np.column_stack([n000[m_xm_outer], n010[m_xm_outer], n011[m_xm_outer], n001[m_xm_outer]]).tolist()
-            )
-        if np.any(m_xm_wall):
-            _assign_wall_faces(
-                np.column_stack([n000[m_xm_wall], n010[m_xm_wall], n011[m_xm_wall], n001[m_xm_wall]])
-            )
-
-        # +X faces (outlet or wall)
-        m_xp_outer = ii == (nx - 1)
-        m_xp_wall = np.zeros_like(m_xp_outer)
-        m_xp_wall[~m_xp_outer] = ~active_3d[kk[~m_xp_outer], jj[~m_xp_outer], ii[~m_xp_outer] + 1]
-        if np.any(m_xp_outer):
-            boundary_patches["outlet"].extend(
-                np.column_stack([n100[m_xp_outer], n101[m_xp_outer], n111[m_xp_outer], n110[m_xp_outer]]).tolist()
-            )
-        if np.any(m_xp_wall):
-            _assign_wall_faces(
-                np.column_stack([n100[m_xp_wall], n101[m_xp_wall], n111[m_xp_wall], n110[m_xp_wall]])
-            )
-
-        # -Y faces (sides or wall)
-        m_ym_outer = jj == 0
-        m_ym_wall = np.zeros_like(m_ym_outer)
-        m_ym_wall[~m_ym_outer] = ~active_3d[kk[~m_ym_outer], jj[~m_ym_outer] - 1, ii[~m_ym_outer]]
-        if np.any(m_ym_outer):
-            boundary_patches["sides"].extend(
-                np.column_stack([n000[m_ym_outer], n001[m_ym_outer], n101[m_ym_outer], n100[m_ym_outer]]).tolist()
-            )
-        if np.any(m_ym_wall):
-            _assign_wall_faces(
-                np.column_stack([n000[m_ym_wall], n001[m_ym_wall], n101[m_ym_wall], n100[m_ym_wall]])
-            )
-
-        # +Y faces (sides or wall)
-        m_yp_outer = jj == (ny - 1)
-        m_yp_wall = np.zeros_like(m_yp_outer)
-        m_yp_wall[~m_yp_outer] = ~active_3d[kk[~m_yp_outer], jj[~m_yp_outer] + 1, ii[~m_yp_outer]]
-        if np.any(m_yp_outer):
-            boundary_patches["sides"].extend(
-                np.column_stack([n010[m_yp_outer], n110[m_yp_outer], n111[m_yp_outer], n011[m_yp_outer]]).tolist()
-            )
-        if np.any(m_yp_wall):
-            _assign_wall_faces(
-                np.column_stack([n010[m_yp_wall], n110[m_yp_wall], n111[m_yp_wall], n011[m_yp_wall]])
-            )
-
-        # -Z faces (bottom or wall)
-        m_zm_outer = kk == 0
-        m_zm_wall = np.zeros_like(m_zm_outer)
-        m_zm_wall[~m_zm_outer] = ~active_3d[kk[~m_zm_outer] - 1, jj[~m_zm_outer], ii[~m_zm_outer]]
-        if np.any(m_zm_outer):
-            boundary_patches["bottom"].extend(
-                np.column_stack([n000[m_zm_outer], n100[m_zm_outer], n110[m_zm_outer], n010[m_zm_outer]]).tolist()
-            )
-        if np.any(m_zm_wall):
-            _assign_wall_faces(
-                np.column_stack([n000[m_zm_wall], n100[m_zm_wall], n110[m_zm_wall], n010[m_zm_wall]])
-            )
-
-        # +Z faces (top or wall)
-        m_zp_outer = kk == (nz - 1)
-        m_zp_wall = np.zeros_like(m_zp_outer)
-        m_zp_wall[~m_zp_outer] = ~active_3d[kk[~m_zp_outer] + 1, jj[~m_zp_outer], ii[~m_zp_outer]]
-        if np.any(m_zp_outer):
-            boundary_patches["top"].extend(
-                np.column_stack([n001[m_zp_outer], n011[m_zp_outer], n111[m_zp_outer], n101[m_zp_outer]]).tolist()
-            )
-        if np.any(m_zp_wall):
-            _assign_wall_faces(
-                np.column_stack([n001[m_zp_wall], n011[m_zp_wall], n111[m_zp_wall], n101[m_zp_wall]])
-            )
-
-        active_boundary_patches = {k: v for k, v in boundary_patches.items() if len(v) > 0}
-
-        mesh = compute_difvm_topology(all_nodes, active_cells, boundary_patches=active_boundary_patches, config=active_cfg)
-        if active_cfg.rcm_reorder:
-            mesh, _ = rcm_reorder(mesh)
+        mesh = mesh_external_fluid_python(scaled_surf, h0=h0, active_cfg=active_cfg, ff_min=ff_min, ff_max=ff_max)
+        mesh.metadata["shell_orientation"] = shell_stats
+        mesh.metadata["surface_open_edges"] = int(shell_stats["surface_open_edges"])
         return mesh
 
     def _mesh_cht_coupled(
@@ -1081,109 +405,7 @@ class MeshEngine:
         h0: float,
         active_cfg: MeshingConfig,
     ) -> UnstructuredMesh:
-        """Mesh both fluid and solid domains with conformal CHT twin-face coupling.
-
-        Generates coupledWall_fluid and coupledWall_solid twin boundary patches
-        with opposite normals S_B = -S_A and contiguous boundary slices.
-        """
-        scaled_surf = SurfaceMesh(
-            vertices=surface.vertices * scale,
-            faces=surface.faces.copy(),
-            normals=surface.normals.copy() if surface.normals is not None else None,
-            patches=dict(surface.patches) if surface.patches else {},
-        )
-        sdf = CADMeshSDF.from_surface_mesh(scaled_surf)
-
-        verts = scaled_surf.vertices
-        geom_bmin = np.min(verts, axis=0)
-        geom_bmax = np.max(verts, axis=0)
-
-        # Farfield bounds
-        if active_cfg.farfield_bbox is not None or active_cfg.farfield_padding is not None:
-            ff_min, ff_max = self._compute_farfield_bounds(geom_bmin, geom_bmax, active_cfg)
-        else:
-            span_body = np.maximum(geom_bmax - geom_bmin, 1e-6)
-            ff_min = geom_bmin - 0.5 * span_body
-            ff_max = geom_bmax + 0.5 * span_body
-
-        span = ff_max - ff_min
-        nx = max(2, int(np.round(span[0] / h0)))
-        ny = max(2, int(np.round(span[1] / h0)))
-        nz = max(2, int(np.round(span[2] / h0)))
-
-        dx = span[0] / nx
-        dy = span[1] / ny
-        dz = span[2] / nz
-
-        x_nodes = ff_min[0] + np.arange(nx + 1) * dx
-        y_nodes = ff_min[1] + np.arange(ny + 1) * dy
-        z_nodes = ff_min[2] + np.arange(nz + 1) * dz
-
-        def node_id(i: int, j: int, k: int) -> int:
-            return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i
-
-        all_nodes = []
-        for k in range(nz + 1):
-            for j in range(ny + 1):
-                for i in range(nx + 1):
-                    all_nodes.append([x_nodes[i], y_nodes[j], z_nodes[k]])
-        all_nodes = np.array(all_nodes, dtype=np.float64)
-
-        c_list = []
-        ijk_list = []
-        cells = []
-        for k in range(nz):
-            for j in range(ny):
-                for i in range(nx):
-                    c_list.append([
-                        ff_min[0] + (i + 0.5) * dx,
-                        ff_min[1] + (j + 0.5) * dy,
-                        ff_min[2] + (k + 0.5) * dz,
-                    ])
-                    ijk_list.append((i, j, k))
-                    cells.append([
-                        node_id(i, j, k),
-                        node_id(i + 1, j, k),
-                        node_id(i + 1, j + 1, k),
-                        node_id(i, j + 1, k),
-                        node_id(i, j, k + 1),
-                        node_id(i + 1, j, k + 1),
-                        node_id(i + 1, j + 1, k + 1),
-                        node_id(i, j + 1, k + 1),
-                    ])
-        c_arr = np.array(c_list, dtype=np.float64)
-        phi_c, _ = sdf.evaluate(c_arr)
-
-        # In cht_coupled: 0 = fluid (phi >= 0), 1 = solid (phi < 0)
-        regions = np.where(phi_c >= 0.0, 0, 1).astype(np.int32)
-
-        boundary_patches: Dict[str, List[List[int]]] = {
-            "inlet": [],
-            "outlet": [],
-            "bottom": [],
-            "top": [],
-            "sides": [],
-        }
-        for (i, j, k) in ijk_list:
-            if i == 0:
-                boundary_patches["inlet"].append([node_id(i, j, k), node_id(i, j + 1, k), node_id(i, j + 1, k + 1), node_id(i, j, k + 1)])
-            if i == nx - 1:
-                boundary_patches["outlet"].append([node_id(i + 1, j, k), node_id(i + 1, j, k + 1), node_id(i + 1, j + 1, k + 1), node_id(i + 1, j + 1, k)])
-            if j == 0:
-                boundary_patches["sides"].append([node_id(i, j, k), node_id(i, j, k + 1), node_id(i + 1, j, k + 1), node_id(i + 1, j, k)])
-            if j == ny - 1:
-                boundary_patches["sides"].append([node_id(i, j + 1, k), node_id(i + 1, j + 1, k), node_id(i + 1, j + 1, k + 1), node_id(i, j + 1, k + 1)])
-            if k == 0:
-                boundary_patches["bottom"].append([node_id(i, j, k), node_id(i + 1, j, k), node_id(i + 1, j + 1, k), node_id(i, j + 1, k)])
-            if k == nz - 1:
-                boundary_patches["top"].append([node_id(i, j, k + 1), node_id(i, j + 1, k + 1), node_id(i + 1, j + 1, k + 1), node_id(i + 1, j, k + 1)])
-
-        active_patches = {k: v for k, v in boundary_patches.items() if len(v) > 0}
-
-        mesh = compute_difvm_topology(all_nodes, cells, regions=regions, boundary_patches=active_patches, config=active_cfg)
-        if active_cfg.rcm_reorder:
-            mesh, _ = rcm_reorder(mesh)
-        return mesh
+        return mesh_cht_coupled_python(surface, scale=scale, h0=h0, active_cfg=active_cfg)
 
     def mesh_multi_region(
         self,
@@ -1193,217 +415,19 @@ class MeshEngine:
         config: Optional[MeshingConfig] = None,
         binary_regions: bool = False,
     ) -> UnstructuredMesh:
-        """Mesh multiple interacting CAD regions (e.g. snappyMultiRegionHeater).
-
-        Assigns integer cell_regions and extracts conformal coupled twin-face patches
-        (coupledWall_fluid, coupledWall_solid) with opposite normals S_B = -S_A.
-
-        Parameters
-        ----------
-        regions : Union[str, Path, Dict[str, ...], List[...]]
-            Directory path containing STL/OBJ CAD files, or dictionary/list of region meshes.
-        h0 : float
-            Target nominal cell size.
-        scale : float
-            Scale factor (e.g. 0.001 for mm to m).
-        config : Optional[MeshingConfig]
-            Meshing configuration.
-        binary_regions : bool
-            If True, maps fluid/air to 0 and solid/heater to 1 yielding
-            coupledWall_fluid and coupledWall_solid twin patches.
-
-        Returns
-        -------
-        mesh : UnstructuredMesh
-            Multi-region mesh with cell_regions, baffles, and twin boundary patches.
-        """
+        """Mesh multiple interacting CAD regions (e.g. snappyMultiRegionHeater)."""
         active_cfg = (
             config
             if config is not None
-            else (self.config if self.config is not None else MeshingConfig(domain_mode="cht_coupled"))
+            else (self.config if self.config is not None else default_config_for_h0(h0, domain_mode="cht_coupled"))
         )
-
-        region_meshes: Dict[str, SurfaceMesh] = {}
-        parser_stl = STLParser()
-
-        if isinstance(regions, (str, Path)):
-            reg_dir = Path(regions).resolve()
-            if not reg_dir.is_dir():
-                raise ValueError(f"Multi-region path must be a directory: {reg_dir}")
-            files = sorted(
-                list(reg_dir.glob("*.stl"))
-                + list(reg_dir.glob("*.stl.gz"))
-                + list(reg_dir.glob("*.obj"))
-            )
-            if not files:
-                raise ValueError(f"No CAD geometry files found in directory: {reg_dir}")
-            for f in files:
-                rname = f.name
-                if rname.endswith(".stl.gz"):
-                    rname = rname[:-7]
-                    with gzip.open(f, "rb") as gz, tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
-                        tmp.write(gz.read())
-                        tmp.flush()
-                        sm = parser_stl.parse(Path(tmp.name))
-                elif rname.endswith(".stl"):
-                    rname = rname[:-4]
-                    sm = parser_stl.parse(f)
-                else:
-                    rname = f.stem
-                    cad_engine = CADGeometryEngine()
-                    cad_engine.load(f)
-                    sm = cad_engine.current_mesh
-                region_meshes[rname] = SurfaceMesh(
-                    vertices=sm.vertices * scale,
-                    faces=sm.faces.copy(),
-                    normals=sm.normals.copy() if sm.normals is not None else None,
-                    patches=dict(sm.patches) if sm.patches else {},
-                )
-        elif isinstance(regions, dict):
-            for rname, item in regions.items():
-                if isinstance(item, SurfaceMesh):
-                    sm = item
-                else:
-                    p = Path(item).resolve()
-                    if str(p).endswith(".stl.gz"):
-                        with gzip.open(p, "rb") as gz, tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
-                            tmp.write(gz.read())
-                            tmp.flush()
-                            sm = parser_stl.parse(Path(tmp.name))
-                    elif str(p).endswith(".stl"):
-                        sm = parser_stl.parse(p)
-                    else:
-                        cad_engine = CADGeometryEngine()
-                        cad_engine.load(p)
-                        sm = cad_engine.current_mesh
-                region_meshes[rname] = SurfaceMesh(
-                    vertices=sm.vertices * scale,
-                    faces=sm.faces.copy(),
-                    normals=sm.normals.copy() if sm.normals is not None else None,
-                    patches=dict(sm.patches) if sm.patches else {},
-                )
-        elif isinstance(regions, list):
-            for idx, item in enumerate(regions):
-                rname = f"region_{idx}"
-                if isinstance(item, SurfaceMesh):
-                    sm = item
-                else:
-                    p = Path(item).resolve()
-                    if str(p).endswith(".stl.gz"):
-                        with gzip.open(p, "rb") as gz, tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
-                            tmp.write(gz.read())
-                            tmp.flush()
-                            sm = parser_stl.parse(Path(tmp.name))
-                    elif str(p).endswith(".stl"):
-                        sm = parser_stl.parse(p)
-                    else:
-                        cad_engine = CADGeometryEngine()
-                        cad_engine.load(p)
-                        sm = cad_engine.current_mesh
-                region_meshes[rname] = SurfaceMesh(
-                    vertices=sm.vertices * scale,
-                    faces=sm.faces.copy(),
-                    normals=sm.normals.copy() if sm.normals is not None else None,
-                    patches=dict(sm.patches) if sm.patches else {},
-                )
-        else:
-            raise TypeError(f"Unsupported regions input type: {type(regions)}")
-
-        if not region_meshes:
-            raise ValueError("No valid region meshes found for multi-region meshing.")
-
-        bmin = np.min([sm.get_bounding_box().min_pt for sm in region_meshes.values()], axis=0)
-        bmax = np.max([sm.get_bounding_box().max_pt for sm in region_meshes.values()], axis=0)
-        span = np.maximum(bmax - bmin, 1e-6)
-
-        nx = max(2, int(np.round(span[0] / h0)))
-        ny = max(2, int(np.round(span[1] / h0)))
-        nz = max(2, int(np.round(span[2] / h0)))
-
-        dx = span[0] / nx
-        dy = span[1] / ny
-        dz = span[2] / nz
-
-        x_nodes = bmin[0] + np.arange(nx + 1) * dx
-        y_nodes = bmin[1] + np.arange(ny + 1) * dy
-        z_nodes = bmin[2] + np.arange(nz + 1) * dz
-
-        def node_id(i: int, j: int, k: int) -> int:
-            return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i
-
-        all_nodes = []
-        for k in range(nz + 1):
-            for j in range(ny + 1):
-                for i in range(nx + 1):
-                    all_nodes.append([x_nodes[i], y_nodes[j], z_nodes[k]])
-        all_nodes = np.array(all_nodes, dtype=np.float64)
-
-        c_list = []
-        cells = []
-        for k in range(nz):
-            for j in range(ny):
-                for i in range(nx):
-                    c_list.append([
-                        bmin[0] + (i + 0.5) * dx,
-                        bmin[1] + (j + 0.5) * dy,
-                        bmin[2] + (k + 0.5) * dz,
-                    ])
-                    cells.append([
-                        node_id(i, j, k),
-                        node_id(i + 1, j, k),
-                        node_id(i + 1, j + 1, k),
-                        node_id(i, j + 1, k),
-                        node_id(i, j, k + 1),
-                        node_id(i + 1, j, k + 1),
-                        node_id(i + 1, j + 1, k + 1),
-                        node_id(i, j + 1, k + 1),
-                    ])
-        c_arr = np.array(c_list, dtype=np.float64)
-
-        r_names = list(region_meshes.keys())
-        bbox_vols = []
-        phi_cols = []
-        for rname in r_names:
-            bb = region_meshes[rname].get_bounding_box()
-            bbox_vols.append(float(np.prod(np.maximum(bb.max_pt - bb.min_pt, 1e-12))))
-            sdf = CADMeshSDF.from_surface_mesh(region_meshes[rname])
-            phi, _ = sdf.evaluate(c_arr)
-            phi_cols.append(phi)
-        phi_mat = np.column_stack(phi_cols)
-        bbox_vols_arr = np.asarray(bbox_vols, dtype=np.float64)
-
-        min_phi = np.min(phi_mat, axis=1)
-        best_region_idx = np.argmin(phi_mat, axis=1)
-        for i in range(len(c_arr)):
-            inside = np.where(phi_mat[i] <= 1e-9)[0]
-            if len(inside) > 1:
-                best_region_idx[i] = int(inside[np.argmin(bbox_vols_arr[inside])])
-            elif len(inside) == 1:
-                best_region_idx[i] = int(inside[0])
-
-        h_min = min(dx, dy, dz)
-        active_mask = min_phi < 0.15 * h_min
-
-        active_indices = [i for i in range(len(cells)) if active_mask[i]]
-        if not active_indices:
-            active_indices = list(range(len(cells)))
-        active_cells = [cells[i] for i in active_indices]
-
-        regions_list = []
-        for idx in active_indices:
-            rname = r_names[best_region_idx[idx]]
-            if binary_regions:
-                is_fluid = ("air" in rname.lower() or "fluid" in rname.lower())
-                reg_id = 0 if is_fluid else 1
-            else:
-                reg_id = best_region_idx[idx]
-            regions_list.append(reg_id)
-        regions_arr = np.array(regions_list, dtype=np.int32)
-
-        mesh = compute_difvm_topology(all_nodes, active_cells, regions=regions_arr, config=active_cfg)
-        if active_cfg.rcm_reorder:
-            mesh, _ = rcm_reorder(mesh)
-        return mesh
+        return mesh_multi_region_python(
+            regions=regions,
+            h0=h0,
+            scale=scale,
+            active_cfg=active_cfg,
+            binary_regions=binary_regions,
+        )
 
     def _mesh_complex_surface(
         self,
@@ -1412,84 +436,7 @@ class MeshEngine:
         h0: float,
         active_cfg: MeshingConfig,
     ) -> UnstructuredMesh:
-        """Mesh complex 3D aerodynamic surfaces (like BladeRev1CFD) via SDF level set."""
-        scaled_surf = SurfaceMesh(
-            vertices=surface.vertices * scale,
-            faces=surface.faces.copy(),
-            normals=surface.normals.copy() if surface.normals is not None else None,
-        )
-        sdf = CADMeshSDF.from_surface_mesh(scaled_surf)
-
-        verts = scaled_surf.vertices
-        bmin = np.min(verts, axis=0)
-        bmax = np.max(verts, axis=0)
-
-        span = np.maximum(bmax - bmin, 1e-6)
-
-        # Isotropic element sizes derived directly from h0:
-        dx = float(h0)
-        dy = float(h0)
-        dz = float(h0)
-
-        nx = max(2, int(np.ceil(span[0] / dx)))
-        ny = max(2, int(np.ceil(span[1] / dy)))
-        nz = max(2, int(np.ceil(span[2] / dz)))
-
-        dx = span[0] / nx
-        dy = span[1] / ny
-        dz = span[2] / nz
-
-        x_nodes = bmin[0] + np.arange(nx + 1) * dx
-        y_nodes = bmin[1] + np.arange(ny + 1) * dy
-        z_nodes = bmin[2] + np.arange(nz + 1) * dz
-
-        def node_id(i: int, j: int, k: int) -> int:
-            return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i
-
-        all_nodes = []
-        for k in range(nz + 1):
-            for j in range(ny + 1):
-                for i in range(nx + 1):
-                    all_nodes.append([x_nodes[i], y_nodes[j], z_nodes[k]])
-        all_nodes = np.array(all_nodes, dtype=np.float64)
-
-        # Evaluate cell centers
-        c_list = []
-        ijk_list = []
-        for k in range(nz):
-            for j in range(ny):
-                for i in range(nx):
-                    c_list.append([
-                        bmin[0] + (i + 0.5) * dx,
-                        bmin[1] + (j + 0.5) * dy,
-                        bmin[2] + (k + 0.5) * dz,
-                    ])
-                    ijk_list.append((i, j, k))
-        c_arr = np.array(c_list, dtype=np.float64)
-        phi_c, _ = sdf.evaluate(c_arr)
-
-        # Solid body level-set criterion: cell centroid lies within solid boundary (phi <= 0)
-        threshold = float(getattr(active_cfg, "levelset_threshold", 0.0))
-
-        active_cells = []
-        for idx, (i, j, k) in enumerate(ijk_list):
-            if phi_c[idx] <= threshold:
-                c_nodes = np.array([
-                    node_id(i, j, k),
-                    node_id(i + 1, j, k),
-                    node_id(i + 1, j + 1, k),
-                    node_id(i, j + 1, k),
-                    node_id(i, j, k + 1),
-                    node_id(i + 1, j, k + 1),
-                    node_id(i + 1, j + 1, k + 1),
-                    node_id(i, j + 1, k + 1),
-                ], dtype=np.int64)
-                active_cells.append(c_nodes)
-
-        mesh = compute_difvm_topology(all_nodes, active_cells, config=active_cfg)
-        if active_cfg.rcm_reorder:
-            mesh, _ = rcm_reorder(mesh)
-        return mesh
+        return mesh_complex_surface_python(surface, scale=scale, h0=h0, active_cfg=active_cfg)
 
     def _mesh_from_points_cells(
         self,
@@ -1497,51 +444,7 @@ class MeshEngine:
         h0: float,
         active_cfg: MeshingConfig,
     ) -> UnstructuredMesh:
-        """Fallback box mesher from bounding box of points."""
-        if h0 <= 0.0:
-            raise ValueError(f"h0 must be positive, got {h0}")
-        bmin = np.min(verts, axis=0)
-        bmax = np.max(verts, axis=0)
-        span = bmax - bmin
-
-        nx = max(2, int(np.round(span[0] / h0)))
-        ny = max(2, int(np.round(span[1] / h0)))
-        nz = max(2, int(np.round(span[2] / h0)))
-
-        dx = span[0] / nx
-        dy = span[1] / ny
-        dz = span[2] / nz
-
-        all_nodes = []
-        for k in range(nz + 1):
-            for j in range(ny + 1):
-                for i in range(nx + 1):
-                    all_nodes.append([bmin[0] + i * dx, bmin[1] + j * dy, bmin[2] + k * dz])
-        all_nodes = np.array(all_nodes, dtype=np.float64)
-
-        def node_id(i: int, j: int, k: int) -> int:
-            return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i
-
-        all_cells = []
-        for k in range(nz):
-            for j in range(ny):
-                for i in range(nx):
-                    c = np.array([
-                        node_id(i, j, k),
-                        node_id(i + 1, j, k),
-                        node_id(i + 1, j + 1, k),
-                        node_id(i, j + 1, k),
-                        node_id(i, j, k + 1),
-                        node_id(i + 1, j, k + 1),
-                        node_id(i + 1, j + 1, k + 1),
-                        node_id(i, j + 1, k + 1),
-                    ], dtype=np.int64)
-                    all_cells.append(c)
-
-        mesh = compute_difvm_topology(all_nodes, all_cells, config=active_cfg)
-        if active_cfg.rcm_reorder:
-            mesh, _ = rcm_reorder(mesh)
-        return mesh
+        return mesh_from_points_cells_python(verts, h0=h0, active_cfg=active_cfg)
 
     def mesh_2d_polygon(
         self,
@@ -1550,18 +453,16 @@ class MeshEngine:
     ) -> UnstructuredMesh:
         """Generate 2D unstructured mesh from a 2D boundary polygon."""
         active_cfg = config if config is not None else self.config
-        poly, was_reversed, a_exact = canonicalize_polygon_ccw(polygon_xy)
+        poly, _, _ = canonicalize_polygon_ccw(polygon_xy)
         n_verts = len(poly)
 
-        # Sizing parameter h0: active if configured in active_cfg
         h0 = 0.0
         if active_cfg is not None and active_cfg.sizing and active_cfg.sizing.h0 > 0.0:
             h0 = active_cfg.sizing.h0
-        elif active_cfg is not None and active_cfg.sizing and active_cfg.sizing.h_min > 0.0:
+        elif active_cfg is not None and active_cfg.sizing and active_cfg.sizing.h_min and active_cfg.sizing.h_min > 0.0:
             h0 = active_cfg.sizing.h_min * 2.0
 
-        # Try native DLL if available
-        is_strict = self.strict_native or (os.environ.get("CFD_STRICT_NATIVE", "0").strip() == "1")
+        is_strict = self.strict_native or _env_strict_native()
         if self.use_native and self._native_dll is not None:
             m_ptr = self._native_dll.cfd_mesher_create()
             if m_ptr:
@@ -1571,8 +472,8 @@ class MeshEngine:
                     cfg_c.distmesh_iters = active_cfg.distmesh_iters if active_cfg else 45
                     cfg_c.h0 = h0
                     if active_cfg and active_cfg.sizing:
-                        cfg_c.h_min = active_cfg.sizing.h_min
-                        cfg_c.h_max = active_cfg.sizing.h_max
+                        cfg_c.h_min = float(active_cfg.sizing.h_min) if active_cfg.sizing.h_min is not None else h0 * 0.25
+                        cfg_c.h_max = float(active_cfg.sizing.h_max) if active_cfg.sizing.h_max is not None else h0 * 4.0
                         cfg_c.grading = active_cfg.sizing.grading
 
                     self._native_dll.cfd_mesher_generate_2d_polygon.restype = ctypes.c_int32
@@ -1593,62 +494,39 @@ class MeshEngine:
                         n_faces = self._native_dll.cfd_mesher_get_n_faces(m_ptr)
                         n_points = self._native_dll.cfd_mesher_get_n_points(m_ptr)
 
-                        owner = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_owner_ptr(m_ptr), shape=(n_faces,)
-                        ))
-                        neighbour = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_neighbour_ptr(m_ptr), shape=(n_faces,)
-                        ))
-                        pts = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_points_ptr(m_ptr), shape=(n_points, 3)
-                        ))
-                        cell_vols = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_cell_volumes_ptr(m_ptr), shape=(n_cells,)
-                        ))
-                        cell_cnts = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_cell_centres_ptr(m_ptr), shape=(n_cells, 3)
-                        ))
-                        fa = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_face_areas_ptr(m_ptr), shape=(n_faces, 3)
-                        ))
-                        fc = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_face_centres_ptr(m_ptr), shape=(n_faces, 3)
-                        ))
-                        df = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_delta_f_ptr(m_ptr), shape=(n_faces, 3)
-                        ))
-                        kf = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_k_f_ptr(m_ptr), shape=(n_faces, 3)
-                        ))
-                        no = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_non_orthogonality_ptr(m_ptr), shape=(n_faces,)
-                        ))
-                        sk = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_skewness_ptr(m_ptr), shape=(n_faces,)
-                        ))
-                        ar = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_aspect_ratio_ptr(m_ptr), shape=(n_cells,)
-                        ))
-                        sm = np.copy(np.ctypeslib.as_array(
-                            self._native_dll.cfd_mesher_get_stabilization_mask_ptr(m_ptr), shape=(n_faces,)
-                        ))
+                        owner = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_owner_ptr(m_ptr), shape=(n_faces,)))
+                        neighbour = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_neighbour_ptr(m_ptr), shape=(n_faces,)))
+                        pts = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_points_ptr(m_ptr), shape=(n_points, 3)))
+                        cell_vols = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_cell_volumes_ptr(m_ptr), shape=(n_cells,)))
+                        cell_cnts = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_cell_centres_ptr(m_ptr), shape=(n_cells, 3)))
+                        fa = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_face_areas_ptr(m_ptr), shape=(n_faces, 3)))
+                        fc = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_face_centres_ptr(m_ptr), shape=(n_faces, 3)))
+                        df = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_delta_f_ptr(m_ptr), shape=(n_faces, 3)))
+                        kf = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_k_f_ptr(m_ptr), shape=(n_faces, 3)))
+                        no = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_non_orthogonality_ptr(m_ptr), shape=(n_faces,)))
+                        sk = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_skewness_ptr(m_ptr), shape=(n_faces,)))
+                        ar = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_aspect_ratio_ptr(m_ptr), shape=(n_cells,)))
+                        sm = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_stabilization_mask_ptr(m_ptr), shape=(n_faces,)))
 
-                        # Extract real cell-node connectivity from native CSR buffers
                         offsets_ptr = self._native_dll.cfd_mesher_get_cell_offsets_ptr(m_ptr)
                         nodes_ptr = self._native_dll.cfd_mesher_get_cell_nodes_ptr(m_ptr)
-
+                        cell_offsets = None
+                        cell_nodes = None
+                        real_cells: List[np.ndarray] = []
                         if offsets_ptr and nodes_ptr:
-                            offsets = np.ctypeslib.as_array(offsets_ptr, shape=(n_cells + 1,))
-                            total_nodes = int(offsets[n_cells])
-                            nodes = np.ctypeslib.as_array(nodes_ptr, shape=(total_nodes,))
-                            real_cells = [nodes[offsets[i]:offsets[i + 1]].copy() for i in range(n_cells)]
+                            cell_offsets = np.array(
+                                np.ctypeslib.as_array(offsets_ptr, shape=(n_cells + 1,)), dtype=np.int64, copy=True
+                            )
+                            total_nodes = int(cell_offsets[-1])
+                            cell_nodes = np.array(
+                                np.ctypeslib.as_array(nodes_ptr, shape=(total_nodes,)), dtype=np.int64, copy=True
+                            ) if total_nodes > 0 else np.empty(0, dtype=np.int64)
                         else:
                             _, ear_tris = ear_clipping_triangulate(poly)
                             real_cells = [ear_tris[i].copy() for i in range(len(ear_tris))]
 
                         internal_count = int(np.sum(neighbour >= 0))
                         bnd_count = n_faces - internal_count
-
                         return UnstructuredMesh(
                             points=pts,
                             cells=real_cells,
@@ -1671,13 +549,15 @@ class MeshEngine:
                                 "mask": sm,
                             },
                             metadata={"engine": "native_cpp20_2d"},
+                            cell_offsets=cell_offsets,
+                            cell_nodes=cell_nodes,
                         )
-                        return mesh
                     else:
-                        msg = f"cfd_mesher_generate_2d_polygon returned non-zero code {res}"
                         if is_strict:
-                            raise RuntimeError(f"Strict native mode enabled and {msg}")
-                        logger.error(f"Native 2D mesher failed: {msg}")
+                            raise_native_status_error(self._native_dll, m_ptr, "cfd_mesher_generate_2d_polygon", res)
+                        logger.error(f"Native 2D mesher failed with code {res}")
+                except MemoryError:
+                    raise
                 except Exception as e:
                     if is_strict:
                         raise RuntimeError(f"Strict native mode enabled and native 2D mesher execution failed: {e}") from e
@@ -1688,36 +568,7 @@ class MeshEngine:
             load_err = get_native_load_error()
             raise RuntimeError(f"Strict native mode enabled but native mesher core is unavailable (error: {load_err}).")
 
-        # Pure-Python fallback: Robust 2D mesher (Ear-Clipping & Constrained DistMesh)
-        if h0 > 0.0:
-            bnd_pts, is_corner, _ = subdivide_polygon_edges(poly, h0)
-            bbox = (
-                float(np.min(poly[:, 0]) - h0),
-                float(np.min(poly[:, 1]) - h0),
-                float(np.max(poly[:, 0]) + h0),
-                float(np.max(poly[:, 1]) + h0),
-            )
-            fd = lambda p: polygon_signed_distance(p, poly)
-            fh = lambda p: np.full(len(p), h0)
-            all_pts, cells_arr = distmesh_2d(
-                fd=fd,
-                fh=fh,
-                h0=h0,
-                bbox=bbox,
-                pfix=bnd_pts,
-                max_iters=active_cfg.distmesh_iters if active_cfg else 45,
-            )
-            if len(cells_arr) == 0:
-                all_pts, cells_arr = ear_clipping_triangulate(bnd_pts if len(bnd_pts) >= 3 else poly)
-        else:
-            all_pts, cells_arr = ear_clipping_triangulate(poly)
-
-        cells = [cells_arr[i].copy() for i in range(len(cells_arr))]
-        mesh = compute_difvm_topology(all_pts, cells, use_native=self.use_native)
-        mesh.metadata["engine"] = "pure_python_fallback" if not self.use_native else "native_cpp20_2d"
-        if active_cfg and active_cfg.rcm_reorder:
-            mesh, _ = rcm_reorder(mesh)
-        return mesh
+        return mesh_2d_polygon_python(poly, h0=h0, active_cfg=active_cfg, use_native=self.use_native)
 
     def generate_mesh(
         self,
@@ -1731,12 +582,21 @@ class MeshEngine:
         elif isinstance(geometry_or_sdf, np.ndarray) and geometry_or_sdf.ndim == 2 and geometry_or_sdf.shape[1] == 2:
             return self.mesh_2d_polygon(geometry_or_sdf, config=active_cfg)
         elif isinstance(geometry_or_sdf, SurfaceMesh):
-            cfg_cad = active_cfg if active_cfg is not None else MeshingConfig()
-            h0_val = cfg_cad.sizing.h0 if getattr(cfg_cad.sizing, "h0", 0.0) > 0.0 else cfg_cad.sizing.h_min * 10.0
+            if active_cfg is not None:
+                cfg_cad = active_cfg
+                if getattr(cfg_cad.sizing, "h0", 0.0) > 0.0:
+                    h0_val = float(cfg_cad.sizing.h0)
+                elif getattr(cfg_cad.sizing, "h_min", None) is not None:
+                    h0_val = float(cfg_cad.sizing.h_min) * 4.0
+                else:
+                    h0_val = 0.05
+            else:
+                h0_val = 0.05
+                cfg_cad = default_config_for_h0(h0_val)
             return self.mesh_hexcore(
                 geometry_or_sdf,
                 scale=1.0,
-                h0=float(h0_val),
+                h0=h0_val,
                 domain_mode=cfg_cad.domain_mode,
                 config=cfg_cad,
             )
@@ -1751,26 +611,7 @@ class MeshEngine:
         nominal_normal: Optional[np.ndarray] = None,
         clearances: Optional[np.ndarray] = None,
     ) -> UnstructuredMesh:
-        """Generate structured prismatic boundary layers extruded from physical wall facets.
-
-        Parameters
-        ----------
-        wall_points : np.ndarray
-            Base wall vertex coordinates, shape (N_base, 3).
-        wall_faces : List[Union[np.ndarray, List[int]]]
-            List of vertex index arrays for each wall face.
-        config : Optional[InflationConfig]
-            Inflation configuration (first layer height, growth rate, layers, pinching).
-        nominal_normal : Optional[np.ndarray]
-            Guiding outward normal vector.
-        clearances : Optional[np.ndarray]
-            Distance to opposing geometry for Feature 23 clearance-based pinching.
-
-        Returns
-        -------
-        mesh : UnstructuredMesh
-            Generated boundary layer unstructured mesh.
-        """
+        """Generate structured prismatic boundary layers extruded from physical wall facets."""
         active_cfg = (
             config
             if config is not None
@@ -1785,154 +626,14 @@ class MeshEngine:
         )
 
 
-# ==============================================================================
-# Paper 3: Continuous Mesh Framework & L^p-Metric Tensor Sizing
-# ==============================================================================
-
-def compute_lp_metric_tensor(
-    H_u: np.ndarray,
-    target_cell_count: int,
-    p: int = 2,
-    cell_volumes: Optional[np.ndarray] = None,
-    h_min: Optional[float] = None,
-    h_max: Optional[float] = None,
-) -> np.ndarray:
-    """Evaluate optimal L^p Riemannian metric tensor field M_{L^p}(x) (Paper 3 Thm. 2.1).
-
-    Computes:
-        M_{L^p}(x) = D_{L^p} * det(|H_u(x)|)^{-1 / (2p + 3)} * |H_u(x)|
-    with global normalization constant:
-        D_{L^p} = N^{2/3} * (int_Omega det(|H_u(x)|)^{p / (2p + 3)} dx)^{-2/3}
-
-    Parameters
-    ----------
-    H_u : np.ndarray, shape (3, 3) or (N_cells, 3, 3)
-        Hessian field of solution scalar u.
-    target_cell_count : int
-        Target mesh cell count N.
-    p : int
-        Norm exponent p in {1, 2}.
-        p = 1: Acoustics, wake vortices, entropy layers (exponent -0.20)
-        p = 2: Viscous flows, Navier-Stokes shear (exponent -1/7 = -0.142857)
-    cell_volumes : Optional[np.ndarray], shape (N_cells,)
-        Cell volumes for spatial integral quadrature. Defaults to uniform.
-    h_min : Optional[float]
-        Optional physical minimum step size (eigenvalue upper bound h_min^-2).
-    h_max : Optional[float]
-        Optional physical maximum step size (eigenvalue lower bound h_max^-2).
-
-    Returns
-    -------
-    M_Lp : np.ndarray, shape (3, 3) or (N_cells, 3, 3)
-        SPD Riemannian metric tensor field.
-    """
-    H_u = np.asarray(H_u, dtype=np.float64)
-    is_single = (H_u.ndim == 2)
-    if is_single:
-        H_u = H_u.reshape(1, 3, 3)
-
-    N_cells = len(H_u)
-    if target_cell_count <= 0:
-        raise ValueError(f"target_cell_count must be positive, got {target_cell_count}")
-    if p not in (1, 2):
-        raise ValueError(f"Supported L^p exponents are p=1 and p=2, got p={p}")
-
-    vols = np.asarray(cell_volumes, dtype=np.float64) if cell_volumes is not None else np.ones(N_cells, dtype=np.float64)
-    if len(vols) != N_cells:
-        raise ValueError(f"cell_volumes length {len(vols)} does not match Hessian count {N_cells}")
-
-    # Exponents from Paper 3 (Eq. 2.10)
-    det_exp_point = -1.0 / (2.0 * p + 3.0)
-    det_exp_integral = float(p) / (2.0 * p + 3.0)
-
-    # 1. Compute absolute Hessian |H_u| and det(|H_u|) per cell
-    abs_H = np.zeros_like(H_u)
-    dets = np.zeros(N_cells, dtype=np.float64)
-    eps_reg = 1e-14
-
-    for i in range(N_cells):
-        H_sym = 0.5 * (H_u[i] + H_u[i].T)
-        eigvals, eigvecs = np.linalg.eigh(H_sym)
-        abs_eigvals = np.abs(eigvals)
-        abs_H[i] = eigvecs @ np.diag(abs_eigvals) @ eigvecs.T
-        det_val = float(np.prod(abs_eigvals))
-        dets[i] = max(det_val, eps_reg)
-
-    # 2. Quadrature integral over domain Omega
-    integral_val = float(np.sum(vols * np.power(dets, det_exp_integral)))
-    if integral_val <= 0.0 or not np.isfinite(integral_val):
-        # Degenerate Hessian (e.g. constant field): revert to isotropic background metric
-        bg_h = h_max if h_max is not None and h_max > 0.0 else 1.0
-        bg_M = (1.0 / (bg_h ** 2)) * np.eye(3, dtype=np.float64)
-        result = np.tile(bg_M, (N_cells, 1, 1))
-        return result[0] if is_single else result
-
-    D_Lp = (float(target_cell_count) ** (2.0 / 3.0)) * (integral_val ** (-2.0 / 3.0))
-
-    # 3. Assemble metric tensor M_{L^p} = D_{L^p} * det(|H|)^exp * |H|
-    M_out = np.zeros_like(abs_H)
-    for i in range(N_cells):
-        factor = D_Lp * (dets[i] ** det_exp_point)
-        M_cell = factor * abs_H[i]
-        # Regularize to guarantee positive definiteness
-        M_sym = 0.5 * (M_cell + M_cell.T)
-        eigvals, eigvecs = np.linalg.eigh(M_sym)
-        min_ev = 1.0 / (h_max ** 2) if (h_max is not None and h_max > 0.0) else 1e-8
-        max_ev = 1.0 / (h_min ** 2) if (h_min is not None and h_min > 0.0) else 1e8
-        eigvals = np.clip(eigvals, min_ev, max_ev)
-        M_out[i] = eigvecs @ np.diag(eigvals) @ eigvecs.T
-
-    return M_out[0] if is_single else M_out
-
-
-def reconstruct_p2_edge_midpoints(
-    node_coords: np.ndarray,
-    node_values: np.ndarray,
-    edges: np.ndarray,
-    nodal_gradients: np.ndarray,
-) -> np.ndarray:
-    """Noise-free P2 edge midpoint value reconstruction (Paper 3 §3.1).
-
-    Computes midpoint scalar values:
-        u_h(m_e) = (u_h(p) + u_h(q)) / 2 + ((grad_R u_h(p) - grad_R u_h(q)) / 8) . (p - q)
-    eliminating O(h^-2) discrete noise amplification.
-
-    Parameters
-    ----------
-    node_coords : np.ndarray, shape (N_nodes, 3)
-        Coordinates of mesh nodes.
-    node_values : np.ndarray, shape (N_nodes,)
-        Field values u_h at nodes.
-    edges : np.ndarray, shape (N_edges, 2)
-        Edge connectivity node index pairs (p, q).
-    nodal_gradients : np.ndarray, shape (N_nodes, 3)
-        Volume-weighted projected gradients grad_R u_h at nodes.
-
-    Returns
-    -------
-    midpoint_values : np.ndarray, shape (N_edges,)
-        Cubic-Hermite reconstructed scalar values at edge midpoints.
-    """
-    coords = np.asarray(node_coords, dtype=np.float64)
-    vals = np.asarray(node_values, dtype=np.float64)
-    edg = np.asarray(edges, dtype=np.int64)
-    grads = np.asarray(nodal_gradients, dtype=np.float64)
-
-    N_edges = len(edg)
-    mid_vals = np.zeros(N_edges, dtype=np.float64)
-
-    for e_idx in range(N_edges):
-        p, q = edg[e_idx]
-        xp, xq = coords[p], coords[q]
-        up, uq = vals[p], vals[q]
-        gp, gq = grads[p], grads[q]
-
-        # Directed edge vector q - p
-        dx = xq - xp
-        # Hermite midpoint reconstruction
-        u_mid = 0.5 * (up + uq) + (1.0 / 8.0) * float(np.dot(gp - gq, dx))
-        mid_vals[e_idx] = u_mid
-
-    return mid_vals
-
-
+__all__ = [
+    "MeshEngine",
+    "compute_farfield_bounding_box",
+    "compute_lp_metric_tensor",
+    "reconstruct_p2_edge_midpoints",
+    "normalize_closed_shell_orientations",
+    "_connected_face_components",
+    "_signed_shell_volume",
+    "_generalized_winding_number",
+    "_decompose_cht_shell_zones",
+]
