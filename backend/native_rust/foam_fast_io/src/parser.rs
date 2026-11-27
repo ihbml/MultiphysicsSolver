@@ -44,6 +44,8 @@ pub struct FoamStream<'a> {
     bytes: &'a [u8],
     pos: usize,
     pub is_binary: bool,
+    pub label_bits: Option<u8>,
+    pub class_name: String,
 }
 
 impl<'a> FoamStream<'a> {
@@ -52,28 +54,14 @@ impl<'a> FoamStream<'a> {
             bytes,
             pos: 0,
             is_binary: false,
+            label_bits: None,
+            class_name: String::new(),
         }
     }
 
     #[inline]
     pub fn is_binary(&self) -> bool {
         self.is_binary
-    }
-
-    #[inline]
-    fn peek(&self) -> Option<u8> {
-        if self.pos < self.bytes.len() {
-            Some(self.bytes[self.pos])
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    fn advance(&mut self) {
-        if self.pos < self.bytes.len() {
-            self.pos += 1;
-        }
     }
 
     /// Skips whitespace, line comments (//) and block comments (/* ... */)
@@ -113,11 +101,24 @@ impl<'a> FoamStream<'a> {
         }
     }
 
-    /// Read next whitespace-delimited word
+    /// Read next whitespace-delimited word (keeps quoted strings intact without quotes).
     pub fn next_token(&mut self) -> Option<&'a str> {
         self.skip_whitespace_and_comments();
         if self.pos >= self.bytes.len() {
             return None;
+        }
+
+        if self.bytes[self.pos] == b'"' {
+            self.pos += 1;
+            let q_start = self.pos;
+            while self.pos < self.bytes.len() && self.bytes[self.pos] != b'"' {
+                self.pos += 1;
+            }
+            let q_end = self.pos;
+            if self.pos < self.bytes.len() && self.bytes[self.pos] == b'"' {
+                self.pos += 1;
+            }
+            return std::str::from_utf8(&self.bytes[q_start..q_end]).ok();
         }
 
         let start = self.pos;
@@ -143,7 +144,7 @@ impl<'a> FoamStream<'a> {
         std::str::from_utf8(&self.bytes[start..self.pos]).ok()
     }
 
-    /// Skips past FoamFile header { ... } and detects format binary;
+    /// Skips past FoamFile header { ... } and detects format binary;, arch, and class.
     pub fn skip_foam_header(&mut self) -> Result<(), String> {
         loop {
             match self.next_token() {
@@ -170,6 +171,20 @@ impl<'a> FoamStream<'a> {
                         }
                     }
                 }
+                Some("arch") => {
+                    if let Some(arch) = self.next_token() {
+                        if arch.contains("label=32") {
+                            self.label_bits = Some(32);
+                        } else if arch.contains("label=64") {
+                            self.label_bits = Some(64);
+                        }
+                    }
+                }
+                Some("class") => {
+                    if let Some(cls) = self.next_token() {
+                        self.class_name = cls.to_string();
+                    }
+                }
                 Some(_) => {}
                 None => return Err("Unclosed FoamFile header".to_string()),
             }
@@ -178,16 +193,32 @@ impl<'a> FoamStream<'a> {
         Ok(())
     }
 
-    /// Reads count f64 (double precision) binary values in little-endian format.
-    pub fn read_binary_f64_slice(&mut self, count: usize) -> Result<Vec<f64>, String> {
+    fn consume_binary_open_paren(&mut self, expected_bytes: usize) -> Result<(), String> {
         self.skip_whitespace_and_comments();
         if self.pos < self.bytes.len() && self.bytes[self.pos] == b'(' {
             self.pos += 1;
-            if self.pos < self.bytes.len() && self.bytes[self.pos] == b'\n' {
-                self.pos += 1;
-            }
+        } else {
+            return Err("Expected '(' before binary list payload".to_string());
         }
+        // Standard OpenFOAM writes '<N>\n(<payload>)'.
+        // Skip a single '\n' after '(' ONLY when legacy '\n(\n<payload>\n)' layout is present,
+        // never when the first payload byte itself is 0x0A.
+        if self.pos < self.bytes.len()
+            && self.bytes[self.pos] == b'\n'
+            && self.pos + 1 + expected_bytes < self.bytes.len()
+            && self.bytes.get(self.pos + expected_bytes) != Some(&b')')
+            && self.bytes.get(self.pos + 1 + expected_bytes..self.pos + 1 + expected_bytes + 2)
+                == Some(b"\n)")
+        {
+            self.pos += 1;
+        }
+        Ok(())
+    }
+
+    /// Reads count f64 (double precision) binary values in little-endian format.
+    pub fn read_binary_f64_slice(&mut self, count: usize) -> Result<Vec<f64>, String> {
         let byte_len = count * std::mem::size_of::<f64>();
+        self.consume_binary_open_paren(byte_len)?;
         if self.pos + byte_len > self.bytes.len() {
             return Err(format!(
                 "Unexpected EOF reading {} binary f64 values (need {} bytes, have {})",
@@ -218,14 +249,8 @@ impl<'a> FoamStream<'a> {
 
     /// Reads count 3D vectors ([f64; 3]) in binary little-endian format.
     pub fn read_binary_vector_slice(&mut self, count: usize) -> Result<Vec<[f64; 3]>, String> {
-        self.skip_whitespace_and_comments();
-        if self.pos < self.bytes.len() && self.bytes[self.pos] == b'(' {
-            self.pos += 1;
-            if self.pos < self.bytes.len() && self.bytes[self.pos] == b'\n' {
-                self.pos += 1;
-            }
-        }
         let byte_len = count * 3 * std::mem::size_of::<f64>();
+        self.consume_binary_open_paren(byte_len)?;
         if self.pos + byte_len > self.bytes.len() {
             return Err(format!(
                 "Unexpected EOF reading {} binary vectors (need {} bytes, have {})",
@@ -258,57 +283,47 @@ impl<'a> FoamStream<'a> {
 
     /// Reads count labels (integers) in binary little-endian format (supports 32-bit and 64-bit).
     pub fn read_binary_label_slice(&mut self, count: usize) -> Result<Vec<usize>, String> {
-        self.skip_whitespace_and_comments();
-        if self.pos < self.bytes.len() && self.bytes[self.pos] == b'(' {
-            self.pos += 1;
-            if self.pos < self.bytes.len() && self.bytes[self.pos] == b'\n' {
-                self.pos += 1;
-            }
-        }
         let byte_len_64 = count * 8;
         let byte_len_32 = count * 4;
-        let is_64 = if self.pos + byte_len_64 <= self.bytes.len() && (self.pos + byte_len_32 > self.bytes.len() || self.bytes.len() - self.pos >= byte_len_64) {
-            self.bytes.len() - self.pos >= byte_len_64
+        self.skip_whitespace_and_comments();
+        let after_paren = if self.pos < self.bytes.len() && self.bytes[self.pos] == b'(' {
+            self.pos + 1
         } else {
-            false
+            return Err("Expected '(' before binary label list".to_string());
         };
-
+        let remaining = self.bytes.len().saturating_sub(after_paren);
+        let is_64 = match self.label_bits {
+            Some(32) => false,
+            Some(64) => true,
+            _ => remaining >= byte_len_64,
+        };
+        let byte_len = if is_64 { byte_len_64 } else { byte_len_32 };
+        self.consume_binary_open_paren(byte_len)?;
+        if self.pos + byte_len > self.bytes.len() {
+            return Err(format!("Unexpected EOF reading {} binary labels", count));
+        }
+        let slice = &self.bytes[self.pos..self.pos + byte_len];
+        self.pos += byte_len;
+        let mut result = Vec::with_capacity(count);
         if is_64 {
-            let slice = &self.bytes[self.pos..self.pos + byte_len_64];
-            self.pos += byte_len_64;
-            let mut result = Vec::with_capacity(count);
             for chunk in slice.chunks_exact(8) {
                 let val = i64::from_le_bytes(chunk.try_into().unwrap()) as usize;
                 result.push(val);
             }
-            self.skip_whitespace_and_comments();
-            if self.pos < self.bytes.len() && self.bytes[self.pos] == b')' {
-                self.pos += 1;
-            }
-            if self.pos < self.bytes.len() && self.bytes[self.pos] == b';' {
-                self.pos += 1;
-            }
-            Ok(result)
         } else {
-            if self.pos + byte_len_32 > self.bytes.len() {
-                return Err(format!("Unexpected EOF reading {} binary labels", count));
-            }
-            let slice = &self.bytes[self.pos..self.pos + byte_len_32];
-            self.pos += byte_len_32;
-            let mut result = Vec::with_capacity(count);
             for chunk in slice.chunks_exact(4) {
                 let val = i32::from_le_bytes(chunk.try_into().unwrap()) as usize;
                 result.push(val);
             }
-            self.skip_whitespace_and_comments();
-            if self.pos < self.bytes.len() && self.bytes[self.pos] == b')' {
-                self.pos += 1;
-            }
-            if self.pos < self.bytes.len() && self.bytes[self.pos] == b';' {
-                self.pos += 1;
-            }
-            Ok(result)
         }
+        self.skip_whitespace_and_comments();
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b')' {
+            self.pos += 1;
+        }
+        if self.pos < self.bytes.len() && self.bytes[self.pos] == b';' {
+            self.pos += 1;
+        }
+        Ok(result)
     }
 }
 
@@ -350,10 +365,25 @@ pub fn parse_points(bytes: &[u8]) -> Result<Vec<[f64; 3]>, String> {
     Ok(points)
 }
 
-/// Parses OpenFOAM `faces` file
+/// Parses OpenFOAM `faces` file (ASCII `faceList` and binary `faceCompactList`).
 pub fn parse_faces(bytes: &[u8]) -> Result<(Vec<usize>, Vec<usize>), String> {
     let mut stream = FoamStream::new(bytes);
     stream.skip_foam_header()?;
+
+    if stream.is_binary() && stream.class_name == "faceCompactList" {
+        let fo_count_str = stream.next_token().ok_or("Missing face_offsets count")?;
+        let n_fo: usize = fo_count_str
+            .parse()
+            .map_err(|e| format!("Invalid face_offsets count '{}': {}", fo_count_str, e))?;
+        let face_offsets = stream.read_binary_label_slice(n_fo)?;
+
+        let fn_count_str = stream.next_token().ok_or("Missing face_nodes count")?;
+        let n_fn: usize = fn_count_str
+            .parse()
+            .map_err(|e| format!("Invalid face_nodes count '{}': {}", fn_count_str, e))?;
+        let face_nodes = stream.read_binary_label_slice(n_fn)?;
+        return Ok((face_offsets, face_nodes));
+    }
 
     let count_str = stream.next_token().ok_or("Missing faces count")?;
     let n_faces: usize = count_str
@@ -552,6 +582,48 @@ pub fn load_poly_mesh(poly_mesh_dir: &Path) -> Result<FoamMesh, String> {
 
     mesh.validate_topology()?;
     mesh.compute_geometry();
+    mesh.sync_i64_indices();
 
     Ok(mesh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_binary_points_preserves_0x0a_and_0x20_leading_bytes() {
+        // Construct f64 values whose first LE bytes are literally 0x0A ('\n') and 0x20 (' ')
+        let x0 = f64::from_le_bytes([0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F]); // ~1.0
+        let y0 = f64::from_le_bytes([0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40]); // 2.0
+        let z0 = 3.5_f64;
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(
+            b"FoamFile\n{\n    version 2.0;\n    format binary;\n    arch \"LSB;label=64;scalar=64\";\n    class vectorField;\n    object points;\n}\n1\n(",
+        );
+        payload.extend_from_slice(&x0.to_le_bytes());
+        payload.extend_from_slice(&y0.to_le_bytes());
+        payload.extend_from_slice(&z0.to_le_bytes());
+        payload.extend_from_slice(b")\n");
+
+        let pts = parse_points(&payload).expect("binary points with 0x0a/0x20 byte");
+        assert_eq!(pts.len(), 1);
+        assert_eq!(pts[0][0].to_bits(), x0.to_bits());
+        assert_eq!(pts[0][1].to_bits(), y0.to_bits());
+        assert_eq!(pts[0][2].to_bits(), z0.to_bits());
+    }
+
+    #[test]
+    fn test_binary_label_list_32_vs_64() {
+        let mut payload32 = Vec::new();
+        payload32.extend_from_slice(
+            b"FoamFile { version 2.0; format binary; arch \"LSB;label=32;scalar=64\"; class labelList; object owner; }\n3\n(",
+        );
+        for v in [0i32, 1i32, 2i32] {
+            payload32.extend_from_slice(&v.to_le_bytes());
+        }
+        payload32.extend_from_slice(b")\n");
+        assert_eq!(parse_label_list(&payload32).unwrap(), vec![0, 1, 2]);
+    }
 }

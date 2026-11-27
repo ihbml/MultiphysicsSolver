@@ -13,7 +13,27 @@ from backend.meshing.topology_wsrd import (
 )
 
 
-def _classify_cell_type(cell_nodes: np.ndarray, points: np.ndarray) -> CellType:
+def _is_collapsed_hex_coplanar(cell_nodes: np.ndarray, points: np.ndarray) -> bool:
+    """Return True if an 8-node coplanar cell has duplicate vertices (e.g. collapsed hex)."""
+    pts_cell = points[cell_nodes]
+    if not np.all(np.isfinite(pts_cell)):
+        return True
+    span = np.max(pts_cell, axis=0) - np.min(pts_cell, axis=0)
+    max_span = max(float(np.max(span)), 1e-12)
+    tol = 1e-6 * max_span
+    for i in range(4):
+        if float(np.linalg.norm(pts_cell[i] - pts_cell[i + 4])) <= tol:
+            return True
+    for i in range(8):
+        for j in range(i + 1, 8):
+            if float(np.linalg.norm(pts_cell[i] - pts_cell[j])) <= tol:
+                return True
+    return False
+
+
+def _classify_cell_type(
+    cell_nodes: np.ndarray, points: np.ndarray, topological_dim: Optional[int] = None
+) -> CellType:
     """Classify element into VTK-compatible CellType enum."""
     nv = len(cell_nodes)
     if nv == 3:
@@ -23,7 +43,11 @@ def _classify_cell_type(cell_nodes: np.ndarray, points: np.ndarray) -> CellType:
         p1 = points[int(cell_nodes[1])]
         p2 = points[int(cell_nodes[2])]
         p3 = points[int(cell_nodes[3])]
+        if topological_dim == 2:
+            return CellType.QUAD
         pts_quad = points[cell_nodes]
+        if not np.all(np.isfinite(pts_quad)):
+            return CellType.TETRA
         diffs = pts_quad[:, None, :] - pts_quad[None, :, :]
         max_dist = float(np.max(np.linalg.norm(diffs, axis=-1)))
         l_scale = max(max_dist, 1e-12)
@@ -33,20 +57,27 @@ def _classify_cell_type(cell_nodes: np.ndarray, points: np.ndarray) -> CellType:
             return CellType.QUAD
         return CellType.TETRA
     elif nv == 8:
-        if points is not None:
+        if topological_dim == 2:
+            return CellType.POLYGON
+        if points is not None and topological_dim != 3:
             pts_cell = points[cell_nodes]
-            span = np.max(pts_cell, axis=0) - np.min(pts_cell, axis=0)
-            max_span = float(np.max(span))
-            min_span = float(np.min(span))
-            if max_span > 1e-12 and (min_span / max_span) < 1e-5:
-                return CellType.POLYGON
+            if np.all(np.isfinite(pts_cell)):
+                span = np.max(pts_cell, axis=0) - np.min(pts_cell, axis=0)
+                max_span = float(np.max(span))
+                min_span = float(np.min(span))
+                if max_span > 1e-12 and (min_span / max_span) < 1e-5 and not _is_collapsed_hex_coplanar(cell_nodes, points):
+                    return CellType.POLYGON
         return CellType.HEXAHEDRON
     elif nv == 6:
         return CellType.WEDGE
     elif nv == 5:
         return CellType.PYRAMID
     else:
+        if topological_dim == 2:
+            return CellType.POLYGON
         pts_poly = points[cell_nodes]
+        if not np.all(np.isfinite(pts_poly)):
+            return CellType.POLYHEDRON
         span_poly = np.max(pts_poly, axis=0) - np.min(pts_poly, axis=0)
         max_sp = float(np.max(span_poly))
         min_sp = float(np.min(span_poly))
@@ -95,18 +126,25 @@ def _compute_polygon_normal_and_centroid_py(
 def _extract_cell_faces_py(
     cell_nodes: np.ndarray,
     points: Optional[np.ndarray] = None,
+    *,
+    orient_outward: bool = True,
+    cell_type: Optional[CellType] = None,
 ) -> List[List[int]]:
     """Extract ordered face vertex lists for standard 2D and 3D cells."""
     nv = len(cell_nodes)
     c = cell_nodes
-    if nv == 8:
-        if points is not None:
-            pts_cell = points[c]
-            span = np.max(pts_cell, axis=0) - np.min(pts_cell, axis=0)
-            max_span = float(np.max(span))
-            min_span = float(np.min(span))
-            if max_span > 1e-12 and (min_span / max_span) < 1e-5:
-                return [[int(c[i]), int(c[(i + 1) % nv])] for i in range(nv)]
+    if cell_type == CellType.HEXAHEDRON and nv == 8:
+        faces = [
+            [int(c[0]), int(c[3]), int(c[2]), int(c[1])],
+            [int(c[4]), int(c[5]), int(c[6]), int(c[7])],
+            [int(c[0]), int(c[1]), int(c[5]), int(c[4])],
+            [int(c[1]), int(c[2]), int(c[6]), int(c[5])],
+            [int(c[2]), int(c[3]), int(c[7]), int(c[6])],
+            [int(c[3]), int(c[0]), int(c[4]), int(c[7])],
+        ]
+    elif cell_type == CellType.POLYGON or (nv == 8 and cell_type is None and points is not None and not _is_collapsed_hex_coplanar(c, points) and (lambda s: float(np.max(s)) > 1e-12 and (float(np.min(s)) / float(np.max(s))) < 1e-5)(np.max(points[c], axis=0) - np.min(points[c], axis=0))):
+        faces = [[int(c[i]), int(c[(i + 1) % nv])] for i in range(nv)]
+    elif nv == 8:
         faces = [
             [int(c[0]), int(c[3]), int(c[2]), int(c[1])],
             [int(c[4]), int(c[5]), int(c[6]), int(c[7])],
@@ -116,7 +154,21 @@ def _extract_cell_faces_py(
             [int(c[3]), int(c[0]), int(c[4]), int(c[7])],
         ]
     elif nv == 4:
-        if points is not None:
+        if cell_type == CellType.QUAD:
+            faces = [
+                [int(c[0]), int(c[1])],
+                [int(c[1]), int(c[2])],
+                [int(c[2]), int(c[3])],
+                [int(c[3]), int(c[0])],
+            ]
+        elif cell_type == CellType.TETRA:
+            faces = [
+                [int(c[0]), int(c[2]), int(c[1])],
+                [int(c[0]), int(c[1]), int(c[3])],
+                [int(c[1]), int(c[2]), int(c[3])],
+                [int(c[2]), int(c[0]), int(c[3])],
+            ]
+        elif points is not None and np.all(np.isfinite(points[c])):
             p0, p1, p2, p3 = points[int(c[0])], points[int(c[1])], points[int(c[2])], points[int(c[3])]
             pts_quad = points[c]
             diffs = pts_quad[:, None, :] - pts_quad[None, :, :]
@@ -170,7 +222,7 @@ def _extract_cell_faces_py(
     else:
         faces = [[int(c[i]), int(c[(i + 1) % nv])] for i in range(nv)]
 
-    if points is not None:
+    if orient_outward and points is not None and np.all(np.isfinite(points[cell_nodes])):
         cell_c = np.mean(points[cell_nodes], axis=0)
         oriented_faces: List[List[int]] = []
         for fn in faces:
@@ -244,7 +296,10 @@ def compute_difvm_topology_python(
             ]
 
     if cell_types is None:
-        cell_types_arr = np.array([_classify_cell_type(c, pts).value for c in cells], dtype=np.int32)
+        cell_types_arr = np.array(
+            [_classify_cell_type(c, pts, topological_dim=topological_dim).value for c in cells],
+            dtype=np.int32,
+        )
     else:
         cell_types_arr = np.asarray(cell_types, dtype=np.int32)
 
@@ -261,97 +316,105 @@ def compute_difvm_topology_python(
     temp_faces: List[Dict[str, Any]] = []
     cell_face_refs: List[List[Tuple[int, float]]] = [[] for _ in range(n_cells)]
 
-    for c_idx, cell in enumerate(cells):
-        cell_arr = np.asarray(cell, dtype=np.int64)
-        cfaces = (
-            per_cell_explicit_faces[c_idx]
-            if per_cell_explicit_faces is not None and per_cell_explicit_faces[c_idx] is not None
-            else _extract_cell_faces_py(cell_arr, pts)
-        )
-        for fnodes in cfaces:
-            canonical_key = tuple(sorted(fnodes))
-            if canonical_key not in face_map:
-                f_idx = len(temp_faces)
-                norm_v, cent_v = _compute_polygon_normal_and_centroid_py(fnodes, pts)
-                is_folded = _is_face_folded_py(fnodes, pts, norm_v)
-                temp_faces.append({
-                    "nodes": list(fnodes),
-                    "owner": c_idx,
-                    "neighbour": -1,
-                    "normal_owner": norm_v,
-                    "centre": cent_v,
-                    "is_folded": is_folded,
-                })
-                face_map[canonical_key] = f_idx
-                cell_face_refs[c_idx].append((f_idx, 1.0))
-            else:
-                f_idx = face_map[canonical_key]
-                if temp_faces[f_idx]["neighbour"] >= 0:
-                    raise ValueError(
-                        f"Non-manifold mesh detected: face shared by >2 cells "
-                        f"({temp_faces[f_idx]['owner']}, {temp_faces[f_idx]['neighbour']}, {c_idx})"
-                    )
-                prev_owner = temp_faces[f_idx]["owner"]
-                if c_idx < prev_owner:
-                    temp_faces[f_idx]["owner"] = c_idx
-                    temp_faces[f_idx]["neighbour"] = prev_owner
-                    temp_faces[f_idx]["normal_owner"] = -temp_faces[f_idx]["normal_owner"]
-                    temp_faces[f_idx]["nodes"] = list(reversed(temp_faces[f_idx]["nodes"]))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        for c_idx, cell in enumerate(cells):
+            cell_arr = np.asarray(cell, dtype=np.int64)
+            ctype_enum = CellType(int(cell_types_arr[c_idx]))
+            cfaces = (
+                per_cell_explicit_faces[c_idx]
+                if per_cell_explicit_faces is not None and per_cell_explicit_faces[c_idx] is not None
+                else _extract_cell_faces_py(cell_arr, pts, orient_outward=True, cell_type=ctype_enum)
+            )
+            for fnodes in cfaces:
+                canonical_key = tuple(sorted(fnodes))
+                if canonical_key not in face_map:
+                    f_idx = len(temp_faces)
+                    norm_v, cent_v = _compute_polygon_normal_and_centroid_py(fnodes, pts)
+                    is_folded = _is_face_folded_py(fnodes, pts, norm_v)
+                    temp_faces.append({
+                        "nodes": list(fnodes),
+                        "owner": c_idx,
+                        "neighbour": -1,
+                        "normal_owner": norm_v,
+                        "centre": cent_v,
+                        "is_folded": is_folded,
+                    })
+                    face_map[canonical_key] = f_idx
                     cell_face_refs[c_idx].append((f_idx, 1.0))
-                    for k in range(len(cell_face_refs[prev_owner])):
-                        if cell_face_refs[prev_owner][k][0] == f_idx:
-                            cell_face_refs[prev_owner][k] = (f_idx, -1.0)
-                            break
                 else:
-                    temp_faces[f_idx]["neighbour"] = c_idx
-                    cell_face_refs[c_idx].append((f_idx, -1.0))
+                    f_idx = face_map[canonical_key]
+                    if temp_faces[f_idx]["neighbour"] >= 0:
+                        raise ValueError(
+                            f"Non-manifold mesh detected: face shared by >2 cells "
+                            f"({temp_faces[f_idx]['owner']}, {temp_faces[f_idx]['neighbour']}, {c_idx})"
+                        )
+                    prev_owner = temp_faces[f_idx]["owner"]
+                    if c_idx < prev_owner:
+                        temp_faces[f_idx]["owner"] = c_idx
+                        temp_faces[f_idx]["neighbour"] = prev_owner
+                        temp_faces[f_idx]["normal_owner"] = -temp_faces[f_idx]["normal_owner"]
+                        temp_faces[f_idx]["nodes"] = list(reversed(temp_faces[f_idx]["nodes"]))
+                        cell_face_refs[c_idx].append((f_idx, 1.0))
+                        for k in range(len(cell_face_refs[prev_owner])):
+                            if cell_face_refs[prev_owner][k][0] == f_idx:
+                                cell_face_refs[prev_owner][k] = (f_idx, -1.0)
+                                break
+                    else:
+                        temp_faces[f_idx]["neighbour"] = c_idx
+                        cell_face_refs[c_idx].append((f_idx, -1.0))
 
-    cell_centres = np.zeros((n_cells, 3), dtype=np.float64)
-    cell_volumes = np.zeros(n_cells, dtype=np.float64)
+        cell_centres = np.zeros((n_cells, 3), dtype=np.float64)
+        cell_volumes = np.zeros(n_cells, dtype=np.float64)
 
-    for c_idx, cell in enumerate(cells):
-        cell_arr = np.asarray(cell, dtype=np.int64)
-        c_approx = np.mean(pts[cell_arr], axis=0)
-        ctype = cell_types_arr[c_idx]
-        is_cell_2d = ctype in (CellType.TRIANGLE.value, CellType.QUAD.value, CellType.POLYGON.value)
-        div_factor = 2.0 if is_cell_2d else 3.0
+        for c_idx, cell in enumerate(cells):
+            cell_arr = np.asarray(cell, dtype=np.int64)
+            c_approx = np.mean(pts[cell_arr], axis=0)
+            ctype = cell_types_arr[c_idx]
+            ctype_enum = CellType(int(ctype))
+            is_cell_2d = ctype in (CellType.TRIANGLE.value, CellType.QUAD.value, CellType.POLYGON.value)
+            div_factor = 2.0 if is_cell_2d else 3.0
 
-        raw_faces = (
-            per_cell_explicit_faces[c_idx]
-            if per_cell_explicit_faces is not None and per_cell_explicit_faces[c_idx] is not None
-            else _extract_cell_faces_py(cell_arr, pts)
-        )
-        natural_vol = 0.0
-        for fn in raw_faces:
-            n_raw, c_raw = _compute_polygon_normal_and_centroid_py(fn, pts)
-            natural_vol += float(np.dot(c_raw - c_approx, n_raw)) / div_factor
+            if not np.all(np.isfinite(pts[cell_arr])):
+                cell_volumes[c_idx] = 0.0
+                cell_centres[c_idx] = c_approx
+                continue
 
-        vol_sum = 0.0
-        centroid_weighted = np.zeros(3, dtype=np.float64)
+            raw_faces = (
+                per_cell_explicit_faces[c_idx]
+                if per_cell_explicit_faces is not None and per_cell_explicit_faces[c_idx] is not None
+                else _extract_cell_faces_py(cell_arr, pts, orient_outward=False, cell_type=ctype_enum)
+            )
+            natural_vol = 0.0
+            for fn in raw_faces:
+                n_raw, c_raw = _compute_polygon_normal_and_centroid_py(fn, pts)
+                natural_vol += float(np.dot(c_raw - c_approx, n_raw)) / div_factor
 
-        for f_idx, sign in cell_face_refs[c_idx]:
-            tf = temp_faces[f_idx]
-            sf_out = tf["normal_owner"] * sign
-            pyr_vol = float(np.dot(tf["centre"] - c_approx, sf_out)) / div_factor
-            vol_sum += pyr_vol
-            pyr_c = tf["centre"] * (2.0 / 3.0) + c_approx * (1.0 / 3.0) if is_cell_2d else tf["centre"] * 0.75 + c_approx * 0.25
-            centroid_weighted += pyr_c * pyr_vol
+            vol_sum = 0.0
+            centroid_weighted = np.zeros(3, dtype=np.float64)
 
-        if natural_vol < -1e-15 and vol_sum > 1e-60:
-            vol_final = -vol_sum
-        elif abs(vol_sum) > 1e-60:
-            vol_final = vol_sum
-        else:
-            vol_final = 0.0
+            for f_idx, sign in cell_face_refs[c_idx]:
+                tf = temp_faces[f_idx]
+                sf_out = tf["normal_owner"] * sign
+                pyr_vol = float(np.dot(tf["centre"] - c_approx, sf_out)) / div_factor
+                vol_sum += pyr_vol
+                pyr_c = tf["centre"] * (2.0 / 3.0) + c_approx * (1.0 / 3.0) if is_cell_2d else tf["centre"] * 0.75 + c_approx * 0.25
+                centroid_weighted += pyr_c * pyr_vol
 
-        if abs(vol_sum) > 1e-60:
-            centroid_weighted /= vol_sum
-            cell_volumes[c_idx] = vol_final
-        else:
-            cell_volumes[c_idx] = 0.0
-            centroid_weighted = c_approx
+            if natural_vol < -1e-15 and vol_sum > 1e-60:
+                vol_final = -vol_sum
+            elif abs(vol_sum) > 1e-60:
+                vol_final = vol_sum
+            else:
+                vol_final = 0.0
 
-        cell_centres[c_idx] = centroid_weighted
+            if abs(vol_sum) > 1e-60:
+                centroid_weighted /= vol_sum
+                cell_volumes[c_idx] = vol_final
+            else:
+                cell_volumes[c_idx] = 0.0
+                centroid_weighted = c_approx
+
+            cell_centres[c_idx] = centroid_weighted
 
     internal_indices = [i for i, tf in enumerate(temp_faces) if tf["neighbour"] >= 0]
     boundary_indices = [i for i, tf in enumerate(temp_faces) if tf["neighbour"] < 0]
@@ -430,7 +493,9 @@ def compute_difvm_topology_python(
     stab_mask = np.zeros(n_faces, dtype=np.int32)
     final_faces: List[np.ndarray] = []
 
-    for new_idx, orig_idx in enumerate(sorted_indices):
+    _prev_np_err = np.seterr(invalid="ignore", divide="ignore")
+    try:
+      for new_idx, orig_idx in enumerate(sorted_indices):
         tf = temp_faces[orig_idx]
         o = tf["owner"]
         nb = tf["neighbour"]
@@ -544,6 +609,8 @@ def compute_difvm_topology_python(
             beta_upwind[new_idx] = beta
 
         final_faces.append(np.array(fnodes, dtype=np.int64))
+    finally:
+        np.seterr(**_prev_np_err)
 
     aspect_ratio = np.ones(n_cells, dtype=np.float64)
     for c_idx, cell in enumerate(cells):

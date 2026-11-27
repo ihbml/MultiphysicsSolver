@@ -118,7 +118,24 @@ std::vector<std::vector<int64_t>> extractCellFaces(
     Vec3 span = p_max - p_min;
     double min_span = std::min({span.x, span.y, span.z});
     double max_span = std::max({span.x, span.y, span.z});
+    bool is_collapsed_hex = false;
     if (max_span > 1e-12 && (min_span / max_span) < 1e-5) {
+      const double dup_tol = 1e-6 * max_span;
+      for (size_t i = 0; i < 4 && !is_collapsed_hex; ++i) {
+        if ((node_coords[cell[i]] - node_coords[cell[i + 4]]).norm() <= dup_tol) {
+          is_collapsed_hex = true;
+        }
+      }
+      for (size_t i = 0; i < 8 && !is_collapsed_hex; ++i) {
+        for (size_t j = i + 1; j < 8; ++j) {
+          if ((node_coords[cell[i]] - node_coords[cell[j]]).norm() <= dup_tol) {
+            is_collapsed_hex = true;
+            break;
+          }
+        }
+      }
+    }
+    if (max_span > 1e-12 && (min_span / max_span) < 1e-5 && !is_collapsed_hex) {
       out_type = CellType::POLYGON;
       for (size_t i = 0; i < nv; ++i) {
         faces.push_back({cell[i], cell[(i + 1) % nv]});

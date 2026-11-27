@@ -128,7 +128,7 @@ def recompute_geometry_from_nodes(
         if 0 <= ow < n_cells:
             r0 = cell_ref[ow]
             tet_v = np.einsum("ij,ij->i", tri_c - r0, tri_s) / 3.0
-            tet_c = 0.25 * (r0 + c_avg + f_pts + p_next)
+            tet_c = 0.25 * r0 + 0.75 * tri_c
             cell_vol[ow] += float(tet_v.sum())
             cell_mom[ow] += (tet_c * tet_v[:, None]).sum(axis=0)
 
@@ -136,7 +136,7 @@ def recompute_geometry_from_nodes(
         if 0 <= nb < n_cells:
             r0 = cell_ref[nb]
             tet_v = np.einsum("ij,ij->i", tri_c - r0, -tri_s) / 3.0
-            tet_c = 0.25 * (r0 + c_avg + f_pts + p_next)
+            tet_c = 0.25 * r0 + 0.75 * tri_c
             cell_vol[nb] += float(tet_v.sum())
             cell_mom[nb] += (tet_c * tet_v[:, None]).sum(axis=0)
 
@@ -416,3 +416,153 @@ def mesh_fingerprint(
         "volumes": _hash_arr(_quant(mesh.cell_volumes)),
         "regions": _hash_arr(regions),
     }
+
+
+@dataclass(frozen=True)
+class PolynomialExactnessReport:
+    """Solver-free P0-P4 polynomial exactness & truncation report (Blueprint §3.4 Waffe 3)."""
+
+    p0_gauss_closure: float
+    p1_moment_identity: float
+    p2_linear_gradient_error: float
+    p3_quadratic_laplacian_error: float
+    p4_observed_order: Optional[float]
+    passed: bool
+
+
+def compute_polynomial_exactness(
+    mesh: UnstructuredMesh,
+    *,
+    refinement_meshes: Optional[Sequence[UnstructuredMesh]] = None,
+    p0_tol: float = 1e-11,
+    p1_tol: float = 1e-10,
+    p2_tol: float = 1e-10,
+) -> PolynomialExactnessReport:
+    """Evaluate solver-free P0-P4 discretization exactness directly on mesh geometry."""
+    n_cells = mesh.num_cells
+    n_faces = mesh.num_faces
+    if n_cells == 0 or n_faces == 0:
+        return PolynomialExactnessReport(0.0, 0.0, 0.0, 0.0, None, False)
+
+    pts = np.asarray(mesh.points, dtype=np.float64)
+    owner = np.asarray(mesh.owner, dtype=np.int64)
+    neighbour = np.asarray(mesh.neighbour, dtype=np.int64)
+    fo, fn = _extract_face_csr(mesh)
+
+    sf, cf, cell_vol, cell_cc = recompute_geometry_from_nodes(
+        pts, fo, fn, owner, neighbour, n_cells
+    )
+    sf_mag = np.linalg.norm(sf, axis=1)
+    int_mask = neighbour >= 0
+    n_int = int(np.sum(int_mask))
+
+    # P0: Gauss closure sum_f S_f == 0
+    cell_sf_sum = np.zeros((n_cells, 3), dtype=np.float64)
+    cell_sf_abs = np.zeros(n_cells, dtype=np.float64)
+    np.add.at(cell_sf_sum, owner, sf)
+    np.add.at(cell_sf_abs, owner, sf_mag)
+    if n_int > 0:
+        np.add.at(cell_sf_sum, neighbour[:n_int], -sf[:n_int])
+        np.add.at(cell_sf_abs, neighbour[:n_int], sf_mag[:n_int])
+    p0 = float(np.max(np.linalg.norm(cell_sf_sum, axis=1) / np.maximum(cell_sf_abs, 1e-30)))
+
+    # P1: First-moment identity sum_f (x_f - c_c) outer S_f / V_c == I_3
+    moment = np.zeros((n_cells, 3, 3), dtype=np.float64)
+    rel_o = cf - cell_cc[owner]
+    outer_o = np.einsum("fi,fj->fij", rel_o, sf)
+    np.add.at(moment, owner, outer_o)
+    if n_int > 0:
+        rel_n = cf[:n_int] - cell_cc[neighbour[:n_int]]
+        outer_n = np.einsum("fi,fj->fij", rel_n, -sf[:n_int])
+        np.add.at(moment, neighbour[:n_int], outer_n)
+    safe_v = np.where(np.abs(cell_vol) > 1e-30, cell_vol, 1.0)
+    eye3 = np.eye(3, dtype=np.float64)[None, :, :]
+    p1_err_per_cell = np.linalg.norm(moment / safe_v[:, None, None] - eye3, axis=(1, 2))
+    p1 = float(np.max(p1_err_per_cell))
+
+    # P2: Exact Green-Gauss linear gradient on phi(x) = a.x + b using single-centroid face values
+    grad_exact = np.array([1.3, -0.7, 2.1], dtype=np.float64)
+    phi_f_lin = cf @ grad_exact + 0.5
+    gg_lin = np.zeros((n_cells, 3), dtype=np.float64)
+    np.add.at(gg_lin, owner, phi_f_lin[:, None] * sf)
+    if n_int > 0:
+        np.add.at(gg_lin, neighbour[:n_int], -phi_f_lin[:n_int, None] * sf[:n_int])
+    gg_lin /= safe_v[:, None]
+    p2 = float(np.max(np.abs(gg_lin - grad_exact[None, :])))
+
+    # P3: Quadratic Laplacian truncation error on phi(x) = ||x - x_ref||^2 (exact Laplacian = 6)
+    x_ref = 0.5 * (np.min(pts, axis=0) + np.max(pts, axis=0))
+    phi_c = np.sum((cell_cc - x_ref) ** 2, axis=1)
+    phi_f = np.sum((cf - x_ref) ** 2, axis=1)
+
+    # Interior vs boundary cell mask + Green-Gauss gradient estimate using interpolated faces
+    has_boundary = np.zeros(n_cells, dtype=bool)
+    has_boundary[owner[n_int:]] = True
+    grad_cell = 2.0 * (cell_cc - x_ref)
+
+    lap_sum = np.zeros(n_cells, dtype=np.float64)
+    if n_int > 0:
+        d_f = cell_cc[neighbour[:n_int]] - cell_cc[owner[:n_int]]
+        sf_i = sf[:n_int]
+        sf_dot_d = np.einsum("ij,ij->i", sf_i, d_f)
+        sf_sq = np.sum(sf_i ** 2, axis=1)
+        alpha_orth = np.where(np.abs(sf_dot_d) > 1e-30, sf_sq / np.where(np.abs(sf_dot_d) > 1e-30, sf_dot_d, 1.0), 0.0)
+        delta_i = alpha_orth[:, None] * d_f
+        k_i = sf_i - delta_i
+
+        # Linear cell-distance weighting for face gradient
+        dist_p = np.linalg.norm(cf[:n_int] - cell_cc[owner[:n_int]], axis=1)
+        dist_n = np.linalg.norm(cell_cc[neighbour[:n_int]] - cf[:n_int], axis=1)
+        w = np.where((dist_p + dist_n) > 1e-30, dist_n / np.maximum(dist_p + dist_n, 1e-30), 0.5)
+        g_face = w[:, None] * grad_cell[owner[:n_int]] + (1.0 - w)[:, None] * grad_cell[neighbour[:n_int]]
+        flux_i = alpha_orth * (phi_c[neighbour[:n_int]] - phi_c[owner[:n_int]]) + np.einsum("ij,ij->i", g_face, k_i)
+        np.add.at(lap_sum, owner[:n_int], flux_i)
+        np.add.at(lap_sum, neighbour[:n_int], -flux_i)
+
+    # Boundary Dirichlet fluxes so boundary cells are also evaluated cleanly if no pure interior exists
+    if n_faces > n_int:
+        d_b = cf[n_int:] - cell_cc[owner[n_int:]]
+        sf_b = sf[n_int:]
+        sf_dot_db = np.einsum("ij,ij->i", sf_b, d_b)
+        sf_b_sq = np.sum(sf_b ** 2, axis=1)
+        alpha_b = np.where(np.abs(sf_dot_db) > 1e-30, sf_b_sq / np.where(np.abs(sf_dot_db) > 1e-30, sf_dot_db, 1.0), 0.0)
+        k_b = sf_b - alpha_b[:, None] * d_b
+        g_b = 2.0 * (cf[n_int:] - x_ref)
+        flux_b = alpha_b * (phi_f[n_int:] - phi_c[owner[n_int:]]) + np.einsum("ij,ij->i", g_b, k_b)
+        np.add.at(lap_sum, owner[n_int:], flux_b)
+
+    lap_num = lap_sum / safe_v
+    eval_mask = ~has_boundary if np.any(~has_boundary) else np.ones(n_cells, dtype=bool)
+    p3 = float(np.sqrt(np.mean((lap_num[eval_mask] - 6.0) ** 2)))
+
+    # P4: Observed convergence order across grid hierarchy
+    p4_order: Optional[float] = None
+    if refinement_meshes and len(refinement_meshes) >= 2:
+        pairs: List[Tuple[float, float]] = []
+        for rm in refinement_meshes:
+            rep = compute_polynomial_exactness(rm, refinement_meshes=None)
+            h_eff = float(np.cbrt(max(float(np.median(rm.cell_volumes)), 1e-30)))
+            pairs.append((h_eff, rep.p3_quadratic_laplacian_error))
+        pairs.sort(key=lambda item: item[0], reverse=True)
+        h0, e0 = pairs[-2]
+        h1, e1 = pairs[-1]
+        if h0 > h1 * 1.05 and e0 > 1e-12 and e1 > 1e-12:
+            p4_order = float(np.log(e0 / e1) / np.log(h0 / h1))
+
+    passed = (
+        np.isfinite(p0)
+        and np.isfinite(p1)
+        and np.isfinite(p2)
+        and np.isfinite(p3)
+        and p0 <= p0_tol
+        and p1 <= p1_tol
+        and p2 <= p2_tol
+    )
+    return PolynomialExactnessReport(
+        p0_gauss_closure=p0,
+        p1_moment_identity=p1,
+        p2_linear_gradient_error=p2,
+        p3_quadratic_laplacian_error=p3,
+        p4_observed_order=p4_order,
+        passed=bool(passed),
+    )

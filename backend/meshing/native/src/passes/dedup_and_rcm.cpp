@@ -306,20 +306,30 @@ int32_t passDeduplicateAndRcm(HexcoreState& st) {
         }
 
         if (valid_cycle) {
-          const Vec3 merged_centre = (sum_area > 1e-15) ? (sum_centre / sum_area) : c0;
-          const uint8_t merged_fl = any_folded ? kFlagFolded : 0;
-          const int64_t new_f = st.faces.append_face(
-              cycle.data(),
-              cycle.size(),
-              run_o,
-              run_nb,
-              PatchId::INTERNAL,
-              merged_fl,
-              sum_normal,
-              merged_centre
+          auto [merged_normal, merged_centre] = computePolygonNormalAndCentroid(
+              cycle.data(), cycle.size(), st.node_coords
           );
-          final_int_idx.push_back(new_f);
-          merged_ok = true;
+          if (dot(merged_normal, sum_normal) < 0.0) {
+            std::reverse(cycle.begin(), cycle.end());
+            std::tie(merged_normal, merged_centre) = computePolygonNormalAndCentroid(
+                cycle.data(), cycle.size(), st.node_coords
+            );
+          }
+          const bool merged_folded = any_folded || isFaceFolded(cycle.data(), cycle.size(), st.node_coords, merged_normal);
+          if (!merged_folded && merged_normal.norm() > 1e-24) {
+            const int64_t new_f = st.faces.append_face(
+                cycle.data(),
+                cycle.size(),
+                run_o,
+                run_nb,
+                PatchId::INTERNAL,
+                0,
+                merged_normal,
+                merged_centre
+            );
+            final_int_idx.push_back(new_f);
+            merged_ok = true;
+          }
         }
       }
 

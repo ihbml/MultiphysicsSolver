@@ -6,6 +6,7 @@ pub mod fields;
 pub mod mesh;
 pub mod mphys;
 pub mod parser;
+pub mod spmc_ring;
 
 pub use fields::{
     list_time_dirs, FoamField, FoamFieldData, PatchFieldData, PatchFieldValues, TimeStepInfo,

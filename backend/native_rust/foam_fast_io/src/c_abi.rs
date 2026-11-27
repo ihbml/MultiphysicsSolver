@@ -49,11 +49,14 @@ impl CAbiSpan {
     }
 }
 
-/// C-ABI function to verify 64-byte alignment
+/// C-ABI function to verify 64-byte alignment safely under catch_unwind.
 #[no_mangle]
-pub extern "C" fn cabi_span_is_aligned(span: *const CAbiSpan) -> bool {
-    if span.is_null() {
-        return false;
-    }
-    unsafe { (*span).is_aligned_64() }
+pub unsafe extern "C" fn cabi_span_is_aligned(span: *const CAbiSpan) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if span.is_null() {
+            return false;
+        }
+        (*span).is_aligned_64()
+    }))
+    .unwrap_or(false)
 }

@@ -12,6 +12,7 @@ Provides:
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass, field
 import gzip
 import logging
@@ -19,10 +20,128 @@ import os
 from pathlib import Path
 import re
 import struct
+import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_RUST_LIB_CACHE: Optional[ctypes.CDLL] = None
+_RUST_LIB_ATTEMPTED: bool = False
+
+
+def _find_rust_foam_fast_io_lib() -> Optional[Path]:
+    crate_dir = Path(__file__).resolve().parent / "foam_fast_io" / "target"
+    if sys.platform == "win32":
+        names = ["foam_fast_io.dll"]
+    elif sys.platform == "darwin":
+        names = ["libfoam_fast_io.dylib"]
+    else:
+        names = ["libfoam_fast_io.so"]
+    for profile in ("release", "debug"):
+        for name in names:
+            cand = crate_dir / profile / name
+            if cand.is_file():
+                return cand
+    return None
+
+
+def _load_rust_foam_fast_io() -> Optional[ctypes.CDLL]:
+    """Load the compiled Rust `foam_fast_io` CDLL and configure fixed-width FFI signatures."""
+    global _RUST_LIB_CACHE, _RUST_LIB_ATTEMPTED
+    if os.environ.get("CFD_DISABLE_RUST_IO", "").strip().lower() in ("1", "true", "yes"):
+        return None
+    if _RUST_LIB_ATTEMPTED:
+        return _RUST_LIB_CACHE
+    _RUST_LIB_ATTEMPTED = True
+    lib_path = _find_rust_foam_fast_io_lib()
+    if lib_path is None:
+        return None
+    try:
+        lib = ctypes.CDLL(str(lib_path))
+        lib.foam_mesh_load.argtypes = [ctypes.c_char_p]
+        lib.foam_mesh_load.restype = ctypes.c_void_p
+        lib.foam_mesh_free.argtypes = [ctypes.c_void_p]
+        lib.foam_mesh_free.restype = None
+        lib.foam_last_error.argtypes = []
+        lib.foam_last_error.restype = ctypes.c_char_p
+
+        for fn_name in (
+            "foam_mesh_get_n_points_u64",
+            "foam_mesh_get_n_cells_u64",
+            "foam_mesh_get_n_faces_u64",
+            "foam_mesh_get_n_internal_faces_u64",
+            "foam_mesh_get_n_face_nodes_u64",
+            "foam_mesh_get_n_patches_u64",
+        ):
+            fn = getattr(lib, fn_name)
+            fn.argtypes = [ctypes.c_void_p]
+            fn.restype = ctypes.c_uint64
+
+        for fn_name in (
+            "foam_mesh_get_points_ptr",
+            "foam_mesh_get_cell_centres_ptr",
+            "foam_mesh_get_cell_volumes_ptr",
+            "foam_mesh_get_face_areas_ptr",
+            "foam_mesh_get_face_centres_ptr",
+            "foam_mesh_get_face_magnitudes_ptr",
+            "foam_mesh_get_delta_f_ptr",
+            "foam_mesh_get_k_f_ptr",
+        ):
+            fn = getattr(lib, fn_name)
+            fn.argtypes = [ctypes.c_void_p]
+            fn.restype = ctypes.POINTER(ctypes.c_double)
+
+        for fn_name in (
+            "foam_mesh_get_face_offsets_i64_ptr",
+            "foam_mesh_get_face_nodes_i64_ptr",
+            "foam_mesh_get_owner_i64_ptr",
+            "foam_mesh_get_neighbour_i64_ptr",
+        ):
+            fn = getattr(lib, fn_name)
+            fn.argtypes = [ctypes.c_void_p]
+            fn.restype = ctypes.POINTER(ctypes.c_int64)
+
+        lib.foam_mesh_get_patch_info.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+            ctypes.c_char_p,
+            ctypes.c_uint64,
+            ctypes.c_char_p,
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_uint64),
+            ctypes.POINTER(ctypes.c_uint64),
+        ]
+        lib.foam_mesh_get_patch_info.restype = ctypes.c_int32
+
+        # CFDFLD03 SPMC Ring bindings
+        lib.cfdfld03_ring_create.argtypes = [ctypes.c_uint64]
+        lib.cfdfld03_ring_create.restype = ctypes.c_void_p
+        lib.cfdfld03_ring_free.argtypes = [ctypes.c_void_p]
+        lib.cfdfld03_ring_free.restype = None
+        lib.cfdfld03_ring_publish_f64.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+            ctypes.c_double,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_uint64,
+        ]
+        lib.cfdfld03_ring_publish_f64.restype = ctypes.c_int32
+        lib.cfdfld03_ring_read_latest_f64.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint64),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_uint64),
+        ]
+        lib.cfdfld03_ring_read_latest_f64.restype = ctypes.c_int32
+
+        _RUST_LIB_CACHE = lib
+        return lib
+    except Exception as exc:
+        logger.debug("Could not load Rust foam_fast_io library at %s: %s", lib_path, exc)
+        return None
 
 
 @dataclass
@@ -75,6 +194,8 @@ class FoamMesh:
         neighbour: np.ndarray,
         n_cells: int,
         boundaries: List[FoamBoundaryPatch],
+        *,
+        precomputed_geometry: Optional[Dict[str, np.ndarray]] = None,
     ):
         self.points = points  # (n_points, 3) float64
         self.face_offsets = face_offsets  # (n_faces + 1,) int64
@@ -84,16 +205,25 @@ class FoamMesh:
         self.n_cells = n_cells
         self.boundaries = boundaries
 
-        # Precomputed geometric properties
-        self.face_centres: Optional[np.ndarray] = None  # (n_faces, 3)
-        self.face_areas: Optional[np.ndarray] = None  # (n_faces, 3) Sf vector
-        self.face_magnitudes: Optional[np.ndarray] = None  # (n_faces,) |Sf|
-        self.cell_centres: Optional[np.ndarray] = None  # (n_cells, 3)
-        self.cell_volumes: Optional[np.ndarray] = None  # (n_cells,)
-        self.delta_f: Optional[np.ndarray] = None  # (n_faces, 3)
-        self.k_f: Optional[np.ndarray] = None  # (n_faces, 3) non-orthogonal correction
+        if precomputed_geometry is not None:
+            self.face_centres = precomputed_geometry["face_centres"]
+            self.face_areas = precomputed_geometry["face_areas"]
+            self.face_magnitudes = precomputed_geometry["face_magnitudes"]
+            self.cell_centres = precomputed_geometry["cell_centres"]
+            self.cell_volumes = precomputed_geometry["cell_volumes"]
+            self.delta_f = precomputed_geometry["delta_f"]
+            self.k_f = precomputed_geometry["k_f"]
+        else:
+            # Precomputed geometric properties
+            self.face_centres = None  # (n_faces, 3)
+            self.face_areas = None  # (n_faces, 3) Sf vector
+            self.face_magnitudes = None  # (n_faces,) |Sf|
+            self.cell_centres = None  # (n_cells, 3)
+            self.cell_volumes = None  # (n_cells,)
+            self.delta_f = None  # (n_faces, 3)
+            self.k_f = None  # (n_faces, 3) non-orthogonal correction
 
-        self.compute_geometry()
+            self.compute_geometry()
 
     @property
     def n_points(self) -> int:
@@ -256,9 +386,103 @@ class FoamReader:
         return text
 
     @classmethod
-    def load_mesh(cls, poly_mesh_dir: Union[str, Path]) -> FoamMesh:
-        """Loads complete OpenFOAM polyMesh from directory."""
+    def has_native_rust(cls) -> bool:
+        """Return True if the compiled Rust `foam_fast_io` native library is loaded."""
+        return _load_rust_foam_fast_io() is not None
+
+    @classmethod
+    def _load_mesh_rust(cls, poly_dir: Path) -> Optional[FoamMesh]:
+        lib = _load_rust_foam_fast_io()
+        if lib is None:
+            return None
+        ptr = lib.foam_mesh_load(str(poly_dir).encode("utf-8"))
+        if not ptr:
+            return None
+        try:
+            n_points = int(lib.foam_mesh_get_n_points_u64(ptr))
+            n_cells = int(lib.foam_mesh_get_n_cells_u64(ptr))
+            n_faces = int(lib.foam_mesh_get_n_faces_u64(ptr))
+            n_int = int(lib.foam_mesh_get_n_internal_faces_u64(ptr))
+            n_fn = int(lib.foam_mesh_get_n_face_nodes_u64(ptr))
+            n_patches = int(lib.foam_mesh_get_n_patches_u64(ptr))
+
+            def _copy_f64(getter_name: str, shape: Tuple[int, ...]) -> np.ndarray:
+                p = getattr(lib, getter_name)(ptr)
+                if not p or 0 in shape:
+                    return np.zeros(shape, dtype=np.float64)
+                return np.array(np.ctypeslib.as_array(p, shape=shape), dtype=np.float64, copy=True)
+
+            def _copy_i64(getter_name: str, length: int) -> np.ndarray:
+                p = getattr(lib, getter_name)(ptr)
+                if not p or length == 0:
+                    return np.zeros(length, dtype=np.int64)
+                return np.array(np.ctypeslib.as_array(p, shape=(length,)), dtype=np.int64, copy=True)
+
+            points = _copy_f64("foam_mesh_get_points_ptr", (n_points, 3))
+            face_offsets = _copy_i64("foam_mesh_get_face_offsets_i64_ptr", n_faces + 1)
+            face_nodes = _copy_i64("foam_mesh_get_face_nodes_i64_ptr", n_fn)
+            owner = _copy_i64("foam_mesh_get_owner_i64_ptr", n_faces)
+            neighbour = _copy_i64("foam_mesh_get_neighbour_i64_ptr", n_int)
+
+            geom = {
+                "face_centres": _copy_f64("foam_mesh_get_face_centres_ptr", (n_faces, 3)),
+                "face_areas": _copy_f64("foam_mesh_get_face_areas_ptr", (n_faces, 3)),
+                "face_magnitudes": _copy_f64("foam_mesh_get_face_magnitudes_ptr", (n_faces,)),
+                "cell_centres": _copy_f64("foam_mesh_get_cell_centres_ptr", (n_cells, 3)),
+                "cell_volumes": _copy_f64("foam_mesh_get_cell_volumes_ptr", (n_cells,)),
+                "delta_f": _copy_f64("foam_mesh_get_delta_f_ptr", (n_faces, 3)),
+                "k_f": _copy_f64("foam_mesh_get_k_f_ptr", (n_faces, 3)),
+            }
+
+            boundaries: List[FoamBoundaryPatch] = []
+            name_buf = ctypes.create_string_buffer(256)
+            type_buf = ctypes.create_string_buffer(128)
+            start_f = ctypes.c_uint64(0)
+            cnt_f = ctypes.c_uint64(0)
+            for idx in range(n_patches):
+                rc = lib.foam_mesh_get_patch_info(
+                    ptr,
+                    idx,
+                    name_buf,
+                    len(name_buf),
+                    type_buf,
+                    len(type_buf),
+                    ctypes.byref(start_f),
+                    ctypes.byref(cnt_f),
+                )
+                if rc == 0:
+                    boundaries.append(
+                        FoamBoundaryPatch(
+                            name=name_buf.value.decode("utf-8", errors="ignore"),
+                            patch_type=type_buf.value.decode("utf-8", errors="ignore"),
+                            start_face=int(start_f.value),
+                            n_faces=int(cnt_f.value),
+                        )
+                    )
+
+            mesh = FoamMesh(
+                points=points,
+                face_offsets=face_offsets,
+                face_nodes=face_nodes,
+                owner=owner,
+                neighbour=neighbour,
+                n_cells=n_cells,
+                boundaries=boundaries,
+                precomputed_geometry=geom,
+            )
+            mesh.validate_topology()
+            return mesh
+        finally:
+            lib.foam_mesh_free(ptr)
+
+    @classmethod
+    def load_mesh(cls, poly_mesh_dir: Union[str, Path], *, prefer_rust: bool = True) -> FoamMesh:
+        """Loads complete OpenFOAM polyMesh from directory (Rust FFI first, Python fallback)."""
         poly_dir = Path(poly_mesh_dir)
+        if prefer_rust:
+            rust_mesh = cls._load_mesh_rust(poly_dir)
+            if rust_mesh is not None:
+                return rust_mesh
 
         points = cls.parse_points(cls._read_raw(poly_dir / "points"))
         face_offsets, face_nodes = cls.parse_faces(cls._read_raw(poly_dir / "faces"))
@@ -341,6 +565,31 @@ class FoamReader:
 
     @staticmethod
     def parse_faces(data: bytes) -> Tuple[np.ndarray, np.ndarray]:
+        if FoamReader._check_format_binary(data) and re.search(rb"class\s+faceCompactList\s*;", data[:2048]):
+            matches = list(re.finditer(rb"\n\s*(\d+)\s*\n\s*\(", data))
+            if len(matches) >= 2:
+                elem_bytes = 4 if b"label=32" in data[: matches[0].end()] else 8
+                dt = np.int32 if elem_bytes == 4 else np.int64
+
+                def _read_compact_labels(m: re.Match) -> np.ndarray:
+                    cnt = int(m.group(1))
+                    start = m.end()
+                    exp_bytes = cnt * elem_bytes
+                    if (
+                        start < len(data)
+                        and data[start : start + 1] == b"\n"
+                        and start + 1 + exp_bytes <= len(data)
+                        and data[start + exp_bytes : start + exp_bytes + 1] != b")"
+                        and data[start + 1 + exp_bytes : start + 1 + exp_bytes + 2] == b"\n)"
+                    ):
+                        start += 1
+                    raw = data[start : start + exp_bytes]
+                    if len(raw) < exp_bytes:
+                        raise ValueError("Truncated binary faceCompactList payload")
+                    return np.array(np.frombuffer(raw, dtype=dt, count=cnt), dtype=np.int64, copy=True)
+
+                return _read_compact_labels(matches[0]), _read_compact_labels(matches[1])
+
         text = FoamReader._strip_comments(data.decode("utf-8", errors="ignore"))
         lines = [l.strip() for l in text.splitlines() if l.strip()]
 

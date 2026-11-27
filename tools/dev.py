@@ -107,6 +107,7 @@ def cmd_verify(full: bool = False, skip_build: bool = False, include_slow: bool 
             "tests/test_sprint2_passes_and_snapping.py",
             "tests/test_sprint2_scale_and_hardening.py",
             "tests/test_sprint3_features_and_scale.py",
+            "tests/test_option_a_hardening.py",
             "tests/e2e_mesher_suite",
         ]
         marker_expr = "not scale_5m and not wsl_checkmesh and not fluent_ref"
@@ -117,6 +118,7 @@ def cmd_verify(full: bool = False, skip_build: bool = False, include_slow: bool 
             "tests/test_sprint2_passes_and_snapping.py",
             "tests/test_sprint2_scale_and_hardening.py",
             "tests/test_sprint3_features_and_scale.py",
+            "tests/test_option_a_hardening.py",
             "tests/e2e_mesher_suite",
         ]
         marker_expr = "not slow and not scale_5m and not wsl_checkmesh and not fluent_ref"
@@ -127,6 +129,7 @@ def cmd_verify(full: bool = False, skip_build: bool = False, include_slow: bool 
             "tests/test_sprint2_passes_and_snapping.py",
             "tests/test_sprint2_scale_and_hardening.py",
             "tests/test_sprint3_features_and_scale.py",
+            "tests/test_option_a_hardening.py",
         ]
         marker_expr = "not scale_5m and not wsl_checkmesh and not fluent_ref"
 

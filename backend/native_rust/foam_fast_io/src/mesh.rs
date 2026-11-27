@@ -31,11 +31,25 @@ pub struct FoamMesh {
     pub cell_volumes: Vec<f64>,         // V_C
     pub delta_f: Vec<[f64; 3]>,         // delta_f (orthogonal component vector)
     pub k_f: Vec<[f64; 3]>,             // k_f = S_f - delta_f (non-orthogonal correction vector)
+
+    // Fixed-width 64-bit signed mirrors for cross-platform C-ABI & NumPy parity
+    pub face_offsets_i64: Vec<i64>,
+    pub face_nodes_i64: Vec<i64>,
+    pub owner_i64: Vec<i64>,
+    pub neighbour_i64: Vec<i64>,
 }
 
 impl FoamMesh {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Populate fixed-width i64 mirrors from usize topology arrays.
+    pub fn sync_i64_indices(&mut self) {
+        self.face_offsets_i64 = self.face_offsets.iter().map(|&v| v as i64).collect();
+        self.face_nodes_i64 = self.face_nodes.iter().map(|&v| v as i64).collect();
+        self.owner_i64 = self.owner.iter().map(|&v| v as i64).collect();
+        self.neighbour_i64 = self.neighbour.iter().map(|&v| v as i64).collect();
     }
 
     #[inline]
@@ -315,5 +329,44 @@ impl FoamMesh {
             max[2] = max[2].max(p[2]);
         }
         (min, max)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unit_cube_volume_and_gauss_closure() {
+        let mut mesh = FoamMesh {
+            points: vec![
+                [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+            ],
+            face_offsets: vec![0, 4, 8, 12, 16, 20, 24],
+            face_nodes: vec![
+                0, 4, 7, 3,
+                1, 2, 6, 5,
+                0, 1, 5, 4,
+                3, 7, 6, 2,
+                0, 3, 2, 1,
+                4, 5, 6, 7,
+            ],
+            owner: vec![0, 0, 0, 0, 0, 0],
+            neighbour: vec![],
+            n_cells: 1,
+            boundaries: vec![FoamBoundaryPatch {
+                name: "walls".to_string(),
+                patch_type: "patch".to_string(),
+                start_face: 0,
+                n_faces: 6,
+            }],
+            ..Default::default()
+        };
+        mesh.validate_topology().unwrap();
+        mesh.compute_geometry();
+        mesh.sync_i64_indices();
+        assert!((mesh.total_volume() - 1.0).abs() < 1e-12);
+        assert_eq!(mesh.owner_i64, vec![0, 0, 0, 0, 0, 0]);
     }
 }

@@ -41,6 +41,7 @@ from backend.meshing._engine_zones import (
 )
 from backend.meshing.difvm_topology import (
     MeshingConfigC,
+    _copy_csr_buffers,
     extract_cht_twin_faces,
     generate_hexcore_native,
     get_native_dll,
@@ -54,6 +55,7 @@ from backend.meshing.distmesh_core import (
 from backend.meshing.gci import GCIHierarchy, generate_3grid_gci_hierarchy
 from backend.meshing.inflation import BoundaryLayerGenerator
 from backend.meshing.models import (
+    CellType,
     InflationConfig,
     MeshingConfig,
     UnstructuredMesh,
@@ -508,22 +510,19 @@ class MeshEngine:
                         ar = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_aspect_ratio_ptr(m_ptr), shape=(n_cells,)))
                         sm = np.copy(np.ctypeslib.as_array(self._native_dll.cfd_mesher_get_stabilization_mask_ptr(m_ptr), shape=(n_faces,)))
 
-                        offsets_ptr = self._native_dll.cfd_mesher_get_cell_offsets_ptr(m_ptr)
-                        nodes_ptr = self._native_dll.cfd_mesher_get_cell_nodes_ptr(m_ptr)
-                        cell_offsets = None
-                        cell_nodes = None
+                        face_offsets, face_nodes, cell_offsets, cell_nodes = _copy_csr_buffers(
+                            self._native_dll, m_ptr, n_faces, n_cells
+                        )
                         real_cells: List[np.ndarray] = []
-                        if offsets_ptr and nodes_ptr:
-                            cell_offsets = np.array(
-                                np.ctypeslib.as_array(offsets_ptr, shape=(n_cells + 1,)), dtype=np.int64, copy=True
-                            )
-                            total_nodes = int(cell_offsets[-1])
-                            cell_nodes = np.array(
-                                np.ctypeslib.as_array(nodes_ptr, shape=(total_nodes,)), dtype=np.int64, copy=True
-                            ) if total_nodes > 0 else np.empty(0, dtype=np.int64)
-                        else:
+                        if cell_offsets is None or cell_nodes is None:
                             _, ear_tris = ear_clipping_triangulate(poly)
                             real_cells = [ear_tris[i].copy() for i in range(len(ear_tris))]
+
+                        cell_types = np.full(n_cells, CellType.TRIANGLE.value, dtype=np.int32)
+                        if hasattr(self._native_dll, "cfd_mesher_get_cell_types_ptr"):
+                            ct_ptr = self._native_dll.cfd_mesher_get_cell_types_ptr(m_ptr)
+                            if ct_ptr:
+                                cell_types = np.copy(np.ctypeslib.as_array(ct_ptr, shape=(n_cells,)))
 
                         internal_count = int(np.sum(neighbour >= 0))
                         bnd_count = n_faces - internal_count
@@ -548,7 +547,11 @@ class MeshEngine:
                                 "stabilization_mask": sm,
                                 "mask": sm,
                             },
+                            cell_types=cell_types,
+                            topological_dim=2,
                             metadata={"engine": "native_cpp20_2d"},
+                            face_offsets=face_offsets,
+                            face_nodes=face_nodes,
                             cell_offsets=cell_offsets,
                             cell_nodes=cell_nodes,
                         )
@@ -624,6 +627,93 @@ class MeshEngine:
             nominal_normal=nominal_normal,
             clearances=clearances,
         )
+
+    def mesh_with_sprint3_pipeline(
+        self,
+        surface: SurfaceMesh,
+        *,
+        h0: float = 0.05,
+        domain_mode: str = "external_fluid",
+        config: Optional[MeshingConfig] = None,
+        enable_feature_graph: bool = True,
+        enable_weingarten: bool = True,
+        bl_layers: int = 0,
+        bl_first_height: float = 0.002,
+        bl_growth_rate: float = 1.2,
+        use_ray_blocked_zones: bool = False,
+        export_mphys_path: Optional[Union[str, Path]] = None,
+        verify_p0_p3: bool = True,
+    ) -> UnstructuredMesh:
+        """Execute end-to-end Sprint-3 pipeline wiring FeatureGraph, Weingarten, Strategy-C BL, ZoneDetect, P0-P3 & MPHYS002."""
+        from backend.meshing.bl_strategy_c import generate_offset_bl_mesh
+        from backend.meshing.feature_graph import extract_feature_graph
+        from backend.meshing.invariants import compute_polynomial_exactness
+        from backend.meshing.weingarten import compute_weingarten_curvature
+        from backend.meshing.zone_detect import detect_zones_ray_blocked
+
+        active_cfg = config if config is not None else default_config_for_h0(h0, domain_mode=domain_mode)
+        fgraph = (
+            extract_feature_graph(surface.vertices, surface.faces, h_min=h0 * 0.5)
+            if enable_feature_graph
+            else None
+        )
+        wfield = (
+            compute_weingarten_curvature(surface.vertices, surface.faces, feature_graph=fgraph)
+            if enable_weingarten
+            else None
+        )
+
+        if bl_layers > 0:
+            mesh = generate_offset_bl_mesh(
+                surface,
+                h0=h0,
+                n_layers=bl_layers,
+                first_height=bl_first_height,
+                growth_rate=bl_growth_rate,
+                domain_mode=domain_mode,
+                use_native=self.use_native,
+            )
+        else:
+            mesh = self.mesh_hexcore(surface, h0=h0, domain_mode=domain_mode, config=active_cfg)
+
+        mesh.metadata = dict(mesh.metadata or {})
+        if fgraph is not None:
+            mesh.metadata["feature_graph_summary"] = {
+                "n_sharp_edges": len(fgraph.sharp_edges),
+                "n_corners": len(fgraph.feature_corners),
+                "n_smooth_patches": int(np.max(fgraph.tri_smooth_patch) + 1)
+                if len(fgraph.tri_smooth_patch) > 0
+                else 0,
+            }
+        if wfield is not None:
+            mesh.metadata["weingarten_curvature"] = {
+                "max_abs_k1": float(np.max(np.abs(wfield.k1))) if len(wfield.k1) > 0 else 0.0,
+                "max_abs_k2": float(np.max(np.abs(wfield.k2))) if len(wfield.k2) > 0 else 0.0,
+                "packed_bytes": len(wfield.packed_20b()),
+            }
+        if use_ray_blocked_zones and mesh.num_cells > 0:
+            zres = detect_zones_ray_blocked(
+                mesh.cell_centres, mesh.owner, mesh.neighbour, surface.vertices, surface.faces
+            )
+            mesh.metadata["ray_blocked_zones"] = {
+                "n_zones": zres.n_zones,
+                "n_blocked_faces": len(zres.blocked_faces),
+            }
+        if verify_p0_p3:
+            rep = compute_polynomial_exactness(mesh)
+            mesh.metadata["polynomial_exactness"] = {
+                "p0_gauss_closure": rep.p0_gauss_closure,
+                "p1_moment_identity": rep.p1_moment_identity,
+                "p2_linear_gradient_error": rep.p2_linear_gradient_error,
+                "p3_quadratic_laplacian_error": rep.p3_quadratic_laplacian_error,
+                "passed": rep.passed,
+            }
+        if export_mphys_path is not None:
+            from backend.native_rust.mesh_handle import write_mesh_chunked
+
+            out_p = write_mesh_chunked(mesh, Path(export_mphys_path))
+            mesh.metadata["mphys_path"] = str(out_p)
+        return mesh
 
 
 __all__ = [

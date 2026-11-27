@@ -156,12 +156,32 @@ int32_t passComputeGeometryAndSplitWarped(HexcoreState& st) {
     for (int64_t ci = f_beg; ci < f_end; ++ci) {
       const size_t f_idx = static_cast<size_t>(st.cell_face_ids[static_cast<size_t>(ci)]);
       const double sign = (st.faces.owner[f_idx] == c) ? 1.0 : -1.0;
-      const Vec3 sf_out = st.faces.normal_owner[f_idx] * sign;
-      const Vec3& fc = st.faces.centre[f_idx];
-      const double pyr_vol = dot(fc - c_approx, sf_out) / 3.0;
-      vol_sum += pyr_vol;
-      const Vec3 pyr_c = fc * 0.75 + c_approx * 0.25;
-      cent_sum += pyr_c * pyr_vol;
+      const int64_t* fnodes = st.faces.face_nodes(f_idx);
+      const size_t nv = st.faces.face_nv(f_idx);
+      if (nv >= 3) {
+        Vec3 c_avg(0, 0, 0);
+        for (size_t k = 0; k < nv; ++k) {
+          c_avg += st.node_coords[static_cast<size_t>(fnodes[k])];
+        }
+        c_avg /= static_cast<double>(nv);
+        for (size_t k = 0; k < nv; ++k) {
+          const Vec3& p_a = st.node_coords[static_cast<size_t>(fnodes[k])];
+          const Vec3& p_b = st.node_coords[static_cast<size_t>(fnodes[(k + 1) % nv])];
+          const Vec3 tri_s = cross(p_a - c_avg, p_b - c_avg) * (0.5 * sign);
+          const Vec3 tri_c = (c_avg + p_a + p_b) / 3.0;
+          const double pyr_vol = dot(tri_c - c_approx, tri_s) / 3.0;
+          vol_sum += pyr_vol;
+          const Vec3 pyr_c = tri_c * 0.75 + c_approx * 0.25;
+          cent_sum += pyr_c * pyr_vol;
+        }
+      } else {
+        const Vec3 sf_out = st.faces.normal_owner[f_idx] * sign;
+        const Vec3& fc = st.faces.centre[f_idx];
+        const double pyr_vol = dot(fc - c_approx, sf_out) / 3.0;
+        vol_sum += pyr_vol;
+        const Vec3 pyr_c = fc * 0.75 + c_approx * 0.25;
+        cent_sum += pyr_c * pyr_vol;
+      }
     }
 
     st.cell_vols[static_cast<size_t>(c)] = vol_sum;

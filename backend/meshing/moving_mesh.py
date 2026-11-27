@@ -27,6 +27,29 @@ from backend.meshing.difvm_topology import (
 from backend.meshing.models import UnstructuredMesh
 
 
+def compute_triangle_swept_volume_simpson(
+    a_n: np.ndarray,
+    b_n: np.ndarray,
+    c_n: np.ndarray,
+    a_n1: np.ndarray,
+    b_n1: np.ndarray,
+    c_n1: np.ndarray,
+) -> float:
+    """Exact 3D swept volume of a triangle moving linearly from t^n to t^{n+1} via Simpson's rule."""
+    tri_c_n = (a_n + b_n + c_n) / 3.0
+    tri_c_n1 = (a_n1 + b_n1 + c_n1) / 3.0
+
+    a_h = 0.5 * (a_n + a_n1)
+    b_h = 0.5 * (b_n + b_n1)
+    c_h = 0.5 * (c_n + c_n1)
+
+    s_n = 0.5 * np.cross(b_n - a_n, c_n - a_n)
+    s_h = 0.5 * np.cross(b_h - a_h, c_h - a_h)
+    s_n1 = 0.5 * np.cross(b_n1 - a_n1, c_n1 - a_n1)
+
+    return float(np.dot(tri_c_n1 - tri_c_n, s_n + 4.0 * s_h + s_n1) / 6.0)
+
+
 def compute_polygon_swept_volume_simpson(
     face_nodes: Union[List[int], np.ndarray],
     points_n: np.ndarray,
@@ -34,35 +57,41 @@ def compute_polygon_swept_volume_simpson(
 ) -> float:
     """Evaluate exact 3D swept volume of a polygon face moving linearly from t^n to t^{n+1}.
 
-    Under linear nodal motion x_k(tau) = (1-tau)*x_k^n + tau*x_k^{n+1}, the face area
-    vector S_f(tau) is quadratic in tau in [0, 1]. Simpson's rule computes the exact swept volume:
-        Delta V_f^{n,n+1} = (1/6) * (x_f^{n+1} - x_f^n) . (S_f^n + 4 * S_f^{n+1/2} + S_f^{n+1})
-    with zero truncation error (Paper 6 / DiscreteGCL / Audit H9).
-
-    Parameters
-    ----------
-    face_nodes : Union[List[int], np.ndarray]
-        Ordered node indices of the face polygon.
-    points_n : np.ndarray
-        Mesh coordinates at time t^n of shape (N_pts, 3).
-    points_n1 : np.ndarray
-        Mesh coordinates at time t^{n+1} of shape (N_pts, 3).
-
-    Returns
-    -------
-    swept_volume : float
-        Exact machine-precision swept volume of the face.
+    Decomposes the polygon into m fan triangles around its linear vertex average
+    c_avg(tau) = mean(x_k(tau)) and integrates each triangle exactly with Simpson's rule:
+        Delta V_f^{n,n+1} = sum_{i=0}^{m-1} (1/6) (c_T^{n+1} - c_T^n) . (S_T^n + 4 S_T^{n+1/2} + S_T^{n+1})
+    which matches exact cell volume differences V_c^{n+1} - V_c^n to machine precision
+    even for non-planar warped polygons.
     """
-    fn = list(face_nodes)
-    pts_n = np.asarray(points_n, dtype=np.float64)
-    pts_n1 = np.asarray(points_n1, dtype=np.float64)
-    pts_half = 0.5 * (pts_n + pts_n1)
+    fn = np.asarray(face_nodes, dtype=np.int64)
+    m = len(fn)
+    if m < 3:
+        return 0.0
+    pts_n = np.asarray(points_n, dtype=np.float64)[fn]
+    pts_n1 = np.asarray(points_n1, dtype=np.float64)[fn]
 
-    s_n, c_n = _compute_polygon_normal_and_centroid_py(fn, pts_n)
-    s_half, c_half = _compute_polygon_normal_and_centroid_py(fn, pts_half)
-    s_n1, c_n1 = _compute_polygon_normal_and_centroid_py(fn, pts_n1)
+    c_avg_n = np.mean(pts_n, axis=0)
+    c_avg_n1 = np.mean(pts_n1, axis=0)
 
-    return float(compute_face_swept_volume_simpson(c_n, c_n1, s_n, s_half, s_n1))
+    total = 0.0
+    for i in range(m):
+        j = (i + 1) % m
+        total += compute_triangle_swept_volume_simpson(
+            c_avg_n, pts_n[i], pts_n[j],
+            c_avg_n1, pts_n1[i], pts_n1[j],
+        )
+    return float(total)
+
+
+def _extract_mesh_face_list(mesh: UnstructuredMesh) -> List[np.ndarray]:
+    """Return per-face node arrays from explicit faces or CSR face_offsets/face_nodes."""
+    if mesh.faces is not None and len(mesh.faces) > 0:
+        return [np.asarray(f, dtype=np.int64) for f in mesh.faces]
+    fo = getattr(mesh, "face_offsets", None)
+    fn = getattr(mesh, "face_nodes", None)
+    if fo is not None and fn is not None and len(fo) >= 2:
+        return [np.asarray(fn[int(fo[i]) : int(fo[i + 1])], dtype=np.int64) for i in range(len(fo) - 1)]
+    return []
 
 
 def compute_face_swept_volume_simpson(
@@ -184,23 +213,39 @@ def _update_mesh_geometry(mesh: UnstructuredMesh, new_points: np.ndarray) -> Uns
     cell_volumes = np.zeros(n_cells, dtype=np.float64)
 
     for c_idx in range(n_cells):
-        cell_arr = np.asarray(mesh.cells[c_idx], dtype=np.int64)
-        c_approx = np.mean(new_points[cell_arr], axis=0) if len(cell_arr) > 0 else np.zeros(3)
+        cell_arr = np.asarray(mesh.cells[c_idx], dtype=np.int64) if (mesh.cells is not None and len(mesh.cells) > c_idx) else np.empty(0, dtype=np.int64)
         ctype = mesh.cell_types[c_idx] if mesh.cell_types is not None else CellType.HEXAHEDRON.value
         is_cell_2d = ctype in (CellType.TRIANGLE.value, CellType.QUAD.value, CellType.POLYGON.value) or mesh.topological_dim == 2
         div_factor = 2.0 if is_cell_2d else 3.0
 
+        if len(cell_arr) > 0:
+            c_approx = np.mean(new_points[cell_arr], axis=0)
+        elif cell_face_refs[c_idx]:
+            c_approx = np.mean([face_centres[f_idx] for f_idx, _ in cell_face_refs[c_idx]], axis=0)
+        else:
+            c_approx = np.zeros(3, dtype=np.float64)
+
         vol_sum = 0.0
         centroid_weighted = np.zeros(3, dtype=np.float64)
         for f_idx, sign in cell_face_refs[c_idx]:
-            sf_out = face_areas[f_idx] * sign
-            pyr_vol = float(np.dot(face_centres[f_idx] - c_approx, sf_out)) / div_factor
-            vol_sum += pyr_vol
             if is_cell_2d:
+                sf_out = face_areas[f_idx] * sign
+                pyr_vol = float(np.dot(face_centres[f_idx] - c_approx, sf_out)) / div_factor
+                vol_sum += pyr_vol
                 pyr_c = face_centres[f_idx] * (2.0 / 3.0) + c_approx * (1.0 / 3.0)
+                centroid_weighted += pyr_c * pyr_vol
             else:
-                pyr_c = face_centres[f_idx] * 0.75 + c_approx * 0.25
-            centroid_weighted += pyr_c * pyr_vol
+                fn = np.asarray(mesh.faces[f_idx], dtype=np.int64)
+                f_pts = new_points[fn]
+                c_avg = np.mean(f_pts, axis=0)
+                d = f_pts - c_avg
+                p_next = np.roll(d, -1, axis=0)
+                tri_s = 0.5 * np.cross(d, p_next) * sign
+                tri_c = (c_avg + f_pts + np.roll(f_pts, -1, axis=0)) / 3.0
+                tet_v = np.einsum("ij,ij->i", tri_c - c_approx, tri_s) / 3.0
+                tet_c = 0.75 * tri_c + 0.25 * c_approx
+                vol_sum += float(np.sum(tet_v))
+                centroid_weighted += np.sum(tet_c * tet_v[:, None], axis=0)
 
         if abs(vol_sum) > 1e-60:
             cell_volumes[c_idx] = vol_sum
@@ -531,37 +576,63 @@ class ALEMeshMover:
             )
 
         # Determine fixed nodes topologically from boundary face connectivity
+        face_list = _extract_mesh_face_list(mesh)
         if fixed_nodes is not None:
             fixed_mask = np.zeros(n_pts, dtype=bool)
             fixed_mask[np.asarray(fixed_nodes, dtype=np.int64)] = True
         else:
-            # Identify Dirichlet fixed boundary nodes topologically from boundary face connectivity
-            # (faces with neighbour == -1 not in moving patch / without moving displacement)
+            # Identify the opposing fixed boundary instead of pinning slip side walls
             fixed_mask = np.zeros(n_pts, dtype=bool)
-            bnd_nodes: Set[int] = set()
+            bnd_indices: List[int] = []
+            if face_list and mesh.neighbour is not None and len(mesh.neighbour) > 0:
+                bnd_indices = [i for i, nb in enumerate(mesh.neighbour) if int(nb) == -1]
 
-            if mesh.faces is not None and len(mesh.faces) > 0 and mesh.neighbour is not None and len(mesh.neighbour) > 0:
-                for f_idx, nb in enumerate(mesh.neighbour):
-                    if nb == -1:
-                        for v in mesh.faces[f_idx]:
-                            bnd_nodes.add(int(v))
-            elif mesh.boundaries:
-                for patch_info in mesh.boundaries.values():
-                    if isinstance(patch_info, dict) and "faces" in patch_info:
-                        faces_list = patch_info["faces"]
-                    elif isinstance(patch_info, (list, tuple, np.ndarray)):
-                        faces_list = patch_info
-                    else:
-                        faces_list = []
-                    if mesh.faces is not None:
-                        for f_idx in faces_list:
-                            if f_idx < len(mesh.faces):
-                                for v in mesh.faces[f_idx]:
-                                    bnd_nodes.add(int(v))
+            if bnd_indices:
+                # 1. Estimate average outward normal of the moving boundary
+                n_moving = np.zeros(3, dtype=np.float64)
+                has_fa = mesh.face_areas is not None and len(mesh.face_areas) >= len(face_list)
+                for f_idx in bnd_indices:
+                    f_verts = face_list[f_idx]
+                    if len(f_verts) > 0 and np.all(moving_mask[f_verts]):
+                        if has_fa:
+                            n_moving += mesh.face_areas[f_idx]
+                        else:
+                            sf, _ = _compute_polygon_normal_and_centroid_py(f_verts, points)
+                            n_moving += sf
+                if float(np.linalg.norm(n_moving)) <= 1e-15:
+                    for f_idx in bnd_indices:
+                        f_verts = face_list[f_idx]
+                        if len(f_verts) > 0 and np.any(moving_mask[f_verts]):
+                            if has_fa:
+                                n_moving += mesh.face_areas[f_idx]
+                            else:
+                                sf, _ = _compute_polygon_normal_and_centroid_py(f_verts, points)
+                                n_moving += sf
 
-            for v in bnd_nodes:
-                if not moving_mask[v]:
-                    fixed_mask[v] = True
+                n_mov_norm = float(np.linalg.norm(n_moving))
+                if n_mov_norm > 1e-15:
+                    unit_mov = n_moving / n_mov_norm
+                    for f_idx in bnd_indices:
+                        f_verts = face_list[f_idx]
+                        if len(f_verts) == 0 or np.any(moving_mask[f_verts]):
+                            continue
+                        if has_fa:
+                            sf = mesh.face_areas[f_idx]
+                        else:
+                            sf, _ = _compute_polygon_normal_and_centroid_py(f_verts, points)
+                        sf_norm = float(np.linalg.norm(sf))
+                        if sf_norm > 1e-15 and float(np.dot(sf / sf_norm, unit_mov)) < -0.5:
+                            for v in f_verts:
+                                if not moving_mask[int(v)]:
+                                    fixed_mask[int(v)] = True
+
+                # Fallback for closed internal moving shells (e.g. moving sphere inside outer box)
+                if not np.any(fixed_mask):
+                    for f_idx in bnd_indices:
+                        f_verts = face_list[f_idx]
+                        if len(f_verts) > 0 and not np.any(moving_mask[f_verts]):
+                            for v in f_verts:
+                                fixed_mask[int(v)] = True
 
             # If no boundary faces were populated, identify boundary nodes from node adjacency degree
             if not np.any(fixed_mask):
@@ -776,48 +847,43 @@ class ALEMeshMover:
         v_n = mesh_n.cell_volumes
         v_n1 = mesh_n1.cell_volumes
         n_faces = mesh_n.num_faces
+        face_list = _extract_mesh_face_list(mesh_n)
 
-        # Midpoint face areas and centroids for step [n, n+1]
-        points_half = 0.5 * (mesh_n.points + mesh_n1.points)
-        sf_half = np.zeros((n_faces, 3), dtype=np.float64)
-        if mesh_n.faces is not None and len(mesh_n.faces) == n_faces:
-            for f in range(n_faces):
-                fn = mesh_n.faces[f]
-                s_h, _ = _compute_polygon_normal_and_centroid_py(fn, points_half)
-                sf_half[f] = s_h
+        if len(face_list) == n_faces:
+            delta_V_n_n1 = np.array(
+                [compute_polygon_swept_volume_simpson(fn, mesh_n.points, mesh_n1.points) for fn in face_list],
+                dtype=np.float64,
+            )
         else:
+            points_half = 0.5 * (mesh_n.points + mesh_n1.points)
             sf_half = 0.5 * (mesh_n.face_areas + mesh_n1.face_areas)
-
-        delta_V_n_n1 = compute_face_swept_volume_simpson(
-            mesh_n.face_centres,
-            mesh_n1.face_centres,
-            mesh_n.face_areas,
-            sf_half,
-            mesh_n1.face_areas,
-        )
+            delta_V_n_n1 = compute_face_swept_volume_simpson(
+                mesh_n.face_centres,
+                mesh_n1.face_centres,
+                mesh_n.face_areas,
+                sf_half,
+                mesh_n1.face_areas,
+            )
 
         if mesh_nm1 is not None:
             # BDF2 time stepping
             v_nm1 = mesh_nm1.cell_volumes
             d_vol_dt = (3.0 * v_n1 - 4.0 * v_n + v_nm1) / (2.0 * dt)
 
-            points_half_prev = 0.5 * (mesh_nm1.points + mesh_n.points)
-            sf_half_prev = np.zeros((n_faces, 3), dtype=np.float64)
-            if mesh_n.faces is not None and len(mesh_n.faces) == n_faces:
-                for f in range(n_faces):
-                    fn = mesh_n.faces[f]
-                    s_h_prev, _ = _compute_polygon_normal_and_centroid_py(fn, points_half_prev)
-                    sf_half_prev[f] = s_h_prev
+            if len(face_list) == n_faces:
+                delta_V_nm1_n = np.array(
+                    [compute_polygon_swept_volume_simpson(fn, mesh_nm1.points, mesh_n.points) for fn in face_list],
+                    dtype=np.float64,
+                )
             else:
                 sf_half_prev = 0.5 * (mesh_nm1.face_areas + mesh_n.face_areas)
-
-            delta_V_nm1_n = compute_face_swept_volume_simpson(
-                mesh_nm1.face_centres,
-                mesh_n.face_centres,
-                mesh_nm1.face_areas,
-                sf_half_prev,
-                mesh_n.face_areas,
-            )
+                delta_V_nm1_n = compute_face_swept_volume_simpson(
+                    mesh_nm1.face_centres,
+                    mesh_n.face_centres,
+                    mesh_nm1.face_areas,
+                    sf_half_prev,
+                    mesh_n.face_areas,
+                )
             flux = compute_dgcl_grid_flux_bdf2(delta_V_n_n1, delta_V_nm1_n, dt)
         else:
             # BDF1

@@ -85,8 +85,10 @@ flowchart LR
   * Mit Multi-Pass Rhie-Chow Re-Evaluation (`Snippet 15`), Kinetische-Energie-erhaltender (KEP) Konvektion und `GCRO-DR` Krylov-Subraum-Deflation für WALE-LES, FWH-Akustik und OPMIS SPH-FVM.
 * [ ] **Mixed-Precision AMG (`FP32` innen / `FP64` außen) + Spektrale Graph-Sparsifikation & `AA(m)`:**
   * Normierte Defekt-Skalierung gegen `FP32`-Underflow, Operator-Complexity $\sigma_{\text{op}} \le 1{,}35$ auf Polyedergittern und Anderson Acceleration `AA(5)` (`Snippet 24`).
-* [ ] **Rust High-Speed I/O (`foam_fast_io` mit `catch_unwind` & `i64`-Parität, `AUD-034`) + `CFDFLD03` In-Situ SPMC-Ring (`SUGGESTIONS_BACKEND.md` §13.3):**
-  * Lock-freier Shared-Memory Triple-Buffer (Seqlock + Refcount) und 5 native In-Situ-Extraktoren (Polyeder-Slicer, Cardano-$\lambda_2$/$Q$, $\mathcal{O}(1)$ Face-Exit-Streamlines, 3-Ring-WSS, Echtzeit-Randintegrale) für 60–120 FPS ohne Disk-I/O.
+* [x] **Option-A Brücken- & Audit-Abschluss (`AUD-023`, `AUD-024`, `AUD-027`, `AUD-030`, `P0–P4`-Orakel & Sprint-3 `MeshEngine`-Pipeline):**
+  * Collapsible/invertierte Zellklassifikation (`AUD-023`), natives 2D-`mesh_2d_polygon`-Layout (`AUD-030`), exakte 3D-Swept-Volume-Simpson-DGCL & Gegenrand-ALE (`AUD-024`), strikte Planarisierung (`P2 <= 1e-12`) + coplanares `(owner, neighbour)`-Merging (`AUD-027`), löserfreies `P0–P4`-Exaktheitsorakel (`compute_polynomial_exactness` in [`invariants.py`](backend/meshing/invariants.py)) sowie End-to-End-Pipeline `MeshEngine.mesh_with_sprint3_pipeline` in [`mesh_engine.py`](backend/meshing/mesh_engine.py).
+* [x] **Rust High-Speed I/O (`foam_fast_io` mit `catch_unwind`, `panic="unwind"` & `i64`-Parität, `AUD-034`) + `CFDFLD03` In-Situ SPMC-Ring (`SUGGESTIONS_BACKEND.md` §13.3):**
+  * Über [`foam_reader.py`](backend/native_rust/foam_reader.py) (`prefer_rust=True`) live angebundene Rust-C-ABI + lock-freier Triple-Buffer Shared-Memory SPMC-Ring ([`spmc_ring.rs`](backend/native_rust/foam_fast_io/src/spmc_ring.rs), Seqlock + Refcount). In Phase 2.5 folgen die 5 nativen In-Situ-Extraktoren (Polyeder-Slicer, Cardano-$\lambda_2$/$Q$, Face-Exit-Streamlines, 3-Ring-WSS, Randintegrale) für 60–120 FPS ohne Disk-I/O.
 
 ---
 
